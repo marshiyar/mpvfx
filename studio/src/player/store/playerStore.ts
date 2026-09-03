@@ -1,0 +1,697 @@
+import { create } from "zustand";
+import { attachPlayerStoreDevHandle } from "./playerStoreDevHandle";
+import { nextSelectionSet, revealTargetsSelection } from "./playerStoreSelection";
+import type { MusicBeatAnalysis } from "@hyperframes/core/beats";
+import type { GsapAnimation } from "@hyperframes/core/gsap-parser";
+import type { BeatEditState } from "../../utils/beatEditing";
+import type { ClipManifestClip } from "../lib/playbackTypes";
+import {
+  readStudioUiPreferences,
+  writeStudioUiPreferences,
+  type TimelineTimeDisplayMode,
+} from "../../utils/studioUiPreferences";
+import { clampTimelineZoomPercent, computePinnedZoomPercent } from "../components/timelineZoom";
+import { createKeyframeSlice, type KeyframeCacheEntry, type KeyframeSlice } from "./keyframeSlice";
+import {
+  createAutomationSelectionSlice,
+  type AutomationSelectionSlice,
+} from "./automationSelectionSlice";
+import { createEditingModeSlice, type EditingModeSlice } from "./editingModeSlice";
+import { createTimelineFocusRequest, type TimelineFocusRequest } from "./timelineFocusState";
+import { createThumbnailSlice, type ThumbnailSlice } from "./thumbnailSlice";
+
+export type { KeyframeCacheEntry } from "./keyframeSlice";
+export { liveTime } from "./liveTime";
+
+import type {
+  TimelineElement,
+  TimelineElementPatch,
+  SubCompositionHostState,
+} from "./timelineElement";
+
+export type { TimelineElement, SubCompositionHostState };
+export type ZoomMode = "fit" | "manual";
+type TimelineTool = "select" | "razor";
+
+export interface TimelineFrameRate {
+  readonly numerator: number;
+  readonly denominator: number;
+}
+
+export interface SelectElementOptions {
+  preserveSet?: boolean;
+}
+
+/** Full identity of the last keyframe diamond/node the user activated. */
+export interface ActiveKeyframeTarget {
+  elementId: string;
+  animationId?: string;
+  propertyGroup?: string;
+  tweenPercentage: number;
+  collidingAnimationTargets?: Array<{ animationId: string; tweenPercentage: number }>;
+}
+
+function resolveElementSelection(
+  ids: Iterable<string>,
+  anchor?: string | null,
+): { selectedElementIds: Set<string>; selectedElementId: string | null } {
+  const selectedElementIds = new Set(ids);
+  if (selectedElementIds.size === 0) {
+    return { selectedElementIds, selectedElementId: null };
+  }
+  if (anchor && selectedElementIds.has(anchor)) {
+    return { selectedElementIds, selectedElementId: anchor };
+  }
+  return {
+    selectedElementIds,
+    selectedElementId: selectedElementIds.values().next().value ?? null,
+  };
+}
+
+/**
+ * Keep a clicked keyframe actionable only while its exact source-scoped owner
+ * remains in the element selection. DOM ids are reusable across source clips,
+ * so suffix/bare-id matching here would redirect the next drag to another
+ * clip. A scalar without the full identity is never safe across a selection
+ * transition and is cleared as legacy state.
+ */
+function activeKeyframePatchForSelection(
+  state: Pick<PlayerState, "activeKeyframePct" | "activeKeyframeTarget">,
+  selectedElementIds: ReadonlySet<string>,
+): Pick<PlayerState, "activeKeyframePct" | "activeKeyframeTarget"> {
+  const target = state.activeKeyframeTarget;
+  return target && selectedElementIds.has(target.elementId)
+    ? { activeKeyframeTarget: target, activeKeyframePct: target.tweenPercentage }
+    : { activeKeyframeTarget: null, activeKeyframePct: null };
+}
+
+interface PlayerState
+  extends KeyframeSlice, AutomationSelectionSlice, ThumbnailSlice, EditingModeSlice {
+  isPlaying: boolean;
+  currentTime: number;
+  duration: number;
+  /** Exact runtime/project timebase. Null until the active preview declares it. */
+  timelineFrameRate: TimelineFrameRate | null;
+  timelineReady: boolean;
+  /** Increments exactly once when the Studio switches to a different project. */
+  timelineSessionEpoch: number;
+  /** Project owning the current timeline session; null outside a project-scoped reset. */
+  timelineProjectId: string | null;
+  /** True while a beat dot is being dragged — hides the playhead guideline. */
+  beatDragging: boolean;
+  elements: TimelineElement[];
+  selectedElementId: string | null;
+  playbackRate: number;
+  audioMuted: boolean;
+  audioVolume: number;
+  loopEnabled: boolean;
+  /** Timeline zoom: 'fit' auto-scales to viewport, 'manual' uses manualZoomPercent */
+  zoomMode: ZoomMode;
+  /** Timeline zoom percent relative to the fit width when in manual mode */
+  manualZoomPercent: number;
+  /**
+   * Bumped on every live z-index edit (handleDomZIndexReorderCommit apply AND
+   * rollback). Flashless z commits (skipReload) never reload the iframe or
+   * bump refreshKey, so DOM-derived views (the Layers panel's z-sorted tree)
+   * subscribe to this to re-read the live DOM while playback is paused.
+   */
+  zEditVersion: number;
+  /** Work-area in-point (seconds). When set, loop starts here and A jumps here. */
+  inPoint: number | null;
+  /** Work-area out-point (seconds). When set, loop ends here and E jumps here. */
+  outPoint: number | null;
+
+  activeTool: TimelineTool;
+  setActiveTool: (tool: TimelineTool) => void;
+
+  /** Tween-relative percentage of the last-clicked keyframe diamond. Operations
+   *  (drag, resize, rotate) target this instead of recomputing from playhead. */
+  activeKeyframePct: number | null;
+  setActiveKeyframePct: (pct: number | null) => void;
+  /** Identity-bearing form used by editing commands; the scalar is display compatibility only. */
+  activeKeyframeTarget: ActiveKeyframeTarget | null;
+  setActiveKeyframeTarget: (target: ActiveKeyframeTarget | null) => void;
+
+  /** Multi-select: additional selected elements beyond selectedElementId. */
+  selectedElementIds: Set<string>;
+  clearSelectedElementIds: () => void;
+  /** Replace the whole multi-selection at once (marquee live updates). */
+  setSelectedElementIds: (ids: Set<string>) => void;
+  /** Timeline magnet toggle — when false, clip drags/trims/drops never snap. */
+  timelineSnapEnabled: boolean;
+  setTimelineSnapEnabled: (enabled: boolean) => void;
+  /** Transport + ruler readout: timecode ("time") or frame number ("frame"). */
+  timeDisplayMode: TimelineTimeDisplayMode;
+  setTimeDisplayMode: (mode: TimelineTimeDisplayMode) => void;
+  /**
+   * Pin the timeline zoom to its current visual scale before a duration-changing
+   * edit, so a subsequent duration change (which recomputes fit-pps) stops
+   * rescaling every clip. No-op once already pinned (mode is "manual").
+   */
+  pinTimelineZoom: (currentPixelsPerSecond: number, fitPixelsPerSecond: number) => void;
+  /** The timeline's live pixels-per-second + fit basis, published by <Timeline>. */
+  timelinePps: number;
+  timelineFitPps: number;
+  setTimelineScale: (pps: number, fitPps: number) => void;
+  setSelection: (ids: Iterable<string>, anchor?: string | null) => void;
+  addSelectedElementId: (id: string) => void;
+  toggleSelectedElementId: (id: string) => void;
+  clearSelection: () => void;
+
+  setIsPlaying: (playing: boolean) => void;
+  setCurrentTime: (time: number) => void;
+  setDuration: (duration: number) => void;
+  setTimelineFrameRate: (frameRate: TimelineFrameRate) => void;
+  setPlaybackRate: (rate: number) => void;
+  setAudioMuted: (muted: boolean) => void;
+  setAudioVolume: (volume: number) => void;
+  setLoopEnabled: (enabled: boolean) => void;
+  setTimelineReady: (ready: boolean) => void;
+  setBeatDragging: (dragging: boolean) => void;
+  setElements: (elements: TimelineElement[]) => void;
+  setSelectedElementId: (id: string | null, options?: SelectElementOptions) => void;
+  /** Move the selection anchor within an active multi-selection without collapsing it. */
+  setSelectionAnchor: (id: string | null) => void;
+  updateElement: (elementId: string, updates: TimelineElementPatch) => void;
+  setZoomMode: (mode: ZoomMode) => void;
+  setManualZoomPercent: (percent: number) => void;
+  bumpZEditVersion: () => void;
+  setInPoint: (time: number | null) => void;
+  setOutPoint: (time: number | null) => void;
+  /** Owns the hard project boundary; repeated calls for one project are no-ops. */
+  beginTimelineSession: (projectId: string) => void;
+  /** Clears project data without creating a new hard-project session. */
+  reset: () => void;
+
+  /**
+   * Request a seek from outside the player loop (e.g. Layers panel).
+   * useTimelinePlayer subscribes and calls adapter.seek() + liveTime.notify().
+   */
+  requestedSeekTime: number | null;
+  requestSeek: (time: number) => void;
+  clearSeekRequest: () => void;
+
+  /**
+   * Request the transport start or stop from outside the player loop.
+   *
+   * The FX rack auditions a preset by writing it to the running graph, which is
+   * silent while the transport is paused — so hovering one has to start
+   * playback, and leaving has to put the playhead back where it was. Hovering is
+   * not an edit and must not cost the author their place.
+   *
+   * A nonce rather than a bare boolean: two hovers in a row both want play, and
+   * without it the second request is indistinguishable from the first having
+   * already been served.
+   */
+  playbackRequest: { playing: boolean; returnTo: number | null; nonce: number } | null;
+  requestPlayback: (playing: boolean, returnTo?: number | null) => void;
+  clearPlaybackRequest: () => void;
+
+  /**
+   * Request the timeline to scroll a clip into view (e.g. clicking an
+   * already-added asset card in the sidebar). Consumed and cleared by
+   * useTimelineRevealClip. The nonce makes repeat requests for the same
+   * clip observable so a second click re-reveals after the user scrolls away.
+   */
+  clipRevealRequest: { elementId: string; nonce: number } | null;
+  requestClipReveal: (elementId: string) => void;
+  clearClipRevealRequest: () => void;
+
+  timelineFocus: TimelineFocusRequest | null;
+  timelineFocusNonce: number;
+  requestTimelineFocus: (id: string) => void;
+  clearTimelineFocus: (nonce: number) => void;
+
+  beatAnalysis: MusicBeatAnalysis | null;
+  setBeatAnalysis: (analysis: MusicBeatAnalysis | null) => void;
+
+  /** User edits (add/move/delete) layered over the detected beat grid. */
+  beatEdits: BeatEditState | null;
+  setBeatEdits: (edits: BeatEditState | null) => void;
+  /** Undo/redo stacks for beat edits (in-memory, session-only). */
+  beatUndo: BeatHistoryEntry[];
+  beatRedo: BeatHistoryEntry[];
+  commitBeatEdits: (next: BeatEditState | null, label: string) => void;
+  undoBeatEdits: () => string | null;
+  redoBeatEdits: () => string | null;
+  resetBeatHistory: () => void;
+  beatPersist: (() => void) | null;
+  setBeatPersist: (fn: (() => void) | null) => void;
+
+  clipManifest: ClipManifestClip[] | null;
+  setClipManifest: (clips: ClipManifestClip[] | null) => void;
+  clipParentMap: Map<string, string>;
+  setClipParentMap: (map: Map<string, string>) => void;
+  /**
+   * Sub-composition DOM descendants (groups + their children) that have no
+   * `data-start`, so they're absent from the clip manifest/tree. Collected
+   * studio-side from the live preview so the timeline can expand a sub-comp row
+   * to show its DOM-only children. Keeps the manifest lean (timed clips only).
+   */
+  domClipChildren: DomClipChild[];
+  setDomClipChildren: (children: DomClipChild[]) => void;
+  /**
+   * Host-element state for every id'd element inside a sub-composition, keyed by
+   * dom id. Collected from the live preview because it is the only place that
+   * sees it: these elements are filtered out of `elements` before the flat store
+   * is built, and the clip manifest carries timing, not attributes.
+   */
+  subCompositionHostState: Map<string, SubCompositionHostState>;
+  setSubCompositionHostState: (state: Map<string, SubCompositionHostState>) => void;
+}
+
+/** A sub-comp DOM-only timeline child (no data-start) and its nesting context. */
+export interface DomClipChild {
+  id: string;
+  parentId: string;
+  /** The manifest sub-comp host clip id this descendant ultimately lives under. */
+  hostId: string;
+  label: string;
+  stackingContextId: string;
+  /**
+   * The child's audio-group state, read off its live element during the DOM
+   * walk — the only place that sees it. A sub-composition can declare a group
+   * and its members entirely within itself, and those members never reach the
+   * flat store, so an expanded child has no twin to inherit membership from.
+   */
+  audioGroup?: string;
+  audioGroupLabel?: string;
+  audioGroupVolume?: number;
+  audioGroupHidden?: boolean;
+  audioGroupFxChain?: string;
+  /** The group element's `data-automation`, mirrored the same way. */
+  audioGroupAutomation?: string;
+}
+
+interface BeatHistoryEntry {
+  restore: BeatEditState | null;
+  at: number;
+  label: string;
+}
+
+export function createTimelineResetState() {
+  return {
+    isPlaying: false,
+    currentTime: 0,
+    duration: 0,
+    timelineFrameRate: null,
+    timelineReady: false,
+    beatDragging: false,
+    elements: [],
+    selectedElementId: null,
+    zEditVersion: 0,
+    inPoint: null,
+    outPoint: null,
+    activeTool: "select" as const,
+    activeKeyframePct: null,
+    activeKeyframeTarget: null,
+    motionPathArmed: false,
+    motionPathCreateAvailable: false,
+    selectedKeyframes: new Set<string>(),
+    // Ephemeral like every other selection here. A range surviving a project
+    // switch can match a same-keyed clip in the new project and redirect a
+    // paste through `sel.elementKey === paste.elementKey` to a stale t0.
+    automationSelection: null,
+    expandedClipIds: new Set<string>(),
+    // Per-composition: ids from comp A match nothing in B, silencing all of it.
+    collapsedGroupIds: new Set<string>(),
+    expandedLaneOwnerIds: new Set<string>(),
+    focusedEaseSegment: null,
+    revealedAudioFxTarget: null,
+    selectedElementIds: new Set<string>(),
+    requestedSeekTime: null,
+    timelineFocus: null,
+    keyframeCache: new Map<string, KeyframeCacheEntry>(),
+    gsapAnimations: new Map<string, GsapAnimation[]>(),
+    beatAnalysis: null,
+    beatEdits: null,
+    beatUndo: [],
+    beatRedo: [],
+    beatPersist: null,
+    clipManifest: null,
+    clipParentMap: new Map<string, string>(),
+    domClipChildren: [],
+    subCompositionHostState: new Map<string, SubCompositionHostState>(),
+  };
+}
+
+export const usePlayerStore = create<PlayerState>((set, get) => ({
+  isPlaying: false,
+  currentTime: 0,
+  duration: 0,
+  timelineFrameRate: null,
+  timelineReady: false,
+  timelineSessionEpoch: 0,
+  timelineProjectId: null,
+  beatDragging: false,
+  elements: [],
+  selectedElementId: null,
+  playbackRate: readStudioUiPreferences().playbackRate ?? 1,
+  audioMuted: readStudioUiPreferences().audioMuted ?? false,
+  audioVolume: readStudioUiPreferences().audioVolume ?? 1,
+  loopEnabled: false,
+  zoomMode: "fit",
+  manualZoomPercent: 100,
+  zEditVersion: 0,
+  timelinePps: 100,
+  timelineFitPps: 100,
+  inPoint: null,
+  outPoint: null,
+
+  activeTool: "select",
+  setActiveTool: (tool) => set({ activeTool: tool }),
+
+  ...createKeyframeSlice(set, () => ({
+    timelineProjectId: get().timelineProjectId,
+    timelineSessionEpoch: get().timelineSessionEpoch,
+  })),
+  ...createThumbnailSlice(set),
+
+  ...createAutomationSelectionSlice(set),
+  ...createEditingModeSlice(set),
+
+  activeKeyframePct: null,
+  activeKeyframeTarget: null,
+  setActiveKeyframePct: (pct) => set({ activeKeyframePct: pct, activeKeyframeTarget: null }),
+  setActiveKeyframeTarget: (target) =>
+    set({
+      activeKeyframeTarget: target,
+      activeKeyframePct: target?.tweenPercentage ?? null,
+    }),
+
+  selectedElementIds: new Set<string>(),
+  setSelection: (ids, anchor) =>
+    set((state) => {
+      const selection = resolveElementSelection(ids, anchor);
+      return {
+        ...selection,
+        ...activeKeyframePatchForSelection(state, selection.selectedElementIds),
+      };
+    }),
+  addSelectedElementId: (id: string) =>
+    set((s) => {
+      const next = new Set(s.selectedElementIds);
+      next.add(id);
+      return {
+        ...resolveElementSelection(next, s.selectedElementId),
+        ...activeKeyframePatchForSelection(s, next),
+      };
+    }),
+  toggleSelectedElementId: (id: string) =>
+    set((s) => {
+      const next = new Set(s.selectedElementIds);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return {
+        ...resolveElementSelection(next, s.selectedElementId),
+        ...activeKeyframePatchForSelection(s, next),
+      };
+    }),
+  clearSelection: () =>
+    set({
+      selectedElementId: null,
+      selectedElementIds: new Set(),
+      activeKeyframePct: null,
+      activeKeyframeTarget: null,
+    }),
+
+  requestedSeekTime: null,
+  requestSeek: (time) => set({ requestedSeekTime: time }),
+  clearSeekRequest: () => set({ requestedSeekTime: null }),
+
+  playbackRequest: null,
+  requestPlayback: (playing, returnTo = null) =>
+    set((s) => ({
+      playbackRequest: { playing, returnTo, nonce: (s.playbackRequest?.nonce ?? 0) + 1 },
+    })),
+  clearPlaybackRequest: () => set({ playbackRequest: null }),
+
+  clipRevealRequest: null,
+  requestClipReveal: (elementId) =>
+    set((s) => ({
+      clipRevealRequest: { elementId, nonce: (s.clipRevealRequest?.nonce ?? 0) + 1 },
+    })),
+  clearClipRevealRequest: () => set({ clipRevealRequest: null }),
+
+  timelineFocus: null,
+  timelineFocusNonce: 0,
+  requestTimelineFocus: (id) =>
+    set((s) => {
+      const nonce = s.timelineFocusNonce + 1;
+      return {
+        timelineFocusNonce: nonce,
+        timelineFocus: createTimelineFocusRequest(
+          id,
+          s.timelineProjectId,
+          s.timelineSessionEpoch,
+          nonce,
+        ),
+      };
+    }),
+  clearTimelineFocus: (nonce) =>
+    set((s) => (s.timelineFocus?.nonce === nonce ? { timelineFocus: null } : s)),
+
+  beatAnalysis: null,
+  setBeatAnalysis: (analysis) => set({ beatAnalysis: analysis }),
+
+  beatEdits: null,
+  setBeatEdits: (edits) => set({ beatEdits: edits }),
+
+  beatUndo: [],
+  beatRedo: [],
+  beatPersist: null,
+  setBeatPersist: (fn) => set({ beatPersist: fn }),
+  commitBeatEdits: (next, label) => {
+    set((s) => ({
+      beatEdits: next,
+      beatUndo: [...s.beatUndo, { restore: s.beatEdits, at: Date.now(), label }],
+      beatRedo: [],
+    }));
+    get().beatPersist?.();
+  },
+  undoBeatEdits: () => {
+    const s = get();
+    const entry = s.beatUndo[s.beatUndo.length - 1];
+    if (!entry) return null;
+    set({
+      beatEdits: entry.restore,
+      beatUndo: s.beatUndo.slice(0, -1),
+      beatRedo: [...s.beatRedo, { restore: s.beatEdits, at: entry.at, label: entry.label }],
+    });
+    get().beatPersist?.();
+    return entry.label;
+  },
+  resetBeatHistory: () => set({ beatUndo: [], beatRedo: [] }),
+  redoBeatEdits: () => {
+    const s = get();
+    const entry = s.beatRedo[s.beatRedo.length - 1];
+    if (!entry) return null;
+    set({
+      beatEdits: entry.restore,
+      beatRedo: s.beatRedo.slice(0, -1),
+      beatUndo: [...s.beatUndo, { restore: s.beatEdits, at: entry.at, label: entry.label }],
+    });
+    get().beatPersist?.();
+    return entry.label;
+  },
+
+  clipManifest: null,
+  setClipManifest: (clips) => set({ clipManifest: clips }),
+  clipParentMap: new Map(),
+  setClipParentMap: (map) => set({ clipParentMap: map }),
+  domClipChildren: [],
+  setDomClipChildren: (children) => set({ domClipChildren: children }),
+  subCompositionHostState: new Map(),
+  setSubCompositionHostState: (state) => set({ subCompositionHostState: state }),
+
+  setIsPlaying: (playing) => {
+    if (get().isPlaying === playing) return;
+    set({ isPlaying: playing });
+  },
+  setPlaybackRate: (rate) => {
+    writeStudioUiPreferences({ playbackRate: rate });
+    set({ playbackRate: rate });
+  },
+  setAudioMuted: (muted) => {
+    writeStudioUiPreferences({ audioMuted: muted });
+    set({ audioMuted: muted });
+  },
+  setAudioVolume: (volume) => {
+    const nextVolume = Number.isFinite(volume) ? Math.max(0, Math.min(1, volume)) : 1;
+    writeStudioUiPreferences({ audioVolume: nextVolume });
+    set({ audioVolume: nextVolume });
+  },
+  setLoopEnabled: (enabled) => set({ loopEnabled: enabled }),
+  setZoomMode: (mode) => set({ zoomMode: mode }),
+  clearSelectedElementIds: () =>
+    set({
+      selectedElementIds: new Set(),
+      activeKeyframePct: null,
+      activeKeyframeTarget: null,
+    }),
+  setSelectedElementIds: (ids: Set<string>) =>
+    set((state) => {
+      const selectedElementIds = new Set(ids);
+      return {
+        selectedElementIds,
+        ...activeKeyframePatchForSelection(state, selectedElementIds),
+      };
+    }),
+  timelineSnapEnabled: readStudioUiPreferences().timelineSnapEnabled ?? true,
+  setTimelineSnapEnabled: (enabled) => {
+    writeStudioUiPreferences({ timelineSnapEnabled: enabled });
+    set({ timelineSnapEnabled: enabled });
+  },
+  timeDisplayMode: readStudioUiPreferences().timeDisplayMode ?? "time",
+  setTimeDisplayMode: (mode) => {
+    writeStudioUiPreferences({ timeDisplayMode: mode });
+    set({ timeDisplayMode: mode });
+  },
+  pinTimelineZoom: (currentPixelsPerSecond, fitPixelsPerSecond) =>
+    set((s) => {
+      // Already pinned (or the user manually zoomed) — never clobber that.
+      if (s.zoomMode === "manual") return {};
+      const percent = computePinnedZoomPercent(currentPixelsPerSecond, fitPixelsPerSecond);
+      writeStudioUiPreferences({
+        timelineZoomMode: "manual",
+        timelineManualZoomPercent: percent,
+      });
+      return { zoomMode: "manual", manualZoomPercent: percent };
+    }),
+  setTimelineScale: (pps, fitPps) => {
+    const state = get();
+    if (state.timelinePps === pps && state.timelineFitPps === fitPps) return;
+    set({ timelinePps: pps, timelineFitPps: fitPps });
+  },
+  setInPoint: (time) =>
+    set((state) => {
+      const t = time !== null && Number.isFinite(time) ? time : null;
+      return {
+        inPoint: t,
+        outPoint:
+          t !== null && state.outPoint !== null && t >= state.outPoint ? null : state.outPoint,
+        // Setting a work-area marker implies the user wants playback bounded by it.
+        // Auto-enable loop so the playhead respects the marker instead of running past.
+        loopEnabled: t !== null ? true : state.loopEnabled,
+      };
+    }),
+  setOutPoint: (time) =>
+    set((state) => {
+      const t = time !== null && Number.isFinite(time) ? time : null;
+      return {
+        outPoint: t,
+        inPoint: t !== null && state.inPoint !== null && t <= state.inPoint ? null : state.inPoint,
+        loopEnabled: t !== null ? true : state.loopEnabled,
+      };
+    }),
+  setManualZoomPercent: (percent) =>
+    set((state) => ({
+      manualZoomPercent: clampTimelineZoomPercent(percent, state.timelineFitPps),
+    })),
+  bumpZEditVersion: () => set((state) => ({ zEditVersion: state.zEditVersion + 1 })),
+  setCurrentTime: (time) => set({ currentTime: Number.isFinite(time) ? time : 0 }),
+  setDuration: (duration) => set({ duration: Number.isFinite(duration) ? duration : 0 }),
+  setTimelineFrameRate: (frameRate) => {
+    if (
+      !Number.isSafeInteger(frameRate.numerator) ||
+      !Number.isSafeInteger(frameRate.denominator) ||
+      frameRate.numerator <= 0 ||
+      frameRate.denominator <= 0
+    ) {
+      return;
+    }
+    const current = get().timelineFrameRate;
+    if (
+      current?.numerator === frameRate.numerator &&
+      current.denominator === frameRate.denominator
+    ) {
+      return;
+    }
+    set({
+      timelineFrameRate: {
+        numerator: frameRate.numerator,
+        denominator: frameRate.denominator,
+      },
+    });
+  },
+  setTimelineReady: (ready) => set({ timelineReady: ready }),
+  setBeatDragging: (dragging) => set({ beatDragging: dragging }),
+  setElements: (elements) => set({ elements }),
+  // A genuine single selection: always collapse the set to just this element. User
+  // intent (timeline click, preview click via applyDomSelection) flows here; DOM sync
+  // echoes that must preserve a group go through setSelectionAnchor instead.
+  setSelectedElementId: (id, options) =>
+    set((s) => {
+      const selectedElementIds = nextSelectionSet(s.selectedElementIds, id, options?.preserveSet);
+      const activeKeyframe = activeKeyframePatchForSelection(s, selectedElementIds);
+      // The active keyframe follows exact selected-set membership, not the anchor:
+      // a preserveSet DOM echo may move the anchor while its owner stays selected,
+      // whereas a genuine single click collapses the set and clears a prior target.
+      // A diamond click sets the target after selecting its element, so a new target
+      // is never clobbered by this transition.
+      // A reveal request survives the selection it is FOR. `openClipFxRack`
+      // raises the request and then selects the clip asynchronously, so the
+      // selection lands afterwards and used to clear the very request that
+      // caused it — the panel then read null and the section never opened.
+      // Any OTHER selection still drops it: a request aimed elsewhere is stale.
+      //
+      // Compared across the ID-SPACE BOUNDARY, which is why this needs saying:
+      // a request carries the BARE dom id (`runtimeAudioId`, because the panel
+      // and the runtime speak that), while this store's ids are
+      // `sourceFile#domId`. A direct `===` was silently never true — the exact
+      // shape of failure the id-space split produces.
+      const revealSurvives = revealTargetsSelection(s.revealedAudioFxTarget, id);
+      return id !== s.selectedElementId
+        ? {
+            selectedElementId: id,
+            selectedElementIds,
+            selectedKeyframes: new Set<string>(),
+            ...activeKeyframe,
+            motionPathArmed: false,
+            focusedEaseSegment: null,
+            ...(revealSurvives ? {} : { revealedAudioFxTarget: null }),
+          }
+        : { selectedElementId: id, selectedElementIds, ...activeKeyframe };
+    }),
+  // Move the anchor within an active multi-selection WITHOUT collapsing it — used by
+  // DOM->store sync echoes while a group gesture re-patches the preview. A non-member
+  // id is treated as a genuine new single selection.
+  setSelectionAnchor: (id) =>
+    set((s) => {
+      if (id != null && s.selectedElementIds.size > 1 && s.selectedElementIds.has(id)) {
+        return {
+          selectedElementId: id,
+          focusedEaseSegment: id === s.selectedElementId ? s.focusedEaseSegment : null,
+          ...activeKeyframePatchForSelection(s, s.selectedElementIds),
+        };
+      }
+      const selectedElementIds = id ? new Set([id]) : new Set<string>();
+      return {
+        selectedElementId: id,
+        selectedElementIds,
+        focusedEaseSegment: id === s.selectedElementId ? s.focusedEaseSegment : null,
+        ...activeKeyframePatchForSelection(s, selectedElementIds),
+      };
+    }),
+  updateElement: (elementId, updates) =>
+    set((state) => ({
+      elements: state.elements.map((el) =>
+        (el.key ?? el.id) === elementId ? { ...el, ...updates } : el,
+      ),
+    })),
+  // UI preferences intentionally survive reset. So do timelineSessionEpoch and
+  // focusedEaseRequestNonce: the epoch advances only when project identity
+  // changes, while a monotonic nonce prevents collisions with stale consumers.
+  beginTimelineSession: (projectId) =>
+    set((state) => {
+      if (state.timelineProjectId === projectId) return state;
+      return {
+        ...createTimelineResetState(),
+        timelineSessionEpoch: state.timelineSessionEpoch + 1,
+        timelineProjectId: projectId,
+      };
+    }),
+  reset: () => set(createTimelineResetState()),
+}));
+
+attachPlayerStoreDevHandle(usePlayerStore);

@@ -1,0 +1,65 @@
+/**
+ * Shared type definitions for the timeline playback subsystem.
+ * Kept in a separate module so adapter, DOM, and hook modules can all import
+ * from here without creating circular dependencies.
+ */
+
+import type { RuntimeTimelineClipIdentity } from "@hyperframes/core";
+
+export interface PlaybackAdapter {
+  play: () => void;
+  pause: () => void;
+  seek: (time: number, options?: { keepPlaying?: boolean }) => void;
+  getTime: () => number;
+  getDuration: () => number;
+  isPlaying: () => boolean;
+}
+
+export type RuntimePlaybackAdapter = PlaybackAdapter & {
+  renderSeek?: (time: number) => void;
+};
+
+export interface StaticSeekPlaybackClock {
+  now: () => number;
+  requestAnimationFrame: (callback: FrameRequestCallback) => number;
+  cancelAnimationFrame: (handle: number) => void;
+}
+
+export interface TimelineLike {
+  play: () => void;
+  pause: () => void;
+  seek: (time: number) => void;
+  time: () => number;
+  duration: () => number;
+  isActive: () => boolean;
+}
+
+export interface ClipManifestClip extends RuntimeTimelineClipIdentity {
+  zIndex?: number;
+  stackingContextId?: string | null;
+  compositionAncestors?: string[];
+  playbackStart?: number;
+  playbackRate?: number;
+}
+
+export interface ClipManifest {
+  protocolVersion?: number;
+  compositionContractVersion?: number;
+  capabilities?: readonly string[];
+  fps?: { numerator: number; denominator: number };
+  durationSeconds?: number;
+  clips: ClipManifestClip[];
+  scenes: Array<{ id: string; label: string; start: number; duration: number }>;
+  durationInFrames: number;
+  compositionWidth?: number;
+  compositionHeight?: number;
+}
+
+export type IframeWindow = Window & {
+  /** Editor-owned frame evaluator. Preferred over legacy HTML/GSAP players when present. */
+  __studioNativePlayer?: RuntimePlaybackAdapter;
+  __player?: RuntimePlaybackAdapter;
+  __timeline?: TimelineLike;
+  __timelines?: Record<string, TimelineLike>;
+  __clipManifest?: ClipManifest;
+};

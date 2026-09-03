@@ -1,0 +1,33 @@
+#!/bin/sh
+set -eu
+
+repository_root=$(git rev-parse --show-toplevel)
+cd "$repository_root"
+
+find_mpvfx_node() {
+  for node_candidate in \
+    "${MPVFX_NODE:-}" \
+    node \
+    /opt/homebrew/opt/node@22/bin/node \
+    /usr/local/opt/node@22/bin/node
+  do
+    [ -n "$node_candidate" ] || continue
+    if "$node_candidate" -e 'process.exit(process.versions.node === "22.23.2" ? 0 : 1)' \
+      >/dev/null 2>&1
+    then
+      printf '%s\n' "$node_candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+node_binary=$(find_mpvfx_node) || {
+  printf '%s\n' \
+    "MpVFX publication checks require Node.js 22.23.2. Set MPVFX_NODE to that executable." \
+    >&2
+  exit 1
+}
+
+"$node_binary" scripts/check-release-readiness.mjs
+"$node_binary" scripts/generate-third-party-notices.mjs --check

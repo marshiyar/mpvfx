@@ -1,0 +1,23 @@
+MpVFX notices
+Copyright (c) 2026 the MpVFX authors.
+
+MpVFX-owned source and documentation are licensed under the Apache License, Version 2.0.
+You may obtain a copy of the License at https://www.apache.org/licenses/LICENSE-2.0.
+
+MpVFX is the product name and identity of this application. No upstream project or contributor
+endorses MpVFX.
+
+Third-party material
+
+Portions of the editor source, interface assets, and internal rendering adapter are derived from or
+depend on the HyperFrames project, Copyright 2026 HeyGen, Inc., licensed under the Apache License,
+Version 2.0. MpVFX has modified, reorganized, and rebranded those portions. The Apache License text
+is stored at third_party/licenses/Apache-2.0.txt.
+
+The QA research corpus contains Stack Overflow questions and answers contributed by their
+respective authors. Each post, author, source URL, contribution date, license version, and change
+notice is recorded in third_party/stackexchange-video-qa/sources.jsonl. The corpus is separate from
+MpVFX-owned code and is governed by its Creative Commons Attribution-ShareAlike license records.
+
+Additional production and build dependencies are listed in THIRD_PARTY_NOTICES.md. Installed
+desktop applications also retain dependency license files and Electron's LICENSES.chromium.html.

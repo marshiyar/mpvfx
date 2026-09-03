@@ -1,0 +1,33 @@
+name: Feature proposal
+description: Propose a focused improvement to the MpVFX editing workflow
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Editing problem
+      description: Explain the workflow problem before proposing a control or implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope checks
+      options:
+        - label: This can work through the visual editor without requiring source editing.
+          required: true
+        - label: I have not included private media or credentials.
+          required: true
+

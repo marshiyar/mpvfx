@@ -1,0 +1,16 @@
+[
+  {
+    "post_id": 79997207,
+    "post_type": "question",
+    "question_id": 79997207,
+    "question_title": "Video recording goes fine but adding audio fails mysteriously",
+    "author": "msklywenn",
+    "author_url": null,
+    "source_url": "https://stackoverflow.com/questions/79997207/video-recording-goes-fine-but-adding-audio-fails-mysteriously",
+    "created_at": "2026-08-21T22:49:00.000Z",
+    "license": "CC BY-SA 4.0",
+    "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+    "changes": "Reformatted as JSONL for QA research; source HTML is retained in the corpus.",
+    "metadata_source": "Stack Overflow search listing observed on 2026-09-03; the retained post was unavailable from the Stack Exchange API when attribution was generated. The listing supplied the author, title, direct URL, and minute-level contribution time; the license follows Stack Overflow's license schedule for 2026 contributions."
+  }
+]

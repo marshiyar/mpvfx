@@ -1,0 +1,104 @@
+name: Tests
+
+on:
+  pull_request:
+    paths:
+      - "studio/**"
+      - "third_party/**"
+      - "scripts/**"
+      - "docs/**"
+      - "*.md"
+      - "LICENSE"
+      - "NOTICE"
+      - ".github/workflows/tests.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "studio/**"
+      - "third_party/**"
+      - "scripts/**"
+      - "docs/**"
+      - "*.md"
+      - "LICENSE"
+      - "NOTICE"
+      - ".github/workflows/tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  repository:
+    name: Repository release checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Use Node 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: studio/.nvmrc
+          package-manager-cache: false
+
+      - name: Check publication boundaries and attribution
+        run: |
+          node scripts/check-release-readiness.mjs
+          node scripts/generate-third-party-notices.mjs --check
+
+  test:
+    name: Unit and integration tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Use Node 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: studio/.nvmrc
+          cache: npm
+          cache-dependency-path: studio/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefix studio
+
+      - name: Run tests
+        run: npm --prefix studio test
+
+  compile:
+    name: Typecheck and compile
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Use Node 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: studio/.nvmrc
+          cache: npm
+          cache-dependency-path: studio/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefix studio
+
+      - name: Typecheck source
+        run: npm --prefix studio run typecheck
+
+      - name: Compile source
+        run: npm --prefix studio run build

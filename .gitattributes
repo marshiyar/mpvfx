@@ -1,0 +1,26 @@
+* text=auto eol=lf
+
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+*.gif binary
+*.icns binary
+*.ico binary
+*.jpeg binary
+*.jpg binary
+*.mov binary
+*.mp3 binary
+*.mp4 binary
+*.m4a binary
+*.mkv binary
+*.png binary
+*.ttf binary
+*.wav binary
+*.webm binary
+*.woff binary
+*.woff2 binary
+
+studio/package-lock.json linguist-generated=true
+third_party/stackexchange-video-qa/data/video-qa.jsonl linguist-vendored=true
+third_party/stackexchange-video-qa/sources.jsonl linguist-generated=true

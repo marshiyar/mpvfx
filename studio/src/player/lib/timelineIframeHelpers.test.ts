@@ -1,0 +1,141 @@
+// @vitest-environment jsdom
+import { describe, expect, it, vi } from "vitest";
+import {
+  applyPreviewAudioFlags,
+  buildMissingCompositionElements,
+  scrubPreviewAudio,
+  setPreviewMediaVolume,
+  stopScrubPreviewAudio,
+} from "./timelineIframeHelpers";
+import type { IframeWindow } from "./playbackTypes";
+
+function makeDoc(html: string): Document {
+  const d = document.implementation.createHTMLDocument();
+  d.body.innerHTML = html;
+  return d;
+}
+
+describe("buildMissingCompositionElements — hfId (R7)", () => {
+  it("harvests hfId from data-hf-id on composition host elements", () => {
+    const doc = makeDoc(`
+      <div data-composition-id="root">
+        <div
+          data-composition-id="scene-a"
+          data-composition-src="scenes/a.html"
+          data-hf-id="hf-scene1"
+          data-start="0"
+          data-duration="5"
+        ></div>
+      </div>
+    `);
+
+    const { missing } = buildMissingCompositionElements(doc, window as IframeWindow, [], 10);
+    const entry = missing[0];
+
+    expect(entry).toBeDefined();
+    expect(entry?.hfId).toBe("hf-scene1");
+  });
+
+  it("leaves hfId undefined when element has no data-hf-id", () => {
+    const doc = makeDoc(`
+      <div data-composition-id="root">
+        <div
+          data-composition-id="scene-b"
+          data-composition-src="scenes/b.html"
+          data-start="0"
+          data-duration="5"
+        ></div>
+      </div>
+    `);
+
+    const { missing } = buildMissingCompositionElements(doc, window as IframeWindow, [], 10);
+    const entry = missing[0];
+
+    expect(entry).toBeDefined();
+    expect(entry?.hfId).toBeUndefined();
+  });
+});
+
+describe("setPreviewMediaVolume", () => {
+  it("sends a clamped runtime volume to a direct preview iframe", () => {
+    const iframe = document.createElement("iframe");
+    document.body.append(iframe);
+    const postMessage = vi.spyOn(iframe.contentWindow!, "postMessage");
+
+    setPreviewMediaVolume(iframe, 1.5);
+
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "set-volume", volume: 1 }),
+      "*",
+    );
+  });
+});
+
+describe("scrubPreviewAudio", () => {
+  it("scales scrub feedback by the Studio preview volume", () => {
+    const iframe = document.createElement("iframe");
+    document.body.append(iframe);
+    const audio = iframe.contentDocument?.createElement("audio");
+    if (!audio || !iframe.contentDocument?.body) throw new Error("expected iframe audio document");
+    audio.id = "music";
+    audio.play = vi.fn(async () => {});
+    audio.pause = vi.fn();
+    iframe.contentDocument.body.append(audio);
+
+    scrubPreviewAudio(iframe, 0.5, "music", 0.4);
+
+    expect(audio.volume).toBeCloseTo(0.1);
+    stopScrubPreviewAudio();
+  });
+});
+
+describe("applyPreviewAudioFlags", () => {
+  // Everything pushed here is state the runtime loses on reload and nothing else
+  // re-sends, so the push has to carry all of it every time. Volume in
+  // particular: the transport comes back at unity, so a preview the author had
+  // turned down came back loud.
+  it("re-pushes mute and volume together", () => {
+    const iframe = document.createElement("iframe");
+    document.body.append(iframe);
+    const postMessage = vi.spyOn(iframe.contentWindow!, "postMessage");
+
+    applyPreviewAudioFlags(iframe, true, 0.4);
+
+    const actions = postMessage.mock.calls.map(
+      (call) => (call[0] as { action?: string }).action ?? "",
+    );
+    expect(actions).toContain("set-muted");
+    expect(actions).toContain("set-volume");
+  });
+
+  it("reasserts runtime audio even when a shadow player host already reports those values", () => {
+    const host = document.createElement("div") as HTMLElement & {
+      muted: boolean;
+      volume: number;
+    };
+    host.muted = false;
+    host.volume = 0.75;
+    document.body.append(host);
+    const shadow = host.attachShadow({ mode: "open" });
+    const iframe = document.createElement("iframe");
+    const postMessage = vi.fn();
+    Object.defineProperty(iframe, "contentWindow", {
+      value: { postMessage },
+      configurable: true,
+    });
+    shadow.append(iframe);
+
+    applyPreviewAudioFlags(iframe, false, 0.75);
+
+    expect(host.muted).toBe(false);
+    expect(host.volume).toBe(0.75);
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "set-muted", muted: false }),
+      "*",
+    );
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "set-volume", volume: 0.75 }),
+      "*",
+    );
+  });
+});
