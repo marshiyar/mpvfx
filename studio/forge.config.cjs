@@ -60,6 +60,7 @@ module.exports = {
       config: {
         options: {
           name: "mpvfx",
+          bin: "MpVFX",
           productName: "MpVFX",
           categories: ["AudioVideo", "Video"],
         },
@@ -71,6 +72,7 @@ module.exports = {
       config: {
         options: {
           name: "mpvfx",
+          bin: "MpVFX",
           productName: "MpVFX",
           categories: ["AudioVideo", "Video"],
         },

@@ -47,6 +47,25 @@ describe("cross-platform Electron packaging", () => {
     expect(makers.get("@electron-forge/maker-rpm")).toContain("linux");
   });
 
+  it("points Linux package makers at the executable emitted by Electron Packager", () => {
+    const config = createRequire(import.meta.url)(resolve(root, "forge.config.cjs")) as {
+      packagerConfig: { executableName?: string };
+      makers: Array<{
+        name: string;
+        config?: { options?: { name?: string; bin?: string } };
+      }>;
+    };
+
+    expect(config.packagerConfig.executableName).toBe("MpVFX");
+    for (const makerName of ["@electron-forge/maker-deb", "@electron-forge/maker-rpm"]) {
+      const maker = config.makers.find(({ name }) => name === makerName);
+      expect(maker?.config?.options?.name, makerName).toBe("mpvfx");
+      expect(maker?.config?.options?.bin, makerName).toBe(
+        config.packagerConfig.executableName,
+      );
+    }
+  });
+
   it("fails packaging when required legal notices are missing from the application", () => {
     const forgeSource = readFileSync(resolve(root, "forge.config.cjs"), "utf8");
 
