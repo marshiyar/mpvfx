@@ -3,10 +3,6 @@
 MpVFX is a desktop nonlinear video editor for arranging video, images, audio, captions, effects,
 and color treatments on a multitrack timeline. It is built with Electron, React, and a local media
 rendering service.
-
-This repository is prepared for source publication. It does not currently publish signed binary
-releases; see [the release policy](docs/RELEASING.md) before distributing an installer.
-
 ## Features
 
 - Media-first multitrack timeline with stable empty-track layout
