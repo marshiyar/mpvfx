@@ -85,7 +85,7 @@
     "@electron-forge/maker-dmg": "^7.11.2",
     "@electron-forge/maker-rpm": "^7.11.2",
     "@electron-forge/maker-squirrel": "^7.11.2",
-    "@types/node": "^22.0.0",
+    "@types/node": "^26.4.0",
     "@types/react": "19",
     "@types/react-dom": "19",
     "@vitejs/plugin-react": "^4.0.0",
