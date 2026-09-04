@@ -8,6 +8,12 @@ const {
   statSync,
 } = require("node:fs");
 const { join } = require("node:path");
+const {
+  assertExecutableFfprobe,
+  assertExecutableFfmpeg,
+  assertPinnedFfprobeFile,
+  assertPinnedFfmpegFile,
+} = require("./verify-redistributable-ffmpeg.cjs");
 
 const MACH_CPU = new Map([
   [7, "ia32"],
@@ -157,12 +163,38 @@ function assertPackagedMediaBinaries(packageResult) {
     );
     assertUsableFile("FFmpeg", paths.ffmpeg, packageResult.platform, packageResult.arch);
     assertUsableFile("FFprobe", paths.ffprobe, packageResult.platform, packageResult.arch);
+    assertExecutableFfmpeg(paths.ffmpeg);
+    assertExecutableFfprobe(paths.ffprobe);
   }
+}
+
+function assertPreparedMediaBinaries(buildPath, platform, arch) {
+  const ffmpeg = join(
+    buildPath,
+    "node_modules",
+    "ffmpeg-static",
+    platform === "win32" ? "ffmpeg.exe" : "ffmpeg",
+  );
+  const ffprobe = join(
+    buildPath,
+    "node_modules",
+    "@ffprobe-installer",
+    `${platform}-${arch}`,
+    platform === "win32" ? "ffprobe.exe" : "ffprobe",
+  );
+  assertPinnedFfmpegFile(ffmpeg, platform, arch);
+  assertPinnedFfprobeFile(ffprobe, platform, arch);
+}
+
+function assertPreparedFfmpeg(buildPath, platform, arch) {
+  assertPreparedMediaBinaries(buildPath, platform, arch);
 }
 
 module.exports = {
   assertExecutableBufferMatchesTarget,
   assertPackagedMediaBinaries,
+  assertPreparedMediaBinaries,
+  assertPreparedFfmpeg,
   inspectExecutableBuffer,
   packagedMediaBinaryPaths,
 };

@@ -56,9 +56,11 @@ npm run desktop:make          # native installer for the current platform
 ```
 
 Dedicated `desktop:make:mac:arm64`, `desktop:make:mac:x64`, `desktop:make:windows`, and
-`desktop:make:linux` scripts are available for validation jobs. These installers are unsigned and
-the currently bundled FFmpeg build is not redistributable. Do not publish an installer until every
-gate in [`docs/RELEASING.md`](../docs/RELEASING.md) is complete.
+`desktop:make:linux` scripts are available for local validation. Dependency installation replaces
+FFmpeg and FFprobe with exact audited GPLv3 binaries, and packaging rejects any changed or nonfree
+build. Local installers remain unsigned and are not official downloads. Pushing a reviewed matching
+version tag runs the protected signing/notarization and GitHub Release workflow described in
+[`docs/RELEASING.md`](../docs/RELEASING.md). The packaged macOS app requires macOS 15.0 or later.
 
 ## Privacy configuration
 

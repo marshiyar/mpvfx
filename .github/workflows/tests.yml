@@ -11,6 +11,7 @@ on:
       - "LICENSE"
       - "NOTICE"
       - ".github/workflows/tests.yml"
+      - ".github/workflows/release.yml"
   push:
     branches:
       - main
@@ -23,6 +24,7 @@ on:
       - "LICENSE"
       - "NOTICE"
       - ".github/workflows/tests.yml"
+      - ".github/workflows/release.yml"
   workflow_dispatch:
 
 permissions:

@@ -1,7 +1,7 @@
 # GitHub repository settings
 
-The source tree can be published without uploading installers. After creating the GitHub
-repository, apply these settings before inviting contributors or accepting changes.
+After creating the repository, apply these settings before inviting contributors or publishing an
+application release.
 
 For a fresh local clone, activate the tracked privacy/release hooks once:
 
@@ -9,62 +9,85 @@ For a fresh local clone, activate the tracked privacy/release hooks once:
 git config core.hooksPath .githooks
 ```
 
-The hooks run the publication-boundary and attribution checks before commits and pushes. GitHub CI
-runs the same checks and remains the enforcement fallback for contributors who have not enabled
-local hooks.
+The hooks run publication-boundary and attribution checks before commits and pushes. GitHub CI runs
+the same checks for contributors who have not enabled local hooks.
 
 ## Repository
 
 - The repository name must be exactly `mpvfx`.
 - Use `main` as the default branch.
-- Select Apache License 2.0 when GitHub asks for the repository license. The tracked `LICENSE` file
-  is authoritative; `NOTICE` and `THIRD_PARTY_NOTICES.md` preserve separately licensed material.
-- Enable Issues only if maintainers can triage them, and keep blank issues disabled.
-- Enable private vulnerability reporting before directing reporters to `SECURITY.md`.
-- Enable Dependabot alerts, dependency graph, secret scanning, and push protection where the
-  repository plan supports them.
-- Leave Releases empty until every binary gate in `RELEASING.md` is complete.
+- The tracked `LICENSE` is the authoritative Apache License 2.0 grant for MpVFX-owned source.
+  `NOTICE`, `THIRD_PARTY_NOTICES.md`, and `third_party/` preserve other terms.
+- Enable private vulnerability reporting, Dependabot alerts, dependency graph, secret scanning,
+  and push protection where the repository plan supports them.
+- Allow GitHub Actions to request write access for the release job. The workflows default to read-
+  only; only the final tag publisher requests `contents: write`.
 
-Do not add a remote or push until the owner and visibility have been deliberately selected. When
-those decisions are final, create the GitHub repository as `mpvfx`, then connect this working tree
-using the real owner in place of `OWNER`:
+If a remote is not configured, connect the checkout using the real owner in place of `OWNER`:
 
 ```bash
 git remote add origin git@github.com:OWNER/mpvfx.git
 git push -u origin main
 ```
 
-## Rules for `main`
+## Rules for `main` and release tags
 
-Create a branch ruleset that:
+Create a branch ruleset for `main` that requires pull requests, an approving review, resolved
+conversations, an up-to-date branch, and the repository/test/compile/CodeQL/desktop checks. Block
+force pushes and branch deletion, and do not allow casual administrator bypass.
 
-- requires pull requests and at least one approving review;
-- dismisses stale approvals when code changes;
-- requires conversation resolution;
-- blocks force pushes and branch deletion;
-- requires branches to be up to date;
-- requires the repository, test, compile, CodeQL, and relevant desktop matrix checks;
-- does not allow administrators to bypass the rules casually.
+Create a tag ruleset for `v*` that blocks tag deletion and non-fast-forward updates. Restrict tag
+creation to release maintainers. A tag starts publication, so it must identify an already reviewed
+commit whose package version and changelog are final.
 
-The first workflow run establishes the exact check names shown in the ruleset picker. Do not make
-an installer upload or release job a required check until a separately reviewed publishing
-workflow exists.
+## Protected release environment
 
-## Actions and credentials
+Create an Actions environment named exactly `release`:
 
-- Keep the default workflow token read-only and grant narrower write permissions per job only when
-  a job genuinely needs them.
-- Allow only reviewed actions; workflows in this repository pin actions to full commit hashes.
-- Do not add signing certificates, notarization credentials, analytics keys, or API tokens until a
-  workflow needs them. Store such values as environment-scoped GitHub secrets, require approval for
-  that environment, and never expose secrets to pull requests from forks.
-- Treat AI-agent conversations and session state as private local data. Run `npm run release:check`
-  from `studio/` before the first push and every release; it rejects common conversation exports and
-  transcript-shaped files.
+- add required reviewers and prevent self-review when the repository plan supports it;
+- restrict deployments to tags matching `v*`;
+- store every signing value below as an environment secret, never a repository file;
+- do not expose this environment to pull-request workflows.
 
-## Ownership
+Required macOS secrets:
 
-Add `CODEOWNERS` only after the final GitHub organization or maintainer handles are known. Require
-review from owners of workflows, packaging, privacy, security, and licensing files. Also replace
-generic maintainer wording in policy documents with the project's durable private contact channel
-once that channel exists.
+- `MACOS_CERTIFICATE` — base64-encoded Developer ID Application `.p12`
+- `MACOS_CERTIFICATE_PASSWORD` — password protecting that `.p12`
+- `MACOS_KEYCHAIN_PASSWORD` — random, release-only temporary-keychain password
+- `MACOS_SIGNING_IDENTITY` — full `Developer ID Application: Name (TEAMID)` identity
+- `APPLE_ID` — Apple Developer account used for notarization
+- `APPLE_APP_SPECIFIC_PASSWORD` — app-specific password, not the Apple ID password
+- `APPLE_TEAM_ID` — Apple Developer team identifier
+
+Required Windows secrets:
+
+- `WINDOWS_CERTIFICATE` — base64-encoded Authenticode `.pfx`
+- `WINDOWS_CERTIFICATE_PASSWORD` — password protecting that `.pfx`
+
+Encode the certificate files locally, copy the single-line output into GitHub, then securely remove
+any temporary text copy. On macOS:
+
+```bash
+base64 -i DeveloperIDApplication.p12 | tr -d '\n'
+```
+
+On Windows PowerShell:
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes('MpVFX-signing.pfx'))
+```
+
+The workflow reconstructs certificates only in each runner's temporary directory, imports the
+Apple certificate into a temporary keychain, and removes temporary signing material even after a
+failed build. It fails before publication if a required secret, signature, notarization ticket,
+installer, source archive, or checksum is missing.
+
+## Actions and private data
+
+- Workflows pin third-party actions to full commit hashes.
+- Never commit signing certificates, populated `.env` files, API tokens, AI-agent conversations,
+  or session state.
+- Run `npm run release:check` from `studio/` before each push and release. It rejects common secret,
+  conversation-export, personal-media, and local-project patterns.
+- Add `CODEOWNERS` only after durable maintainer handles are known; include workflows, packaging,
+  privacy, security, and licensing paths.

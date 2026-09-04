@@ -120,3 +120,5 @@ studio/fixtures/storyboard-sample/
 *.AppImage
 *.deb
 *.rpm
+/release-source/
+/ffmpeg-corresponding-source-*.tar.gz

@@ -48,9 +48,13 @@ const required = [
   ".github/ISSUE_TEMPLATE/feature_request.yml",
   ".github/workflows/tests.yml",
   ".github/workflows/desktop.yml",
+  ".github/workflows/release.yml",
   ".github/workflows/security.yml",
+  "scripts/collect-ffmpeg-corresponding-source.mjs",
+  "scripts/ffmpeg-source-manifest.json",
   "docs/ARCHITECTURE.md",
   "docs/DATA_PROVENANCE.md",
+  "docs/FFMPEG_DISTRIBUTION.md",
   "docs/GITHUB_SETUP.md",
   "docs/REMOTE_ASSETS.md",
   "docs/RELEASING.md",
@@ -66,8 +70,12 @@ const required = [
   "studio/resources/legal/NOTICE.txt",
   "studio/resources/legal/PRIVACY.md",
   "studio/resources/legal/REMOTE_ASSETS.md",
+  "studio/resources/legal/FFMPEG_SOURCE.md",
   "studio/resources/legal/GSAP-NOTICE.txt",
   "studio/resources/legal/THIRD_PARTY_NOTICES.md",
+  "studio/scripts/ffmpeg-runtime-manifest.json",
+  "studio/scripts/install-redistributable-ffmpeg.mjs",
+  "studio/scripts/verify-redistributable-ffmpeg.cjs",
   "studio/public/ASSET_PROVENANCE.md",
   "studio/tests/e2e/fixtures/ASSET_PROVENANCE.md",
 ];
@@ -296,8 +304,82 @@ const desktopWorkflow = read(".github/workflows/desktop.yml");
 if (/actions\/upload-artifact|electron-forge publish|gh release|action-gh-release/iu.test(desktopWorkflow)) {
   fail("Desktop validation workflow must not upload or publish unsigned installers");
 }
-if (!read("docs/RELEASING.md").includes("--enable-nonfree")) {
-  fail("Binary release gate does not document the current nonredistributable FFmpeg build");
+
+const runtimeManifest = JSON.parse(read("studio/scripts/ffmpeg-runtime-manifest.json"));
+const sourceManifest = JSON.parse(read("scripts/ffmpeg-source-manifest.json"));
+if (runtimeManifest.release !== "n8.1.2-1" || runtimeManifest.ffmpegVersion !== "8.1.2") {
+  fail("FFmpeg runtime manifest must remain pinned to the audited n8.1.2-1 release");
+}
+if (runtimeManifest.binaryLicense !== "GPL-3.0-or-later") {
+  fail("FFmpeg runtime manifest must record the effective GPLv3-or-later license");
+}
+if (runtimeManifest.minimumMacOSVersion !== "15.0") {
+  fail("FFmpeg runtime and application minimum macOS version must agree on 15.0");
+}
+const auditedTargets = ["darwin-arm64", "darwin-x64", "linux-x64", "win32-x64"];
+if (Object.keys(runtimeManifest.targets ?? {}).sort().join("\n") !== auditedTargets.join("\n")) {
+  fail("FFmpeg runtime manifest must contain exactly the four supported desktop targets");
+}
+for (const target of auditedTargets) {
+  for (const program of ["ffmpeg", "ffprobe"]) {
+    const record = runtimeManifest.targets?.[target]?.[program];
+    if (!record?.asset?.startsWith(`${program}-`) || !/^[a-f0-9]{64}$/u.test(record?.sha256 ?? "")) {
+      fail(`FFmpeg runtime manifest has no pinned ${program} asset for ${target}`);
+    }
+  }
+}
+if (sourceManifest.binaryRelease !== runtimeManifest.release) {
+  fail("FFmpeg source manifest does not match the selected binary release");
+}
+if (!Array.isArray(sourceManifest.components) || sourceManifest.components.length !== 9) {
+  fail("FFmpeg corresponding-source manifest must contain all nine source/build inputs");
+} else {
+  for (const component of sourceManifest.components) {
+    if (!component.url || !component.filename || !/^[a-f0-9]{64}$/u.test(component.sha256 ?? "")) {
+      fail(`FFmpeg source input is not completely pinned: ${component.name ?? "unnamed"}`);
+    }
+  }
+}
+
+const ffmpegInstaller = read("studio/scripts/install-redistributable-ffmpeg.mjs");
+const ffmpegVerifier = read("studio/scripts/verify-redistributable-ffmpeg.cjs");
+if (!pkg.scripts?.postinstall?.includes("install-redistributable-ffmpeg.mjs")) {
+  fail("npm postinstall must replace package-supplied FFmpeg suite binaries");
+}
+for (const marker of ["target.ffmpeg", "target.ffprobe", "sha256"]) {
+  if (!ffmpegInstaller.includes(marker)) fail(`FFmpeg installer is missing safety marker: ${marker}`);
+}
+for (const marker of ["--enable-nonfree", "not legally redistributable", "assertPinnedFfprobeFile"]) {
+  if (!ffmpegVerifier.includes(marker)) fail(`FFmpeg verifier is missing rejection marker: ${marker}`);
+}
+
+const ffmpegDistribution = read("docs/FFMPEG_DISTRIBUTION.md");
+for (const marker of [
+  "does **not** use",
+  "--enable-nonfree",
+  "ffmpeg-corresponding-source-n8.1.2-1.tar.gz",
+  "macOS 15.0",
+]) {
+  if (!ffmpegDistribution.includes(marker)) fail(`FFmpeg distribution record is missing: ${marker}`);
+}
+
+const releaseWorkflow = read(".github/workflows/release.yml");
+if (!releaseWorkflow.includes('tags: ["v*"]') || releaseWorkflow.includes("pull_request:")) {
+  fail("Release workflow must run from version tags only");
+}
+for (const marker of [
+  "environment: release",
+  "MACOS_CERTIFICATE",
+  "WINDOWS_CERTIFICATE",
+  "SHA256SUMS",
+  "ffmpeg-corresponding-source",
+  "xcrun stapler validate",
+  "Get-AuthenticodeSignature",
+  "gh release create",
+  "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+  "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+]) {
+  if (!releaseWorkflow.includes(marker)) fail(`Release workflow is missing safety marker: ${marker}`);
 }
 
 if (failures.length > 0) {

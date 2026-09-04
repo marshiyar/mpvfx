@@ -4,22 +4,22 @@ This inventory was generated from `studio/package-lock.json` for MpVFX 0.8.20. I
 the license identifiers declared by the exact JavaScript dependency versions in the lockfile. A
 package's own license file and notices control if they differ from this convenience inventory.
 
-## Distribution gate
+## Binary distribution
 
-This file is attribution, not a legal conclusion or permission to ship a binary. The current
-`ffmpeg-static` executable was built with both GPL and nonfree configuration flags and therefore
-must not be redistributed. MpVFX's public desktop workflow intentionally validates builds without
-uploading them. See `docs/RELEASING.md` for the signing, corresponding-source, architecture, and
-license work required before any installer is distributed.
+This file is attribution, not a legal conclusion. During installation MpVFX replaces the
+executables downloaded by the `ffmpeg-static` and `@ffprobe-installer/ffprobe` path wrappers
+with exact SHA-256-pinned FFmpeg 8.1.2 assets from Shaka Project release `n8.1.2-1`. The selected
+GPLv3 binaries contain no `--enable-nonfree` configuration. Packaging verifies their hashes,
+architecture, version, and configuration. Exact provenance and corresponding-source details are in
+`docs/FFMPEG_DISTRIBUTION.md` and the same record is included in every application package.
 
 ## Material requiring prominent notice
 
 - Portions of the editor and rendering adapter derive from or depend on HyperFrames, Copyright
   2026 HeyGen, Inc., under Apache License 2.0. MpVFX modified, reorganized, and rebranded those
   portions. The full license is in `third_party/licenses/Apache-2.0.txt`.
-- `ffmpeg-static` declares GPL-3.0. Its full license is in
-  `third_party/licenses/GPL-3.0.txt`; the bundled executable remains subject to the distribution
-  gate above.
+- The packaged FFmpeg and FFprobe programs are GPL version 3 or later. Their full license is in
+  `third_party/licenses/GPL-3.0.txt`; public binary releases include matching corresponding source.
 - Electron packages Chromium and other components whose detailed notices are provided by
   `LICENSES.chromium.html` in a packaged Electron application.
 - GSAP declares its Standard “no charge” license. Review that package's current standard-license

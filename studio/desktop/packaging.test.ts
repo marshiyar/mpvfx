@@ -20,6 +20,64 @@ const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")) as {
 };
 
 describe("cross-platform Electron packaging", () => {
+  it("installs and verifies pinned redistributable FFmpeg suite binaries", () => {
+    const manifest = JSON.parse(
+      readFileSync(resolve(root, "scripts/ffmpeg-runtime-manifest.json"), "utf8"),
+    ) as {
+      release: string;
+      sourceRepository: string;
+      targets: Record<
+        string,
+        Record<"ffmpeg" | "ffprobe", { asset: string; sha256: string }>
+      >;
+    };
+    const verifier = createRequire(import.meta.url)(
+      resolve(root, "scripts/verify-redistributable-ffmpeg.cjs"),
+    ) as {
+      assertRedistributableFfprobeOutput(output: string): void;
+      assertRedistributableFfmpegOutput(output: string): void;
+    };
+
+    expect(pkg.scripts.postinstall).toContain("install-redistributable-ffmpeg.mjs");
+    expect(manifest.release).toBe("n8.1.2-1");
+    expect(manifest.sourceRepository).toBe(
+      "https://github.com/shaka-project/static-ffmpeg-binaries",
+    );
+    expect(Object.keys(manifest.targets).sort()).toEqual([
+      "darwin-arm64",
+      "darwin-x64",
+      "linux-x64",
+      "win32-x64",
+    ]);
+    for (const target of Object.values(manifest.targets)) {
+      expect(target.ffmpeg.asset).toMatch(/^ffmpeg-/u);
+      expect(target.ffprobe.asset).toMatch(/^ffprobe-/u);
+      expect(target.ffmpeg.sha256).toMatch(/^[a-f0-9]{64}$/u);
+      expect(target.ffprobe.sha256).toMatch(/^[a-f0-9]{64}$/u);
+    }
+
+    expect(() =>
+      verifier.assertRedistributableFfmpegOutput(
+        "ffmpeg version n8.1.2\nconfiguration: --enable-gpl --enable-version3 --enable-libx264 --enable-libvpx --enable-nonfree",
+      ),
+    ).toThrow(/nonfree|redistributable/i);
+    expect(() =>
+      verifier.assertRedistributableFfmpegOutput(
+        "ffmpeg version n8.1.2\nconfiguration: --enable-gpl --enable-version3 --enable-libx264 --enable-libvpx",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      verifier.assertRedistributableFfprobeOutput(
+        "ffprobe version n8.1.2\nconfiguration: --enable-gpl --enable-version3 --enable-libx264 --enable-libvpx --enable-nonfree",
+      ),
+    ).toThrow(/nonfree|redistributable/i);
+    expect(() =>
+      verifier.assertRedistributableFfprobeOutput(
+        "ffprobe version n8.1.2\nconfiguration: --enable-gpl --enable-version3 --enable-libx264 --enable-libvpx",
+      ),
+    ).not.toThrow();
+  });
+
   it("builds a desktop entrypoint and never starts npm or Vite inside the installed app", () => {
     expect(pkg.main).toBe("desktop-dist/main.js");
     expect(pkg.scripts).toMatchObject({
@@ -47,12 +105,28 @@ describe("cross-platform Electron packaging", () => {
     const makers = new Map(config.makers.map((maker) => [maker.name, maker.platforms]));
 
     expect(config.packagerConfig.asar).toBeTruthy();
+    expect(config.packagerConfig).toMatchObject({
+      extendInfo: { LSMinimumSystemVersion: "15.0" },
+    });
     expect(config.packagerConfig.extraResource).toContain("resources/legal");
     expect(config.hooks?.postPackage).toBeTypeOf("function");
     expect(makers.get("@electron-forge/maker-dmg")).toContain("darwin");
     expect(makers.get("@electron-forge/maker-squirrel")).toContain("win32");
     expect(makers.get("@electron-forge/maker-deb")).toContain("linux");
     expect(makers.get("@electron-forge/maker-rpm")).toContain("linux");
+  });
+
+  it("fails closed into native signing and notarization for official releases", () => {
+    const source = readFileSync(resolve(root, "forge.config.cjs"), "utf8");
+
+    expect(source).toContain('process.env.MPVFX_RELEASE_BUILD === "1"');
+    expect(source).toContain("requiredReleaseVariable");
+    expect(source).toContain("osxSign");
+    expect(source).toContain("osxNotarize");
+    expect(source).toContain("continueOnError: false");
+    expect(source).toContain('"code-sign"');
+    expect(source).toContain("windowsSign");
+    expect(source).toContain("WINDOWS_CERTIFICATE_FILE");
   });
 
   it("points Linux package makers at the executable emitted by Electron Packager", () => {

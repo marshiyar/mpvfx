@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "binaryRelease": "n8.1.2-1",
+  "builderRevision": "88caac417541f3bb678fa6670cb73f2d74c7aaf9",
+  "components": [
+    {
+      "name": "FFmpeg",
+      "version": "8.1.2",
+      "revision": "38b88335f99e76ed89ff3c93f877fdefce736c13",
+      "filename": "ffmpeg-8.1.2.tar.xz",
+      "url": "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz",
+      "sha256": "464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c"
+    },
+    {
+      "name": "libvpx",
+      "version": "1.16.0",
+      "revision": "1024874c5919305883187e2953de8fcb4c3d7fa6",
+      "filename": "libvpx-1024874c5919305883187e2953de8fcb4c3d7fa6.tar.gz",
+      "url": "https://chromium.googlesource.com/webm/libvpx/+archive/1024874c5919305883187e2953de8fcb4c3d7fa6.tar.gz",
+      "sha256": "17b46c6a0104ee39e27bb7bc41c9c1cd0f5be67f77e0225b9d7b69cfa01fd2fc"
+    },
+    {
+      "name": "SVT-AV1",
+      "version": "4.1.0",
+      "revision": "c04f951541ad600e0d9c10836f2ab7b9bc69816d",
+      "filename": "SVT-AV1-c04f951541ad600e0d9c10836f2ab7b9bc69816d.tar.gz",
+      "url": "https://gitlab.com/AOMediaCodec/SVT-AV1/-/archive/c04f951541ad600e0d9c10836f2ab7b9bc69816d/SVT-AV1-c04f951541ad600e0d9c10836f2ab7b9bc69816d.tar.gz",
+      "sha256": "53c466fe5c4dbd3fa35f40369aa3984d876d548794bf2f7de306945bdb5f51be"
+    },
+    {
+      "name": "x264",
+      "version": "0480cb0",
+      "revision": "0480cb05fa188d37ae87e8f4fd8f1aea3711f7ee",
+      "filename": "x264-0480cb05fa188d37ae87e8f4fd8f1aea3711f7ee.tar.gz",
+      "url": "https://code.videolan.org/videolan/x264/-/archive/0480cb05fa188d37ae87e8f4fd8f1aea3711f7ee/x264-0480cb05fa188d37ae87e8f4fd8f1aea3711f7ee.tar.gz",
+      "sha256": "d0967a1348c85dfde363bb52610403be898171493100561efa0dd05d5fd1ae50"
+    },
+    {
+      "name": "x265",
+      "version": "4.2",
+      "revision": "e444744c03978c1fb4e037168967020cf2648427",
+      "filename": "x265-e444744c03978c1fb4e037168967020cf2648427.tar.gz",
+      "url": "https://bitbucket.org/multicoreware/x265_git/get/e444744c03978c1fb4e037168967020cf2648427.tar.gz",
+      "sha256": "0a3d41f6b4e2fe5a49d783d6631bd1a49c44cdf999074a3ff09e2cb71ac8ed33"
+    },
+    {
+      "name": "LAME",
+      "version": "3.100",
+      "revision": "3.100",
+      "filename": "lame-3.100.tar.gz",
+      "url": "https://sourceforge.net/projects/lame/files/lame/3.100/lame-3.100.tar.gz/download",
+      "sha256": "ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e"
+    },
+    {
+      "name": "Opus",
+      "version": "1.6.1",
+      "revision": "22244de5a79bd1d6d623c32e72bf1954b56235be",
+      "filename": "opus-22244de5a79bd1d6d623c32e72bf1954b56235be.tar.gz",
+      "url": "https://codeload.github.com/xiph/opus/tar.gz/22244de5a79bd1d6d623c32e72bf1954b56235be",
+      "sha256": "3267aa969b2b26542417f57819a5bc25d5079355300307dd2dddc7c704aed418"
+    },
+    {
+      "name": "Mbed TLS",
+      "version": "3.4.1",
+      "revision": "72718dd87e087215ce9155a826ee5a66cfbe9631",
+      "filename": "mbedtls-72718dd87e087215ce9155a826ee5a66cfbe9631.tar.gz",
+      "url": "https://codeload.github.com/Mbed-TLS/mbedtls/tar.gz/72718dd87e087215ce9155a826ee5a66cfbe9631",
+      "sha256": "c6eeacf906d313d5ed2844efd2f98b2298b70d04ba8cc891a24dcb1e566bd29b"
+    },
+    {
+      "name": "Shaka static FFmpeg build scripts",
+      "version": "n8.1.2-1",
+      "revision": "88caac417541f3bb678fa6670cb73f2d74c7aaf9",
+      "filename": "static-ffmpeg-binaries-88caac417541f3bb678fa6670cb73f2d74c7aaf9.tar.gz",
+      "url": "https://codeload.github.com/shaka-project/static-ffmpeg-binaries/tar.gz/88caac417541f3bb678fa6670cb73f2d74c7aaf9",
+      "sha256": "6796e84d42ed147458351dc57364b66dc568c1d7808566536efd662ff24241f1"
+    }
+  ]
+}

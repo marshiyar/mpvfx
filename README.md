@@ -18,6 +18,7 @@ Requirements:
 
 - Node.js 22.23.2 (pinned in `studio/.nvmrc`)
 - npm and the native packaging tools for your platform
+- macOS 15.0 or later when running the packaged Mac application
 
 ```bash
 cd studio
@@ -36,6 +37,8 @@ npm run release:check
 ```
 
 See [studio/README.md](studio/README.md) for editor-specific development and packaging commands.
+Official downloadable installers are created from reviewed version tags through the protected,
+signed release process in [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Repository layout
 

@@ -19,5 +19,10 @@ respective authors. Each post, author, source URL, contribution date, license ve
 notice is recorded in third_party/stackexchange-video-qa/sources.jsonl. The corpus is separate from
 MpVFX-owned code and is governed by its Creative Commons Attribution-ShareAlike license records.
 
+Desktop installers include separately executed FFmpeg and FFprobe programs built by the Shaka
+Project under GNU GPL version 3 or later. Their exact binary provenance, corresponding source, and
+redistribution record are in docs/FFMPEG_DISTRIBUTION.md, and the GPL text is stored at
+third_party/licenses/GPL-3.0.txt.
+
 Additional production and build dependencies are listed in THIRD_PARTY_NOTICES.md. Installed
 desktop applications also retain dependency license files and Electron's LICENSES.chromium.html.

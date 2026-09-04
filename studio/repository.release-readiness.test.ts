@@ -23,10 +23,14 @@ describe("public repository release readiness", () => {
       "SECURITY.md",
       "SUPPORT.md",
       "docs/ARCHITECTURE.md",
+      "docs/FFMPEG_DISTRIBUTION.md",
       "docs/GITHUB_SETUP.md",
       "docs/REMOTE_ASSETS.md",
       "docs/RELEASING.md",
       "third_party/licenses/GSAP-NOTICE.txt",
+      "scripts/collect-ffmpeg-corresponding-source.mjs",
+      "scripts/ffmpeg-source-manifest.json",
+      ".github/workflows/release.yml",
       ".github/PULL_REQUEST_TEMPLATE.md",
       ".github/ISSUE_TEMPLATE/bug_report.yml",
       ".github/ISSUE_TEMPLATE/feature_request.yml",
@@ -285,5 +289,49 @@ describe("public repository release readiness", () => {
     expect(workflow).toContain("ubuntu-24.04\n            arch: x64");
     expect(workflow).not.toContain("actions/upload-artifact");
     expect(workflow).not.toMatch(/\b(?:publish|release)\b/iu);
+  });
+
+  it("publishes signed and checksummed installers only through the release workflow", () => {
+    const workflow = repositoryFile(".github/workflows/release.yml");
+
+    expect(workflow).toContain('tags: ["v*"]');
+    expect(workflow).not.toContain("pull_request:");
+    expect(workflow).toContain("environment: release");
+    expect(workflow).toContain("MACOS_CERTIFICATE");
+    expect(workflow).toContain("WINDOWS_CERTIFICATE");
+    expect(workflow).toContain(
+      "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+    );
+    expect(workflow).toContain(
+      "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+    );
+    expect(workflow).toContain("SHA256SUMS");
+    expect(workflow).toContain("gh release create");
+    expect(workflow).toContain("ffmpeg-corresponding-source");
+    expect(workflow).toContain("xcrun stapler validate");
+    expect(workflow).toContain("Get-AuthenticodeSignature");
+  });
+
+  it("pins every FFmpeg corresponding-source input", () => {
+    const runtime = JSON.parse(
+      repositoryFile("studio/scripts/ffmpeg-runtime-manifest.json"),
+    ) as { release: string };
+    const source = JSON.parse(
+      repositoryFile("scripts/ffmpeg-source-manifest.json"),
+    ) as {
+      binaryRelease: string;
+      components: Array<{ filename?: string; url?: string; sha256?: string }>;
+    };
+
+    expect(source.binaryRelease).toBe(runtime.release);
+    expect(source.components).toHaveLength(9);
+    for (const component of source.components) {
+      expect(component.filename).toEqual(expect.any(String));
+      expect(component.url).toMatch(/^https:\/\//u);
+      expect(component.sha256).toMatch(/^[a-f0-9]{64}$/u);
+    }
+    expect(repositoryFile("scripts/collect-ffmpeg-corresponding-source.mjs")).toContain(
+      "source checksum mismatch",
+    );
   });
 });

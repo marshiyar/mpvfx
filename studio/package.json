@@ -42,7 +42,7 @@
     "desktop:make:mac:x64": "node scripts/check-desktop-packaging-node.mjs && npm run desktop:build && electron-forge make --platform=darwin --arch=x64",
     "desktop:make:windows": "node scripts/check-desktop-packaging-node.mjs && npm run desktop:build && electron-forge make --platform=win32 --arch=x64",
     "desktop:make:linux": "node scripts/check-desktop-packaging-node.mjs && npm run desktop:build && electron-forge make --platform=linux --arch=x64",
-    "postinstall": "node scripts/apply-exact-keyframe-writer-patch.mjs && node scripts/apply-export-capture-geometry-patch.mjs",
+    "postinstall": "node scripts/install-redistributable-ffmpeg.mjs && node scripts/apply-exact-keyframe-writer-patch.mjs && node scripts/apply-export-capture-geometry-patch.mjs",
     "typecheck": "tsc --noEmit && tsc --project tsconfig.desktop.json --noEmit",
     "test": "node ./node_modules/vitest/vitest.mjs run --exclude desktop/server.integration.test.ts && node ./node_modules/vitest/vitest.mjs run desktop/server.integration.test.ts",
     "test:timeline-virtualization": "TIMELINE_ROW_VIRTUALIZATION=on TIMELINE_ELEMENT_COUNT=50000 node tests/e2e/timeline-virtualization.mjs",
