@@ -4,6 +4,9 @@ const { assertPackagedLegalResources } = require("./scripts/verify-packaged-lega
 const {
   assertPackagedRuntimeDependencies,
 } = require("./scripts/verify-packaged-runtime-dependencies.cjs");
+const {
+  prunePackagedNativeBinaries,
+} = require("./scripts/prune-packaged-native-binaries.cjs");
 
 module.exports = {
   packagerConfig: {
@@ -32,6 +35,15 @@ module.exports = {
   },
   rebuildConfig: {},
   hooks: {
+    packageAfterPrune: async (
+      _forgeConfig,
+      buildPath,
+      _electronVersion,
+      platform,
+      arch,
+    ) => {
+      prunePackagedNativeBinaries(buildPath, platform, arch);
+    },
     postPackage: async (_forgeConfig, packageResult) => {
       assertPackagedMediaBinaries(packageResult);
       assertPackagedRuntimeDependencies(packageResult);

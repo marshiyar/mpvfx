@@ -1,5 +1,13 @@
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 
@@ -122,6 +130,65 @@ describe("cross-platform Electron packaging", () => {
       binary:
         "/tmp/MpVFX-darwin-arm64/MpVFX.app/Contents/Resources/app.asar.unpacked/node_modules/@esbuild/darwin-arm64/bin/esbuild",
     });
+  });
+
+  it("normalizes Windows ASAR entries before checking packaged runtime dependencies", () => {
+    const verifier = createRequire(import.meta.url)(
+      resolve(root, "scripts/verify-packaged-runtime-dependencies.cjs"),
+    ) as {
+      normalizeArchiveEntry(entry: string): string;
+    };
+
+    expect(verifier.normalizeArchiveEntry("\\node_modules\\esbuild\\package.json")).toBe(
+      "node_modules/esbuild/package.json",
+    );
+  });
+
+  it("keeps only the target ONNX native binaries before creating the application archive", () => {
+    const fixture = mkdtempSync(join(tmpdir(), "mpvfx-native-prune-"));
+    const nativeRoot = resolve(
+      fixture,
+      "node_modules/onnxruntime-node/bin/napi-v3",
+    );
+    const targets = [
+      ["linux", "x64"],
+      ["linux", "arm64"],
+      ["darwin", "x64"],
+      ["win32", "x64"],
+    ] as const;
+
+    try {
+      for (const [platform, arch] of targets) {
+        const directory = resolve(nativeRoot, platform, arch);
+        mkdirSync(directory, { recursive: true });
+        writeFileSync(resolve(directory, "onnxruntime_binding.node"), `${platform}-${arch}`);
+      }
+
+      const pruner = createRequire(import.meta.url)(
+        resolve(root, "scripts/prune-packaged-native-binaries.cjs"),
+      ) as {
+        prunePackagedNativeBinaries(
+          buildPath: string,
+          platform: string,
+          arch: string,
+        ): void;
+      };
+      pruner.prunePackagedNativeBinaries(fixture, "linux", "x64");
+
+      expect(
+        existsSync(resolve(nativeRoot, "linux/x64/onnxruntime_binding.node")),
+      ).toBe(true);
+      for (const [platform, arch] of targets.slice(1)) {
+        expect(existsSync(resolve(nativeRoot, platform, arch))).toBe(false);
+      }
+
+      const config = createRequire(import.meta.url)(resolve(root, "forge.config.cjs")) as {
+        hooks?: { packageAfterPrune?: unknown };
+      };
+      expect(config.hooks?.packageAfterPrune).toBeTypeOf("function");
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
   });
 
   it("establishes bundled binary paths before loading any server or render dependency", () => {

@@ -53,6 +53,10 @@ function readExecutableHeader(path) {
   }
 }
 
+function normalizeArchiveEntry(entry) {
+  return entry.replace(/\\/g, "/").replace(/^\/+/, "");
+}
+
 function assertPackagedRuntimeDependencies(packageResult) {
   for (const outputPath of packageResult.outputPaths) {
     const paths = packagedEsbuildPaths(
@@ -64,7 +68,7 @@ function assertPackagedRuntimeDependencies(packageResult) {
       throw new Error(`Packaged application archive is missing at "${paths.archive}"`);
     }
 
-    const entries = new Set(listPackage(paths.archive).map((entry) => entry.replace(/^\//, "")));
+    const entries = new Set(listPackage(paths.archive).map(normalizeArchiveEntry));
     for (const entry of [paths.packageEntry, paths.jsEntry]) {
       if (!entries.has(entry)) {
         throw new Error(
@@ -91,5 +95,6 @@ function assertPackagedRuntimeDependencies(packageResult) {
 
 module.exports = {
   assertPackagedRuntimeDependencies,
+  normalizeArchiveEntry,
   packagedEsbuildPaths,
 };
