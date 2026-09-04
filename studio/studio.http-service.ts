@@ -144,6 +144,9 @@ export function createStudioHttpService(options: StudioHttpServiceOptions): Stud
     ignoreInitial: true,
     awaitWriteFinish: { stabilityThreshold: 40, pollInterval: 10 },
   });
+  const projectWatcherReady = new Promise<void>((resolveReady) => {
+    projectWatcher.once("ready", resolveReady);
+  });
   const signatureCache = createProjectSignatureCache({
     watch: (projectDir) => void projectWatcher.add(projectDir),
   });
@@ -335,6 +338,11 @@ export function createStudioHttpService(options: StudioHttpServiceOptions): Stud
       if (!requestUrl) return false;
       const url = new URL(requestUrl, `http://${request.headers.host ?? "127.0.0.1"}`);
       if (url.pathname === "/api/events") {
+        // Do not acknowledge the event stream until chokidar has finished its
+        // initial scan. Otherwise a client can receive `: connected`, write a
+        // project file immediately, and lose that change before the watcher is
+        // actually listening (most visible on slower CI and fresh installs).
+        await projectWatcherReady;
         registerEventClient(request, response);
         return true;
       }
