@@ -11,58 +11,12 @@ const {
   prunePackagedNativeBinaries,
 } = require("./scripts/prune-packaged-native-binaries.cjs");
 
-const releaseBuild = process.env.MPVFX_RELEASE_BUILD === "1";
-
-function requiredReleaseVariable(name) {
-  const value = process.env[name]?.trim();
-  if (!value) throw new Error(`Official release packaging requires ${name}`);
-  return value;
-}
-
-function releaseSigningConfig() {
-  if (!releaseBuild) return { packager: {}, dmg: {}, squirrel: {} };
-  if (process.platform === "darwin") {
-    const identity = requiredReleaseVariable("MACOS_SIGNING_IDENTITY");
-    return {
-      packager: {
-        osxSign: { identity, hardenedRuntime: true, continueOnError: false },
-        osxNotarize: {
-          appleId: requiredReleaseVariable("APPLE_ID"),
-          appleIdPassword: requiredReleaseVariable("APPLE_APP_SPECIFIC_PASSWORD"),
-          teamId: requiredReleaseVariable("APPLE_TEAM_ID"),
-        },
-      },
-      dmg: {
-        "code-sign": {
-          "signing-identity": identity,
-          identifier: "com.mpvfx.editor",
-        },
-      },
-      squirrel: {},
-    };
-  }
-  if (process.platform === "win32") {
-    const windowsSign = {
-      certificateFile: requiredReleaseVariable("WINDOWS_CERTIFICATE_FILE"),
-      certificatePassword: requiredReleaseVariable("WINDOWS_CERTIFICATE_PASSWORD"),
-      description: "MpVFX Video Editor",
-      timestampServer: "http://timestamp.digicert.com",
-      hashes: ["sha256"],
-    };
-    return { packager: { windowsSign }, dmg: {}, squirrel: { windowsSign } };
-  }
-  return { packager: {}, dmg: {}, squirrel: {} };
-}
-
-const signing = releaseSigningConfig();
-
 module.exports = {
   packagerConfig: {
     name: "MpVFX",
     executableName: "MpVFX",
     appBundleId: "com.mpvfx.editor",
     extendInfo: { LSMinimumSystemVersion: "15.0" },
-    ...signing.packager,
     asar: {
       unpack:
         "**/node_modules/{ffmpeg-static,@ffprobe-installer/**,onnxruntime-node/**,sharp/**,@img/**,esbuild/**,@esbuild/**}/**",
@@ -106,7 +60,7 @@ module.exports = {
     {
       name: "@electron-forge/maker-dmg",
       platforms: ["darwin"],
-      config: { format: "ULFO", ...signing.dmg },
+      config: { format: "ULFO" },
     },
     {
       name: "@electron-forge/maker-squirrel",
@@ -115,7 +69,6 @@ module.exports = {
         name: "MpVFX",
         authors: "MpVFX",
         description: "Media-first nonlinear video editor",
-        ...signing.squirrel,
       },
     },
     {

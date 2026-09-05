@@ -9,5 +9,4 @@ Use GitHub Discussions for general workflow questions if Discussions is enabled.
 conduct reports must use the private channels described in [SECURITY.md](SECURITY.md) and
 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
-Unsigned local builds are development artifacts and are not supported as official releases.
-
+Downloadable builds are available from GitHub Releases.

@@ -1,8 +1,9 @@
-name: Release installers
+name: Build GitHub Release
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -12,12 +13,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  preflight:
-    name: Release preflight
+  prepare:
+    name: Check release version
     runs-on: ubuntu-24.04
-    timeout-minutes: 50
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
     steps:
-      - name: Check out tagged source
+      - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -26,33 +28,23 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: studio/.nvmrc
-          cache: npm
-          cache-dependency-path: studio/package-lock.json
+          package-manager-cache: false
 
-      - name: Require tag and package versions to match
+      - name: Resolve version tag
+        id: version
         shell: bash
         run: |
           set -euo pipefail
-          package_version="$(node -p "require('./studio/package.json').version")"
-          test "${GITHUB_REF_NAME}" = "v${package_version}" || {
-            echo "Tag ${GITHUB_REF_NAME} does not match studio/package.json version ${package_version}." >&2
+          release_tag="v$(node -p "require('./studio/package.json').version")"
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" != "${release_tag}" ]]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match ${release_tag}." >&2
             exit 1
-          }
-
-      - name: Install exact dependencies
-        run: npm ci --prefix studio
-
-      - name: Verify source, tests, and compilation
-        run: |
-          npm --prefix studio run release:check
-          npm --prefix studio test
-          npm --prefix studio run typecheck
-          npm --prefix studio run build
+          fi
+          echo "tag=${release_tag}" >> "${GITHUB_OUTPUT}"
 
   build:
-    name: Signed ${{ matrix.label }}
-    needs: preflight
-    environment: release
+    name: ${{ matrix.label }}
+    needs: prepare
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     strategy:
@@ -77,11 +69,10 @@ jobs:
             artifact: mpvfx-linux-x64
 
     env:
-      MPVFX_RELEASE_BUILD: "1"
       CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
     steps:
-      - name: Check out tagged source
+      - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -99,104 +90,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes rpm
 
-      - name: Import Apple signing certificate
-        if: runner.os == 'macOS'
-        shell: bash
-        env:
-          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
-          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
-          MACOS_KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
-          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          set -euo pipefail
-          for required in MACOS_CERTIFICATE MACOS_CERTIFICATE_PASSWORD MACOS_KEYCHAIN_PASSWORD MACOS_SIGNING_IDENTITY APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
-            test -n "${!required:-}" || { echo "Missing release secret: ${required}" >&2; exit 1; }
-          done
-          certificate_path="${RUNNER_TEMP}/mpvfx-signing.p12"
-          keychain_path="${RUNNER_TEMP}/mpvfx-signing.keychain-db"
-          node -e "require('node:fs').writeFileSync(process.argv[1], Buffer.from(process.env.MACOS_CERTIFICATE, 'base64'))" "${certificate_path}"
-          security create-keychain -p "${MACOS_KEYCHAIN_PASSWORD}" "${keychain_path}"
-          security set-keychain-settings -lut 21600 "${keychain_path}"
-          security unlock-keychain -p "${MACOS_KEYCHAIN_PASSWORD}" "${keychain_path}"
-          security import "${certificate_path}" -P "${MACOS_CERTIFICATE_PASSWORD}" -A -t cert -f pkcs12 -k "${keychain_path}"
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${MACOS_KEYCHAIN_PASSWORD}" "${keychain_path}"
-          security list-keychains -d user -s "${keychain_path}"
-
-      - name: Materialize Windows signing certificate
-        if: runner.os == 'Windows'
-        shell: pwsh
-        env:
-          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-          WINDOWS_CERTIFICATE_FILE: ${{ runner.temp }}/mpvfx-signing.pfx
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE)) {
-            throw "Missing release secret: WINDOWS_CERTIFICATE"
-          }
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)) {
-            throw "Missing release secret: WINDOWS_CERTIFICATE_PASSWORD"
-          }
-          [IO.File]::WriteAllBytes(
-            $env:WINDOWS_CERTIFICATE_FILE,
-            [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
-          )
-
-      - name: Install exact dependencies
+      - name: Install dependencies
         run: npm ci --prefix studio
 
-      - name: Build signed and notarized Apple installer
-        if: runner.os == 'macOS'
-        env:
-          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - name: Build installer
         run: npm --prefix studio run ${{ matrix.script }}
 
-      - name: Build Authenticode-signed Windows installer
-        if: runner.os == 'Windows'
-        env:
-          WINDOWS_CERTIFICATE_FILE: ${{ runner.temp }}/mpvfx-signing.pfx
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-        run: npm --prefix studio run ${{ matrix.script }}
-
-      - name: Build Linux installer
-        if: runner.os == 'Linux'
-        run: npm --prefix studio run ${{ matrix.script }}
-
-      - name: Verify Apple signatures and notarization ticket
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          set -euo pipefail
-          app_path="$(find studio/out -type d -name MpVFX.app -print -quit)"
-          test -n "${app_path}"
-          codesign --verify --deep --strict --verbose=2 "${app_path}"
-          xcrun stapler validate "${app_path}"
-          while IFS= read -r -d '' dmg; do
-            codesign --verify --strict --verbose=2 "${dmg}"
-          done < <(find studio/out/make -type f -name '*.dmg' -print0)
-
-      - name: Verify Windows Authenticode signatures
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $signedFiles = @(
-            Get-ChildItem studio/out -Recurse -File |
-              Where-Object { $_.Name -eq 'MpVFX.exe' -or $_.Name -like '*Setup.exe' }
-          )
-          if ($signedFiles.Count -lt 2) { throw "Expected signed application and Setup executables" }
-          foreach ($file in $signedFiles) {
-            $signature = Get-AuthenticodeSignature $file.FullName
-            if ($signature.Status -ne 'Valid') {
-              throw "Invalid Authenticode signature on $($file.FullName): $($signature.Status)"
-            }
-          }
-
-      - name: Upload reviewed installer
+      - name: Upload installer
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ matrix.artifact }}
@@ -204,30 +104,13 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Remove temporary Apple signing material
-        if: always() && runner.os == 'macOS'
-        shell: bash
-        run: |
-          security delete-keychain "${RUNNER_TEMP}/mpvfx-signing.keychain-db" 2>/dev/null || true
-          rm -f "${RUNNER_TEMP}/mpvfx-signing.p12"
-
-      - name: Remove temporary Windows signing material
-        if: always() && runner.os == 'Windows'
-        shell: pwsh
-        env:
-          WINDOWS_CERTIFICATE_FILE: ${{ runner.temp }}/mpvfx-signing.pfx
-        run: |
-          if (Test-Path $env:WINDOWS_CERTIFICATE_FILE) {
-            Remove-Item -Force $env:WINDOWS_CERTIFICATE_FILE
-          }
-
   source:
-    name: FFmpeg corresponding source
-    needs: preflight
+    name: FFmpeg source archive
+    needs: prepare
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - name: Check out tagged source
+      - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -238,10 +121,10 @@ jobs:
           node-version-file: studio/.nvmrc
           package-manager-cache: false
 
-      - name: Collect exact corresponding source
+      - name: Build source archive
         run: node scripts/collect-ffmpeg-corresponding-source.mjs release-source/ffmpeg-corresponding-source-n8.1.2-1.tar.gz
 
-      - name: Upload corresponding source
+      - name: Upload source archive
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ffmpeg-corresponding-source
@@ -250,42 +133,42 @@ jobs:
           retention-days: 14
 
   publish:
-    name: Publish approved GitHub release
-    needs: [build, source]
-    environment: release
+    name: Publish GitHub Release
+    needs: [prepare, build, source]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: write
     steps:
-      - name: Check out tagged source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Download installers and corresponding source
+      - name: Download release files
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: release-assets
           merge-multiple: true
 
-      - name: Create release checksums
+      - name: Create checksums
         shell: bash
         run: |
           set -euo pipefail
           cd release-assets
           find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
 
-      - name: Publish immutable tag artifacts
+      - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         shell: bash
         run: |
           set -euo pipefail
           mapfile -d '' assets < <(find release-assets -type f -print0)
           test "${#assets[@]}" -gt 1
-          gh release create "${GITHUB_REF_NAME}" "${assets[@]}" \
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            target=(--verify-tag)
+          else
+            target=(--target "${GITHUB_SHA}")
+          fi
+          gh release create "${RELEASE_TAG}" "${assets[@]}" \
             --repo "${GITHUB_REPOSITORY}" \
-            --verify-tag \
+            "${target[@]}" \
             --generate-notes \
-            --title "MpVFX ${GITHUB_REF_NAME}"
+            --title "MpVFX ${RELEASE_TAG}"

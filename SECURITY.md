@@ -2,8 +2,8 @@
 
 ## Supported versions
 
-Until MpVFX publishes its first signed release, only the current `main` branch receives security
-fixes. After releases begin, this file will list supported version lines explicitly.
+Until MpVFX publishes its first stable release, only the current `main` branch receives security
+fixes. Supported version lines will be listed here after stable releases begin.
 
 ## Reporting a vulnerability
 
@@ -16,4 +16,3 @@ mitigation. Maintainers should acknowledge a report within seven days and coordi
 after a fix is available.
 
 Never test against systems or data you do not own or have permission to use.
-

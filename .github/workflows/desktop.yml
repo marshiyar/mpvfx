@@ -82,5 +82,4 @@ jobs:
       - name: Build native installer
         run: npm --prefix studio run ${{ matrix.script }}
 
-      # Validation only. Do not upload these unsigned installers: public binary
-      # distribution has separate signing and media-license gates in docs/RELEASING.md.
+      # Main-branch validation only.

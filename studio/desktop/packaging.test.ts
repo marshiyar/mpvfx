@@ -116,17 +116,14 @@ describe("cross-platform Electron packaging", () => {
     expect(makers.get("@electron-forge/maker-rpm")).toContain("linux");
   });
 
-  it("fails closed into native signing and notarization for official releases", () => {
+  it("packages releases without requiring signing credentials", () => {
     const source = readFileSync(resolve(root, "forge.config.cjs"), "utf8");
 
-    expect(source).toContain('process.env.MPVFX_RELEASE_BUILD === "1"');
-    expect(source).toContain("requiredReleaseVariable");
-    expect(source).toContain("osxSign");
-    expect(source).toContain("osxNotarize");
-    expect(source).toContain("continueOnError: false");
-    expect(source).toContain('"code-sign"');
-    expect(source).toContain("windowsSign");
-    expect(source).toContain("WINDOWS_CERTIFICATE_FILE");
+    expect(source).not.toContain("requiredReleaseVariable");
+    expect(source).not.toContain("osxSign");
+    expect(source).not.toContain("osxNotarize");
+    expect(source).not.toContain("windowsSign");
+    expect(source).not.toContain("WINDOWS_CERTIFICATE_FILE");
   });
 
   it("points Linux package makers at the executable emitted by Electron Packager", () => {

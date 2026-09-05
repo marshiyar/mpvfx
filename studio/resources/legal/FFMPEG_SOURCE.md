@@ -38,11 +38,9 @@ nonfree binary stops the build.
 | Windows x64 | `ffmpeg` | `ffmpeg-win-x64.exe` | `4044b3924c977ad31229d504c5d5b8685f9553124fbaff6e9c99048b42830341` |
 | Windows x64 | `ffprobe` | `ffprobe-win-x64.exe` | `fc37ca23d31ee08bb8f7e108edf3822f6ef3efc1a8d306bbe0b779190230710b` |
 
-These are the hashes of the audited upstream bytes before distribution signing. Official macOS and
-Windows packaging may append the MpVFX platform signature, which intentionally changes a file's
-whole-file hash without changing its program code or reported configuration. The upstream digest is
-enforced immediately before signing; afterward MpVFX checks the executable architecture, version,
-configuration, platform signature, and the checksum of the complete release artifact.
+These are the hashes of the audited upstream bytes. Packaging checks the executable hash,
+architecture, version, and configuration before creating each installer. GitHub Releases also
+include a checksum for every downloadable file.
 
 The npm packages `ffmpeg-static` and `@ffprobe-installer/ffprobe` remain path-selection wrappers in
 the JavaScript dependency graph. Their downloaded executables are replaced during `postinstall` by

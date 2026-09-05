@@ -7,7 +7,7 @@ Thumbs.db
 __pycache__/
 *.py[cod]
 
-# Local agent and workspace configuration
+# Local development tools and workspace state
 .agents/
 .codex/
 .claude/
@@ -21,7 +21,7 @@ __pycache__/
 .cache/
 .tmp/
 
-# AI conversation histories and exports are private local data
+# Private exports
 /chat-history/
 /chat-exports/
 /conversation-exports/

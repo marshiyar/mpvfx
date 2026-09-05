@@ -82,9 +82,8 @@ architecture, version, and configuration. Exact provenance and corresponding-sou
 
 ## Material requiring prominent notice
 
-- Portions of the editor and rendering adapter derive from or depend on HyperFrames, Copyright
-  2026 HeyGen, Inc., under Apache License 2.0. MpVFX modified, reorganized, and rebranded those
-  portions. The full license is in \`third_party/licenses/Apache-2.0.txt\`.
+- Source-derived attribution is retained in \`NOTICE\`. Apache License 2.0 is included in
+  \`third_party/licenses/Apache-2.0.txt\`.
 - The packaged FFmpeg and FFprobe programs are GPL version 3 or later. Their full license is in
   \`third_party/licenses/GPL-3.0.txt\`; public binary releases include matching corresponding source.
 - Electron packages Chromium and other components whose detailed notices are provided by

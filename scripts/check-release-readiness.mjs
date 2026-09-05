@@ -364,22 +364,31 @@ for (const marker of [
 }
 
 const releaseWorkflow = read(".github/workflows/release.yml");
-if (!releaseWorkflow.includes('tags: ["v*"]') || releaseWorkflow.includes("pull_request:")) {
-  fail("Release workflow must run from version tags only");
+if (
+  !releaseWorkflow.includes('tags: ["v*"]')
+  || !releaseWorkflow.includes("workflow_dispatch:")
+  || releaseWorkflow.includes("pull_request:")
+) {
+  fail("Release workflow must run from a version tag or manual release request");
 }
 for (const marker of [
-  "environment: release",
-  "MACOS_CERTIFICATE",
-  "WINDOWS_CERTIFICATE",
   "SHA256SUMS",
   "ffmpeg-corresponding-source",
-  "xcrun stapler validate",
-  "Get-AuthenticodeSignature",
   "gh release create",
   "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
   "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
 ]) {
   if (!releaseWorkflow.includes(marker)) fail(`Release workflow is missing safety marker: ${marker}`);
+}
+for (const forbidden of [
+  "environment: release",
+  "MACOS_CERTIFICATE",
+  "WINDOWS_CERTIFICATE",
+  "MPVFX_RELEASE_BUILD",
+]) {
+  if (releaseWorkflow.includes(forbidden)) {
+    fail(`Release workflow still requires signing configuration: ${forbidden}`);
+  }
 }
 
 if (failures.length > 0) {

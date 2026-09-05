@@ -109,7 +109,7 @@ describe("applyPatchByTarget", () => {
       {
         type: "inline-style",
         property: "background-image",
-        value: `url("../ChatGPT Image Apr 22, 2026.png")`,
+        value: `url("../Imported Image Apr 22, 2026.png")`,
       },
     );
     const withRadius = applyPatchByTarget(
@@ -119,7 +119,7 @@ describe("applyPatchByTarget", () => {
     );
 
     expect(withRadius).toContain(
-      "background-image: url(&quot;../ChatGPT Image Apr 22, 2026.png&quot;)",
+      "background-image: url(&quot;../Imported Image Apr 22, 2026.png&quot;)",
     );
     expect(withRadius).toContain("border-radius: 12px");
   });

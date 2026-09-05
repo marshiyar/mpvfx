@@ -58,7 +58,7 @@ describe("public repository release readiness", () => {
     expect(license).toContain("Apache License");
     expect(license).toContain("Version 2.0, January 2004");
     expect(license).toContain("http://www.apache.org/licenses/");
-    expect(repositoryFile("NOTICE")).toContain("Third-party material");
+    expect(repositoryFile("NOTICE")).toContain("Additional runtime dependency notices");
   });
 
   it("reserves the exact GitHub repository name mpvfx", () => {
@@ -291,17 +291,16 @@ describe("public repository release readiness", () => {
     expect(workflow).not.toMatch(/\b(?:publish|release)\b/iu);
   });
 
-  it("publishes signed and checksummed installers only through the release workflow", () => {
+  it("publishes checksummed installers without signing credentials", () => {
     const workflow = repositoryFile(".github/workflows/release.yml");
-    const buildJobStart = workflow.indexOf("\n  build:");
-    const buildStepsStart = workflow.indexOf("\n    steps:", buildJobStart);
-    const buildJobPreamble = workflow.slice(buildJobStart, buildStepsStart);
 
     expect(workflow).toContain('tags: ["v*"]');
+    expect(workflow).toContain("workflow_dispatch:");
     expect(workflow).not.toContain("pull_request:");
-    expect(workflow).toContain("environment: release");
-    expect(workflow).toContain("MACOS_CERTIFICATE");
-    expect(workflow).toContain("WINDOWS_CERTIFICATE");
+    expect(workflow).not.toContain("environment: release");
+    expect(workflow).not.toContain("MACOS_CERTIFICATE");
+    expect(workflow).not.toContain("WINDOWS_CERTIFICATE");
+    expect(workflow).not.toContain("MPVFX_RELEASE_BUILD");
     expect(workflow).toContain(
       "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
     );
@@ -311,9 +310,21 @@ describe("public repository release readiness", () => {
     expect(workflow).toContain("SHA256SUMS");
     expect(workflow).toContain("gh release create");
     expect(workflow).toContain("ffmpeg-corresponding-source");
-    expect(workflow).toContain("xcrun stapler validate");
-    expect(workflow).toContain("Get-AuthenticodeSignature");
-    expect(buildJobPreamble).not.toContain("${{ runner.temp }}");
+    expect(workflow).not.toContain("xcrun stapler validate");
+    expect(workflow).not.toContain("Get-AuthenticodeSignature");
+  });
+
+  it("keeps public documentation free of internal conversation commentary", () => {
+    const publicDocs = [
+      "README.md",
+      "studio/README.md",
+      "CONTRIBUTING.md",
+      "PRIVACY.md",
+      "docs/GITHUB_SETUP.md",
+      "docs/RELEASING.md",
+    ].map(repositoryFile).join("\n");
+
+    expect(publicDocs).not.toMatch(/ChatGPT|Claude|AI-agent|conversation histories|prompts\/responses/iu);
   });
 
   it("pins every FFmpeg corresponding-source input", () => {
