@@ -16,15 +16,15 @@
       "version": "1.16.0",
       "revision": "1024874c5919305883187e2953de8fcb4c3d7fa6",
       "filename": "libvpx-1024874c5919305883187e2953de8fcb4c3d7fa6.tar.gz",
-      "url": "https://chromium.googlesource.com/webm/libvpx/+archive/1024874c5919305883187e2953de8fcb4c3d7fa6.tar.gz",
-      "sha256": "17b46c6a0104ee39e27bb7bc41c9c1cd0f5be67f77e0225b9d7b69cfa01fd2fc"
+      "url": "https://codeload.github.com/webmproject/libvpx/tar.gz/1024874c5919305883187e2953de8fcb4c3d7fa6",
+      "sha256": "274c00c0b21f03a9152e324b1989f73b74268aa8545b39ef5faccc50fdb56393"
     },
     {
       "name": "SVT-AV1",
       "version": "4.1.0",
       "revision": "c04f951541ad600e0d9c10836f2ab7b9bc69816d",
       "filename": "SVT-AV1-c04f951541ad600e0d9c10836f2ab7b9bc69816d.tar.gz",
-      "url": "https://gitlab.com/AOMediaCodec/SVT-AV1/-/archive/c04f951541ad600e0d9c10836f2ab7b9bc69816d/SVT-AV1-c04f951541ad600e0d9c10836f2ab7b9bc69816d.tar.gz",
+      "url": "https://codeload.github.com/AOMediaCodec/SVT-AV1/tar.gz/c04f951541ad600e0d9c10836f2ab7b9bc69816d",
       "sha256": "53c466fe5c4dbd3fa35f40369aa3984d876d548794bf2f7de306945bdb5f51be"
     },
     {

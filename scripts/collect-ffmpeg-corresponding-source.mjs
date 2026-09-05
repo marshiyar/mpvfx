@@ -10,6 +10,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { get as httpsGet } from "node:https";
 import { tmpdir } from "node:os";
 import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -38,16 +39,55 @@ function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
+function downloadBytes(url, redirectsRemaining = 5) {
+  return new Promise((resolveDownload, rejectDownload) => {
+    const request = httpsGet(
+      url,
+      {
+        headers: {
+          Accept: "*/*",
+          "User-Agent": "MpVFX-source-collector/1.0",
+        },
+      },
+      (response) => {
+        const status = response.statusCode ?? 0;
+        const location = response.headers.location;
+        if (status >= 300 && status < 400 && location) {
+          response.resume();
+          if (redirectsRemaining === 0) {
+            rejectDownload(new Error(`Too many redirects while downloading ${url}`));
+            return;
+          }
+          downloadBytes(new URL(location, url).toString(), redirectsRemaining - 1).then(
+            resolveDownload,
+            rejectDownload,
+          );
+          return;
+        }
+        if (status < 200 || status >= 300) {
+          response.resume();
+          rejectDownload(new Error(`HTTP ${status}`));
+          return;
+        }
+
+        const chunks = [];
+        response.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        response.on("end", () => resolveDownload(Buffer.concat(chunks)));
+        response.on("error", rejectDownload);
+      },
+    );
+    request.setTimeout(300_000, () => {
+      request.destroy(new Error(`Timed out downloading ${url}`));
+    });
+    request.on("error", rejectDownload);
+  });
+}
+
 async function fetchWithRetries(url, attempts = 3) {
   let lastError;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      const response = await fetch(url, {
-        redirect: "follow",
-        signal: AbortSignal.timeout(300_000),
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      return Buffer.from(await response.arrayBuffer());
+      return await downloadBytes(url);
     } catch (error) {
       lastError = error;
       if (attempt < attempts) {

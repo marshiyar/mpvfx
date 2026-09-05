@@ -335,7 +335,12 @@ describe("public repository release readiness", () => {
       repositoryFile("scripts/ffmpeg-source-manifest.json"),
     ) as {
       binaryRelease: string;
-      components: Array<{ filename?: string; url?: string; sha256?: string }>;
+      components: Array<{
+        name?: string;
+        filename?: string;
+        url?: string;
+        sha256?: string;
+      }>;
     };
 
     expect(source.binaryRelease).toBe(runtime.release);
@@ -345,8 +350,17 @@ describe("public repository release readiness", () => {
       expect(component.url).toMatch(/^https:\/\//u);
       expect(component.sha256).toMatch(/^[a-f0-9]{64}$/u);
     }
-    expect(repositoryFile("scripts/collect-ffmpeg-corresponding-source.mjs")).toContain(
-      "source checksum mismatch",
-    );
+    expect(source.components.find(({ name }) => name === "libvpx")).toMatchObject({
+      url: "https://codeload.github.com/webmproject/libvpx/tar.gz/1024874c5919305883187e2953de8fcb4c3d7fa6",
+      sha256: "274c00c0b21f03a9152e324b1989f73b74268aa8545b39ef5faccc50fdb56393",
+    });
+    expect(source.components.find(({ name }) => name === "SVT-AV1")).toMatchObject({
+      url: "https://codeload.github.com/AOMediaCodec/SVT-AV1/tar.gz/c04f951541ad600e0d9c10836f2ab7b9bc69816d",
+      sha256: "53c466fe5c4dbd3fa35f40369aa3984d876d548794bf2f7de306945bdb5f51be",
+    });
+    const collector = repositoryFile("scripts/collect-ffmpeg-corresponding-source.mjs");
+    expect(collector).toContain("source checksum mismatch");
+    expect(collector).toContain('from "node:https"');
+    expect(collector).toContain('"User-Agent": "MpVFX-source-collector/1.0"');
   });
 });

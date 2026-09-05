@@ -1,7 +1,7 @@
 {
   "name": "mpvfx",
   "productName": "MpVFX",
-  "version": "0.8.20",
+  "version": "0.8.21",
   "description": "Standalone media-first nonlinear video editor",
   "private": true,
   "license": "Apache-2.0",

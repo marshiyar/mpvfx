@@ -1,6 +1,6 @@
 # MpVFX third-party notices
 
-This inventory was generated from `studio/package-lock.json` for MpVFX 0.8.20. It records
+This inventory was generated from `studio/package-lock.json` for MpVFX 0.8.21. It records
 the license identifiers declared by the exact JavaScript dependency versions in the lockfile. A
 package's own license file and notices control if they differ from this convenience inventory.
 

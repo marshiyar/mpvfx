@@ -61,7 +61,7 @@ and patch, both manifests, this record, a checksum file, and the GPL text.
 | Component | Version or revision | Source-archive SHA-256 |
 | --- | --- | --- |
 | FFmpeg | `8.1.2` / `38b88335f99e76ed89ff3c93f877fdefce736c13` | `464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c` |
-| libvpx | `1.16.0` / `1024874c5919305883187e2953de8fcb4c3d7fa6` | `17b46c6a0104ee39e27bb7bc41c9c1cd0f5be67f77e0225b9d7b69cfa01fd2fc` |
+| libvpx | `1.16.0` / `1024874c5919305883187e2953de8fcb4c3d7fa6` | `274c00c0b21f03a9152e324b1989f73b74268aa8545b39ef5faccc50fdb56393` |
 | SVT-AV1 | `4.1.0` / `c04f951541ad600e0d9c10836f2ab7b9bc69816d` | `53c466fe5c4dbd3fa35f40369aa3984d876d548794bf2f7de306945bdb5f51be` |
 | x264 | `0480cb05fa188d37ae87e8f4fd8f1aea3711f7ee` | `d0967a1348c85dfde363bb52610403be898171493100561efa0dd05d5fd1ae50` |
 | x265 | `4.2` / `e444744c03978c1fb4e037168967020cf2648427` | `0a3d41f6b4e2fe5a49d783d6631bd1a49c44cdf999074a3ff09e2cb71ac8ed33` |

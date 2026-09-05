@@ -10,8 +10,8 @@ and GitHub Release after all platform builds succeed.
 Alternatively, push the matching tag:
 
 ```bash
-git tag -a v0.8.20 -m "MpVFX v0.8.20"
-git push origin v0.8.20
+git tag -a v0.8.21 -m "MpVFX v0.8.21"
+git push origin v0.8.21
 ```
 
 The workflow publishes:

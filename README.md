@@ -35,7 +35,7 @@ npm run desktop:make
 
 The **Build GitHub Release** workflow builds macOS, Windows, and Linux installers, adds checksums,
 and attaches them to the version in GitHub Releases. Run it manually from Actions or push a tag
-that matches `studio/package.json`, such as `v0.8.20`.
+that matches `studio/package.json`, such as `v0.8.21`.
 
 The current installers are unsigned. Operating systems may display an unverified-developer warning.
 
