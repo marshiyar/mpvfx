@@ -306,7 +306,7 @@ if (/actions\/upload-artifact|electron-forge publish|gh release|action-gh-releas
 }
 
 const securityWorkflow = read(".github/workflows/security.yml");
-for (const marker of ["actions: read", "contents: read", "security-events: write"]) {
+for (const marker of ["actions: read", "contents: read", "security-events: read", "upload: never"]) {
   if (!securityWorkflow.includes(marker)) {
     fail(`CodeQL workflow is missing required permission: ${marker}`);
   }
