@@ -47,3 +47,4 @@ jobs:
         uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
         with:
           upload: never
+          upload-database: false
