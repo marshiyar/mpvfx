@@ -293,6 +293,9 @@ describe("public repository release readiness", () => {
 
   it("publishes signed and checksummed installers only through the release workflow", () => {
     const workflow = repositoryFile(".github/workflows/release.yml");
+    const buildJobStart = workflow.indexOf("\n  build:");
+    const buildStepsStart = workflow.indexOf("\n    steps:", buildJobStart);
+    const buildJobPreamble = workflow.slice(buildJobStart, buildStepsStart);
 
     expect(workflow).toContain('tags: ["v*"]');
     expect(workflow).not.toContain("pull_request:");
@@ -310,6 +313,7 @@ describe("public repository release readiness", () => {
     expect(workflow).toContain("ffmpeg-corresponding-source");
     expect(workflow).toContain("xcrun stapler validate");
     expect(workflow).toContain("Get-AuthenticodeSignature");
+    expect(buildJobPreamble).not.toContain("${{ runner.temp }}");
   });
 
   it("pins every FFmpeg corresponding-source input", () => {
