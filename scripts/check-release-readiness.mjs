@@ -305,6 +305,13 @@ if (/actions\/upload-artifact|electron-forge publish|gh release|action-gh-releas
   fail("Desktop validation workflow must not upload or publish unsigned installers");
 }
 
+const securityWorkflow = read(".github/workflows/security.yml");
+for (const marker of ["actions: read", "contents: read", "security-events: write"]) {
+  if (!securityWorkflow.includes(marker)) {
+    fail(`CodeQL workflow is missing required permission: ${marker}`);
+  }
+}
+
 const runtimeManifest = JSON.parse(read("studio/scripts/ffmpeg-runtime-manifest.json"));
 const sourceManifest = JSON.parse(read("scripts/ffmpeg-source-manifest.json"));
 if (runtimeManifest.release !== "n8.1.2-1" || runtimeManifest.ffmpegVersion !== "8.1.2") {
