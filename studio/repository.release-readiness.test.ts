@@ -308,6 +308,10 @@ describe("public repository release readiness", () => {
       "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
     );
     expect(workflow).toContain("SHA256SUMS");
+    expect(workflow).toContain('safe_name="${name// /-}"');
+    expect(workflow).toContain('destination="release-files/${safe_name}"');
+    expect(workflow).toContain("cd release-files");
+    expect(workflow).toContain("find release-files -maxdepth 1 -type f -print0");
     expect(workflow).toContain("gh release create");
     expect(workflow).toContain("ffmpeg-corresponding-source");
     expect(workflow).not.toContain("xcrun stapler validate");

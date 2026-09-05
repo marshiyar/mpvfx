@@ -146,12 +146,28 @@ jobs:
           path: release-assets
           merge-multiple: true
 
+      - name: Stage canonical release filenames
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir release-files
+          while IFS= read -r -d '' source; do
+            name="$(basename "${source}")"
+            safe_name="${name// /-}"
+            destination="release-files/${safe_name}"
+            if [[ -e "${destination}" ]]; then
+              echo "Duplicate release filename: ${safe_name}" >&2
+              exit 1
+            fi
+            cp "${source}" "${destination}"
+          done < <(find release-assets -type f -print0)
+
       - name: Create checksums
         shell: bash
         run: |
           set -euo pipefail
-          cd release-assets
-          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+          cd release-files
+          find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
 
       - name: Publish release
         env:
@@ -160,7 +176,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -d '' assets < <(find release-assets -type f -print0)
+          mapfile -d '' assets < <(find release-files -maxdepth 1 -type f -print0)
           test "${#assets[@]}" -gt 1
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             target=(--verify-tag)
