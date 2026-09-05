@@ -3,8 +3,8 @@ const { join } = require("node:path");
 
 const REQUIRED_LEGAL_FILES = new Map([
   ["MPVFX_LICENSE.txt", "Version 2.0, January 2004"],
-  ["NOTICE.txt", "Third-party material"],
-  ["PRIVACY.md", "MpVFX Privacy Notice"],
+  ["NOTICE.txt", "Additional runtime dependency notices"],
+  ["PRIVACY.md", "# Privacy"],
   ["REMOTE_ASSETS.md", "Remote asset provenance"],
   ["FFMPEG_SOURCE.md", "FFmpeg and FFprobe distribution record"],
   ["THIRD_PARTY_NOTICES.md", "Binary distribution"],

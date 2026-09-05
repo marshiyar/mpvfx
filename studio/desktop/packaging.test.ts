@@ -1,4 +1,5 @@
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -150,6 +151,32 @@ describe("cross-platform Electron packaging", () => {
 
     expect(forgeSource).toContain("assertPackagedLegalResources");
     expect(existsSync(resolve(root, "scripts/verify-packaged-legal.cjs"))).toBe(true);
+  });
+
+  it("accepts the current packaged legal resources", () => {
+    const fixture = mkdtempSync(join(tmpdir(), "mpvfx-packaged-legal-"));
+    const legalDirectory = resolve(fixture, "resources/legal");
+    const verifier = createRequire(import.meta.url)(
+      resolve(root, "scripts/verify-packaged-legal.cjs"),
+    ) as {
+      assertPackagedLegalResources(result: {
+        outputPaths: string[];
+        platform: string;
+      }): void;
+    };
+
+    try {
+      mkdirSync(resolve(fixture, "resources"), { recursive: true });
+      cpSync(resolve(root, "resources/legal"), legalDirectory, { recursive: true });
+      expect(() =>
+        verifier.assertPackagedLegalResources({
+          outputPaths: [fixture],
+          platform: "linux",
+        }),
+      ).not.toThrow();
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
   });
 
   it("keeps server-side editor and media tooling in production dependencies", () => {
