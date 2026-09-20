@@ -1,0 +1,59 @@
+name: crash report
+description: Report reproducible incorrect MpVFX behavior
+title: "[crash]: "
+labels:
+  - crash
+body:
+  - type: markdown
+    attributes:
+      value: Do not attach private media, credentials, or unredacted local paths.
+
+  - type: input
+    id: version
+    attributes:
+      label: MpVFX version or commit
+      value: v0.0.1 # latest release; updated automatically
+      placeholder: 0.0.1 or commit SHA
+      description: Defaults to the latest release. Change it if you are reporting against another version or commit.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS Apple Silicon
+        - macOS Intel
+        - Windows x64
+        - Linux x64
+        - Browser development build
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Use a minimal project with non-sensitive test media when possible.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context or sanitized logs
