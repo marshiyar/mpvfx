@@ -55,7 +55,6 @@ const required = [
   "docs/ARCHITECTURE.md",
   "docs/DATA_PROVENANCE.md",
   "docs/FFMPEG_DISTRIBUTION.md",
-  "docs/GITHUB_SETUP.md",
   "docs/REMOTE_ASSETS.md",
   "docs/RELEASING.md",
   "third_party/licenses/Apache-2.0.txt",
@@ -102,9 +101,6 @@ for (const marker of [
   "http://www.apache.org/licenses/",
 ]) {
   if (!rootLicense.includes(marker)) fail(`Root LICENSE is missing Apache-2.0 marker: ${marker}`);
-}
-if (!read("docs/GITHUB_SETUP.md").includes("repository name must be exactly `mpvfx`")) {
-  fail("docs/GITHUB_SETUP.md must reserve the exact repository name mpvfx");
 }
 
 if (existsSync(resolve(repositoryRoot, "data_Q&A"))) {
