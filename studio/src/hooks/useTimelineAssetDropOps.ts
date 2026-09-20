@@ -37,6 +37,7 @@ import { commitTimelineCompositionInsertion } from "../utils/timelineComposition
 import { usePlayerStore } from "../player";
 import type { NativeTimelineEditingDependencies } from "./useTimelineEditingTypes";
 import { computeStackingPatches } from "../player/components/timelineStackingSync";
+import { resolveCollisionFreeTrack } from "../player/components/timelineCollision";
 import { applyPatchByTarget } from "../utils/sourcePatcher";
 
 interface UseTimelineAssetDropOpsOptions {
@@ -328,6 +329,22 @@ export function useTimelineAssetDropOps({
           Number.isFinite(durationOverride) && durationOverride != null && durationOverride > 0
             ? durationOverride
             : await resolveDroppedAssetDuration(pid, assetPath, kind);
+        const resolvedTargetPath = targetPath || "index.html";
+        const relevantElements = timelineElements.filter(
+          (te) => (te.sourceFile || activeCompPath || "index.html") === resolvedTargetPath,
+        );
+        const placementElements = nativeProjectEditing ? timelineElements : relevantElements;
+        const placementOrder = [...new Set(placementElements.map((element) => element.track))].sort(
+          (left, right) => left - right,
+        );
+        const safeTrack = resolveCollisionFreeTrack({
+          elements: placementElements,
+          trackOrder: placementOrder,
+          desiredTrack: placement.track,
+          start: placement.start,
+          duration,
+          isAudio: kind === "audio",
+        });
         if (nativeProjectEditing && nativeDocumentRef?.current) {
           await commitNativeAssets(
             [{
@@ -335,7 +352,7 @@ export function useTimelineAssetDropOps({
               kind,
               start: placement.start,
               duration,
-              track: placement.track,
+              track: safeTrack,
             }],
             targetPath,
           );
@@ -354,17 +371,13 @@ export function useTimelineAssetDropOps({
         const newId = buildTimelineAssetId(assetPath, collectHtmlIds(editableContent));
         const resolvedAssetSrc = resolveTimelineAssetSrc(targetPath, assetPath);
 
-        const resolvedTargetPath = targetPath || "index.html";
-        const relevantElements = timelineElements.filter(
-          (te) => (te.sourceFile || activeCompPath || "index.html") === resolvedTargetPath,
-        );
         const hfId = `hf-${generateId()}`;
         const stacking = resolveTimelineAssetStacking(editableContent, relevantElements, {
           key: hfId,
           kind,
           start: normalizedStart,
           duration: normalizedDuration,
-          track: placement.track,
+          track: safeTrack,
           sourceFile: resolvedTargetPath,
         });
 
@@ -377,7 +390,7 @@ export function useTimelineAssetDropOps({
             kind,
             start: normalizedStart,
             duration: normalizedDuration,
-            track: placement.track,
+            track: safeTrack,
             zIndex: stacking.zIndex,
             geometry: fitTimelineAssetGeometry(
               null,
@@ -466,6 +479,9 @@ export function useTimelineAssetDropOps({
         : usePlayerStore.getState().timelineFrameRate ?? undefined;
       const placements = buildTimelineFileDropPlacements(basePlacement, durations, frameRate);
       if (nativeDropActive) {
+        const placementOrder = [...new Set(timelineElements.map((element) => element.track))].sort(
+          (left, right) => left - right,
+        );
         const prepared: PreparedTimelineAsset[] = [];
         for (const [index, assetPath] of uploaded.entries()) {
           const kind = getTimelineAssetKind(assetPath);
@@ -475,12 +491,20 @@ export function useTimelineAssetDropOps({
           }
           const nextPlacement = placements[index] ?? placements[0];
           if (!nextPlacement) return;
+          const safeTrack = resolveCollisionFreeTrack({
+            elements: timelineElements,
+            trackOrder: placementOrder,
+            desiredTrack: nextPlacement.track,
+            start: nextPlacement.start,
+            duration: durations[index]!,
+            isAudio: kind === "audio",
+          });
           prepared.push({
             assetPath,
             kind,
             start: nextPlacement.start,
             duration: durations[index]!,
-            track: nextPlacement.track,
+            track: safeTrack,
           });
         }
         try {

@@ -312,9 +312,3 @@ export async function commitNativeTimelineSplits(
   if (result.committed) input.onCommitted?.(result.document);
   return result;
 }
-
-export async function commitNativeTimelineSplit(
-  input: Omit<CommitNativeTimelineSplitsInput, "splits"> & { readonly split: NativeTimelineSplitChange },
-): Promise<CommitNativeTimelineSplitsResult> {
-  return commitNativeTimelineSplits({ ...input, splits: [input.split] });
-}

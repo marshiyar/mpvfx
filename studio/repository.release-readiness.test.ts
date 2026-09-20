@@ -269,17 +269,6 @@ describe("public repository release readiness", () => {
     expect(telemetry).not.toContain(["calendar.app.google/", "yRHT7oPsHWcqFfFv5"].join(""));
   });
 
-  it("pins remote model bytes and discloses their unresolved asset provenance", () => {
-    const manager = repositoryFile("studio/desktop/backgroundRemoval/manager.ts");
-    const provenance = repositoryFile("docs/REMOTE_ASSETS.md");
-    const digest = "01eb6a29a5c4d8edb30b56adad9bb3a2a0535338e480724a213e0acfd2d1c73c";
-
-    expect(manager).toContain(digest);
-    expect(manager).toContain("assertModelChecksum(model, temporary)");
-    expect(provenance).toContain(digest);
-    expect(provenance).toContain("does not currently carry a model-specific license");
-  });
-
   it("validates installers on every desktop platform without publishing them", () => {
     const workflow = repositoryFile(".github/workflows/desktop.yml");
 

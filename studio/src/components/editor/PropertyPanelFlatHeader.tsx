@@ -1,6 +1,6 @@
 import { Eye, EyeSlash } from "@phosphor-icons/react";
 import { useTrackDesignInput } from "../../contexts/DesignPanelInputContext";
-import { ClipboardList, Film, RotateCcw, Square, Type, X } from "../../icons/SystemIcons";
+import { Film, RotateCcw, Square, Type, X } from "../../icons/SystemIcons";
 
 const ICON_BY_KIND = { text: Type, media: Film, other: Square } as const;
 const ICON_COLOR_BY_KIND = {
@@ -11,12 +11,9 @@ const ICON_COLOR_BY_KIND = {
 
 export function PropertyPanelFlatHeader({
   name,
-  meta,
   elementKind,
   hidden,
   onToggleHidden,
-  copied,
-  onCopy,
   onClear,
   onUngroup,
   showUngroup,
@@ -47,7 +44,7 @@ export function PropertyPanelFlatHeader({
       />
       <div className="flex min-w-0 flex-1 items-baseline gap-2">
         <span className="truncate text-[13px] font-semibold text-panel-text-0">{name}</span>
-        <span className="truncate font-mono text-[10px] text-panel-text-4">{meta}</span>
+
       </div>
       <div className="flex flex-shrink-0 items-center gap-2.5 text-panel-text-3">
         {onResetDesign && (
@@ -99,18 +96,6 @@ export function PropertyPanelFlatHeader({
             {hidden ? <EyeSlash size={13} weight="bold" /> : <Eye size={13} weight="bold" />}
           </button>
         )}
-        <button
-          type="button"
-          aria-label="Copy element info to clipboard"
-          title={copied ? "Copied!" : "Copy element details"}
-          onClick={() => {
-            track("button", "Copy element info");
-            onCopy();
-          }}
-          className={copied ? "text-panel-accent" : undefined}
-        >
-          <ClipboardList size={13} />
-        </button>
         <button
           type="button"
           aria-label="Clear selection"

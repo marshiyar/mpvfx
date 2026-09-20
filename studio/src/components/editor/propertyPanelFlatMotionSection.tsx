@@ -1,3 +1,8 @@
+import { useTimelineEditContextOptional } from "../../contexts/TimelineEditContext";
+import { useDomEditSelectionContextOptional } from "../../contexts/DomEditContext";
+import { useStudioShellContextOptional } from "../../contexts/StudioContext";
+import { usePlayerStore } from "../../player/store/playerStore";
+import { resolveNativeClipSelection } from "../../project/nativePropertyEditPlan";
 import { scopedElementKey } from "../../hooks/gsapKeyframeCacheHelpers";
 import type { GsapAnimation } from "@hyperframes/core/gsap-parser";
 import { useTrackDesignInput } from "../../contexts/DesignPanelInputContext";
@@ -23,10 +28,57 @@ export function FlatTimingRow({
    *  selected by the time the call resolves. Falls back to two sequential
    *  `onSetAttribute` calls (with the same non-atomicity/misdirection risk
    *  documented below) when the caller doesn't wire it up. */
-  onSetAttributes?: (selection: DomEditSelection, attrs: Record<string, string>) => Promise<void>;
+  onSetAttributes?: (
+    selection: DomEditSelection,
+    attrs: Record<string, string>,
+  ) => Promise<void>;
 }) {
   const track = useTrackDesignInput();
-  const { start, duration, inferred: derived } = deriveElementTiming(element, animations);
+  const { onMoveElement, onResizeElement } = useTimelineEditContextOptional();
+  const shell = useStudioShellContextOptional();
+  const elements = usePlayerStore((state) => state.elements);
+  const selectionContext = useDomEditSelectionContextOptional();
+  const nativeDocument = selectionContext?.nativeProjectDocument;
+  const nativeResolution = nativeDocument
+    ? resolveNativeClipSelection(nativeDocument, element)
+    : null;
+  const selectedTimelineElement = elements.find(
+    (candidate) => scopedElementKey(candidate) === scopedElementKey(element),
+  );
+  const nativeClip = nativeResolution?.ok
+    ? nativeResolution.located.clip
+    : null;
+  const secondsPerFrame = nativeDocument
+    ? nativeDocument.frameRate.denominator / nativeDocument.frameRate.numerator
+    : 0;
+  const timelineElement =
+    selectedTimelineElement && nativeClip
+      ? {
+          ...selectedTimelineElement,
+          start: nativeClip.startFrame * secondsPerFrame,
+          duration: nativeClip.durationFrames * secondsPerFrame,
+          playbackStart: nativeClip.sourceInFrame * secondsPerFrame,
+        }
+      : selectedTimelineElement;
+  const inferredTiming = deriveElementTiming(element, animations);
+  const {
+    start,
+    duration,
+    inferred: derived,
+  } = timelineElement && onMoveElement && onResizeElement
+    ? {
+        start: timelineElement.start,
+        duration: timelineElement.duration,
+        inferred: false,
+      }
+    : inferredTiming;
+  const reportTimingFailure = (error: unknown) => {
+    shell?.showToast(
+      `Couldn’t change clip timing: ${error instanceof Error ? error.message : String(error)}`,
+      "error",
+    );
+    throw error;
+  };
   const end = start + duration;
 
   // While the range is inferred from animations, editing ONE field must pin the
@@ -39,7 +91,10 @@ export function FlatTimingRow({
   // awaits could misdirect the second write at the newly-selected element, and
   // a failure of just the second call would leave the pair half-applied.
   const pinRange = async (nextStart: number, nextDuration: number) => {
-    const attrs = { start: nextStart.toFixed(2), duration: nextDuration.toFixed(2) };
+    const attrs = {
+      start: nextStart.toFixed(2),
+      duration: nextDuration.toFixed(2),
+    };
     if (onSetAttributes) {
       await onSetAttributes(element, attrs);
       return;
@@ -50,7 +105,14 @@ export function FlatTimingRow({
 
   const commitStart = (nextValue: string) => {
     const parsed = parseTimingValue(nextValue);
-    if (parsed == null) return;
+    if (parsed == null || parsed < 0) return;
+    if (timelineElement && onMoveElement)
+      return Promise.resolve(
+        onMoveElement(timelineElement, {
+          start: parsed,
+          track: timelineElement.track,
+        }),
+      ).catch(reportTimingFailure);
     if (derived) {
       void pinRange(parsed, duration);
       return;
@@ -61,6 +123,14 @@ export function FlatTimingRow({
   const commitDuration = (nextValue: string) => {
     const parsed = parseTimingValue(nextValue);
     if (parsed == null || parsed <= 0) return;
+    if (timelineElement && onResizeElement)
+      return Promise.resolve(
+        onResizeElement(timelineElement, {
+          start,
+          duration: parsed,
+          playbackStart: timelineElement.playbackStart,
+        }),
+      ).catch(reportTimingFailure);
     if (derived) {
       void pinRange(start, parsed);
       return;
@@ -71,6 +141,14 @@ export function FlatTimingRow({
   const commitEnd = (nextValue: string) => {
     const parsed = parseTimingValue(nextValue);
     if (parsed == null || parsed <= start) return;
+    if (timelineElement && onResizeElement)
+      return Promise.resolve(
+        onResizeElement(timelineElement, {
+          start,
+          duration: parsed - start,
+          playbackStart: timelineElement.playbackStart,
+        }),
+      ).catch(reportTimingFailure);
     if (derived) {
       void pinRange(start, parsed - start);
       return;
@@ -78,15 +156,20 @@ export function FlatTimingRow({
     void onSetAttribute("duration", (parsed - start).toFixed(2));
   };
 
-  const cell = (label: string, value: string, onCommit: (next: string) => void) => (
+  const cell = (
+    label: string,
+    value: string,
+    onCommit: (next: string) => void | Promise<void>,
+  ) => (
     <div className="grid gap-px">
       <span className="text-[9px] text-panel-text-4">{label}</span>
       <span className="border-b border-panel-border-input/50 font-mono text-[11px] text-panel-text-0 hover:border-panel-border-input">
         <CommitField
+          ariaLabel={label}
           value={value}
           onCommit={(next) => {
             track("metric", label);
-            onCommit(next);
+            return onCommit(next);
           }}
         />
       </span>
@@ -100,7 +183,8 @@ export function FlatTimingRow({
       {cell("Duration", formatTimingValue(duration), commitDuration)}
       {derived && (
         <p className="col-span-3 mt-1 text-[10px] leading-snug text-panel-text-3">
-          Inferred from this element's animation — edit to pin an explicit clip range.
+          Inferred from this element's animation — edit to pin an explicit clip
+          range.
         </p>
       )}
     </div>
@@ -126,7 +210,10 @@ export function FlatMotionSection({
   multipleTimelines?: boolean;
   unsupportedTimelinePattern?: boolean;
   onSetAttribute: (attr: string, value: string) => void | Promise<void>;
-  onSetAttributes?: (selection: DomEditSelection, attrs: Record<string, string>) => Promise<void>;
+  onSetAttributes?: (
+    selection: DomEditSelection,
+    attrs: Record<string, string>,
+  ) => Promise<void>;
   onAddAnimation: (method: "to" | "from" | "set" | "fromTo") => void;
 } & GsapAnimationEditCallbacks) {
   // Only consume a focus request aimed at the element THIS panel renders (not
@@ -149,13 +236,15 @@ export function FlatMotionSection({
         <>
           {multipleTimelines && (
             <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-400">
-              This file has multiple GSAP timelines. Animation editing is disabled to prevent data
-              loss — consolidate into a single timeline to enable editing.
+              This file has multiple GSAP timelines. Animation editing is
+              disabled to prevent data loss — consolidate into a single timeline
+              to enable editing.
             </p>
           )}
           {unsupportedTimelinePattern && (
             <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-400">
-              This timeline uses a computed key the editor can&apos;t resolve statically.
+              This timeline uses a computed key the editor can&apos;t resolve
+              statically.
             </p>
           )}
           {!multipleTimelines && !unsupportedTimelinePattern && (
@@ -186,20 +275,3 @@ export function FlatMotionSection({
  * and a div in that state is still a thing that moves — renaming its section
  * would be describing the host's wiring rather than the element.
  */
-export function motionSectionLabel(args: {
-  timingOnly: boolean;
-  start: number;
-  duration: number;
-  effectCount: number;
-}): { title: string; summary: string } {
-  if (args.timingOnly) {
-    return {
-      title: "Timing",
-      summary: `${formatTimingValue(args.start)} – ${formatTimingValue(args.start + args.duration)}`,
-    };
-  }
-  return {
-    title: "Motion",
-    summary: `${args.effectCount} effect${args.effectCount === 1 ? "" : "s"}`,
-  };
-}

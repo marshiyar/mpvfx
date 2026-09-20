@@ -509,12 +509,16 @@ export const NLEPreview = memo(function NLEPreview({
         {!isPreviewAtFit(settledZoom) && (
           <button
             type="button"
-            className="absolute bottom-3 right-3 z-50 rounded-md border border-white/15 px-2.5 py-1 text-xs font-medium text-white/80 bg-black hover:bg-neutral-900 hover:text-white transition-colors"
+            className="absolute bottom-3 right-3 z-50 rounded-md border border-white/15 px-2 py-1 text-[11px] font-medium text-white/80 bg-black hover:bg-neutral-900 hover:text-white transition-colors"
             onClick={() => applyZoom(DEFAULT_PREVIEW_ZOOM)}
             aria-label="Reset zoom to fit"
+            title="Fit preview"
             data-testid="preview-reset-zoom"
           >
-            {Math.round(settledZoom.zoomPercent)}% — Reset
+            <span className="flex items-center gap-1.5">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 2H2v4M10 2h4v4M2 10v4h4M14 10v4h-4" stroke="currentColor" strokeWidth="1.5" /></svg>
+              {Math.round(settledZoom.zoomPercent)}%
+            </span>
           </button>
         )}
       </div>

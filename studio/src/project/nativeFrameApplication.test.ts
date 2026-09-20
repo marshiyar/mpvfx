@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
 
 import { beforeEach, describe, expect, it } from "vitest";
+import { beginStudioManualEditGesture, endStudioManualEditGesture } from "../components/editor/manualEdits";
+import { applyRotationDraftViaGsap } from "../components/editor/manualOffsetDrag";
 
 import { applyNativeFrameToDocument, type NativeClipFrameBinding } from "./nativeFrameApplication";
 import { createNativeParameterTrack } from "./nativeKeyframeTypes";
@@ -409,4 +411,55 @@ describe("applyNativeFrameToDocument", () => {
     );
     expect(element.style.opacity).toBe("0.65");
   });
+});
+
+it("keeps explicitly hidden clips hidden on every active native frame", () => {
+  const element = addClipElement();
+  element.setAttribute("data-hidden", "true");
+  applyNativeFrameToDocument(document, [animatedClip()], 60);
+  expect(element.style.visibility).toBe("hidden");
+});
+
+it("keeps the graded picture and hidden source in sync without revealing the original", () => {
+  const element = addClipElement();
+  element.id = "graded";
+  element.setAttribute("data-hf-color-grading-source-hidden", "true");
+  element.style.setProperty("opacity", "0", "important");
+  const canvas = document.createElement("canvas");
+  canvas.id = "__hf_color_grading_graded";
+  canvas.setAttribute("data-hf-color-grading-canvas", "true");
+  document.body.append(canvas);
+  applyNativeFrameToDocument(document, [animatedClip()], 75);
+  expect(element.style.opacity).toBe("0");
+  expect(element.style.getPropertyPriority("opacity")).toBe("important");
+  expect(element.getAttribute("data-studio-native-opacity")).toBe("0.75");
+  expect(canvas.style.opacity).toBe("0.75");
+  expect(canvas.style.transform).toBe(element.style.transform);
+  applyNativeFrameToDocument(document, [animatedClip()], 121);
+  expect(canvas.style.visibility).toBe("hidden");
+});
+
+it("keeps the active gesture picture through retained frame reapplication", () => {
+  const element = addClipElement();
+  const clip = animatedClip();
+  applyNativeFrameToDocument(document, [clip], 75);
+  const token = beginStudioManualEditGesture(element);
+  const runtime = window as unknown as { gsap?: unknown };
+  runtime.gsap = {
+    getProperty: () => 0,
+    set: (target: HTMLElement, values: { rotation: number }) => {
+      target.style.transform = `translate(50px, 25px) rotate(${values.rotation}deg)`;
+    },
+  };
+  try {
+    applyRotationDraftViaGsap(element, -35);
+    const draft = element.style.transform;
+    // A legacy seek or paused render can repaint before the native final pass.
+    element.style.transform = "translate(0px, 0px)";
+    applyNativeFrameToDocument(document, [clip], 75);
+    expect(element.style.transform).toBe(draft);
+    endStudioManualEditGesture(element, token);
+    applyNativeFrameToDocument(document, [clip], 75);
+    expect(element.style.transform).toContain("rotate(-90deg)");
+  } finally { delete runtime.gsap; }
 });

@@ -1,6 +1,9 @@
 import { useCallback } from "react";
 import type { DomEditSelection } from "../components/editor/domEditing";
-import { trackStudioEditBlocked, trackStudioSaveFailure } from "../utils/studioSaveDiagnostics";
+import {
+  trackStudioEditBlocked,
+  trackStudioSaveFailure,
+} from "../utils/studioSaveDiagnostics";
 import { isGsapEditBlockedError } from "./gsapEditOutcome";
 
 export function useGsapInteractionFailureTelemetry(
@@ -8,7 +11,12 @@ export function useGsapInteractionFailureTelemetry(
   showToast: (message: string, tone?: "error" | "info") => void,
 ) {
   return useCallback(
-    (error: unknown, selection: DomEditSelection | null, mutationType: string, label: string) => {
+    (
+      error: unknown,
+      selection: DomEditSelection | null,
+      mutationType: string,
+      label: string,
+    ) => {
       const report = isGsapEditBlockedError(error)
         ? trackStudioEditBlocked
         : trackStudioSaveFailure;
@@ -23,7 +31,9 @@ export function useGsapInteractionFailureTelemetry(
         targetSourceFile: selection?.sourceFile,
       });
       showToast(
-        isGsapEditBlockedError(error) ? error.message : "Failed to save animated edit.",
+        isGsapEditBlockedError(error)
+          ? error.message
+          : `Couldn’t save ${label}: ${error instanceof Error ? error.message : String(error)}`,
         "error",
       );
     },

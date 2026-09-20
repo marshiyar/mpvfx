@@ -20,7 +20,6 @@ import {
 } from "./studioColorGradingScope";
 import { timelineKeysForSelections } from "../utils/studioHelpers";
 import { canHideSelections } from "../utils/timelineInspector";
-import { useRemoveBackground } from "../hooks/useRemoveBackground";
 
 // fallow-ignore-next-line complexity
 export function StudioRightPanel({
@@ -98,6 +97,7 @@ export function StudioRightPanel({
     isNativeSelection,
     nativeProjectDocument,
     deleteNativeKeyframe,
+    deleteNativeKeyframes,
     setNativeKeyframesInterpolation,
     handleSetArcPath,
     handleUpdateArcSegment,
@@ -116,7 +116,6 @@ export function StudioRightPanel({
     projectDir,
     handleImportFiles,
     handleImportFonts,
-    refreshFileTree,
     readProjectFile,
     writeProjectFile,
     fileTree,
@@ -162,8 +161,6 @@ export function StudioRightPanel({
       writeProjectFile,
     ],
   );
-
-  const handleRemoveBackground = useRemoveBackground(projectId, refreshFileTree, showToast);
 
   /**
    * A dial being dragged writes to the preview and stops there.
@@ -219,7 +216,6 @@ export function StudioRightPanel({
         onSetAttributeQuiet={handleDomAttributeQuietCommit}
         onApplyColorGradingScope={handleApplyColorGradingScope}
         onSetHtmlAttribute={handleDomHtmlAttributeCommit}
-        onRemoveBackground={handleRemoveBackground}
         onSetManualOffset={handleDomPathOffsetCommit}
         onSetManualSize={handleDomBoxSizeCommit}
         onSetManualRotation={handleDomRotationCommit}
@@ -238,6 +234,7 @@ export function StudioRightPanel({
         }
         nativeProjectDocument={nativeProjectDocument}
         onRemoveNativeKeyframe={deleteNativeKeyframe}
+        onRemoveNativeKeyframes={deleteNativeKeyframes}
         onSetNativeKeyframesInterpolation={setNativeKeyframesInterpolation}
         gsapMultipleTimelines={gsapMultipleTimelines}
         gsapUnsupportedTimelinePattern={gsapUnsupportedTimelinePattern}

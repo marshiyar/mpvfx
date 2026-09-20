@@ -173,8 +173,9 @@ export function resolveNativeHeaderPropertyLanes(
     valuesByGroup.set(group, values);
   }
 
-  const clipPercentage =
-    clipDurationSeconds > 0 ? ((currentTime - source.clipStartFrame * source.frameRate.denominator / source.frameRate.numerator) / clipDurationSeconds) * 100 : 0;
+  // Navigation and evaluation must name the same rendered frame, even when
+  // a pointer seek lands between exact frame boundaries.
+  const clipPercentage = (localFrame / source.clipDurationFrames) * 100;
   return getTimelineNativePropertyLanes(nativeLanes).flatMap((lane) => {
     const values = valuesByGroup.get(lane.group);
     if (!values) return [];

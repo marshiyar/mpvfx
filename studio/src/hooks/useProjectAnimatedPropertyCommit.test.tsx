@@ -136,6 +136,26 @@ function memoryOptions(
 }
 
 describe("useProjectAnimatedPropertyCommit", () => {
+  it("saves the resized crop and native geometry in one file transaction", async () => {
+    const memory = memoryOptions(project());
+    const source = '<img id="legacy-dom-id" style="clip-path: inset(0px 0px 0px 100px)">';
+    const commitFileTransaction = vi.fn(async () => undefined);
+    const api = renderCommit({ ...memory.options, commitFileTransaction,
+      readOptionalProjectFile: async path => path === "index.html" ? source : memory.getContent(),
+    });
+    const sel = { ...selection(), sourceFile: "index.html" };
+    await api.commitAnimatedProperties(sel, { width: 800, height: 450 }, {
+      sourceStyles: { "clip-path": "inset(0px 0px 0px 125px)" },
+    });
+    expect(commitFileTransaction).toHaveBeenCalledTimes(1);
+    const files = (commitFileTransaction.mock.calls[0] as unknown as [{ files: Array<{path: string; expectedBefore: string; after: string}> }])[0].files;
+    expect(files).toHaveLength(2);
+    expect(files.find(file => file.path === "index.html")).toEqual({
+      path: "index.html", expectedBefore: source,
+      after: '<img id="legacy-dom-id" style="clip-path: inset(0px 0px 0px 125px)">',
+    });
+  });
+
   it("defaults missing auto-keyframe state to off so an ordinary edit cannot create motion", async () => {
     const memory = memoryOptions(project(), 2, false);
     const options = { ...memory.options };
@@ -346,7 +366,7 @@ describe("useProjectAnimatedPropertyCommit", () => {
   });
 
   it("rejects an invalid native edit without mutating native or legacy state", async () => {
-    const memory = memoryOptions(project(), 0);
+    const memory = memoryOptions(project(), -1);
     const api = renderCommit(memory.options);
 
     await expect(
@@ -370,7 +390,7 @@ describe("useProjectAnimatedPropertyCommit", () => {
     expect(clip.parameterTracks).toHaveLength(0);
   });
 
-  it("offsets every authored value when editing between keys with auto-keyframing off", async () => {
+  it("adds a playhead key without shifting endpoints when editing an animated property", async () => {
     const native = project();
     native.sequence.tracks[0]!.clips[0]!.parameterTracks = [
       createNativeParameterTrack({
@@ -392,8 +412,9 @@ describe("useProjectAnimatedPropertyCommit", () => {
     const saved = parseNativeProjectDocument(JSON.parse(memory.getContent()!));
     const rotation = saved.sequence.tracks[0]!.clips[0]!.parameterTracks[0]!;
     expect(rotation.keyframes.map(({ frame, value, outgoing }) => ({ frame, value, outgoing }))).toEqual([
-      { frame: 0, value: -30, outgoing: { type: "linear" } },
-      { frame: 60, value: -210, outgoing: { type: "hold" } },
+      { frame: 0, value: 0, outgoing: { type: "linear" } },
+      { frame: 30, value: -120, outgoing: { type: "linear" } },
+      { frame: 60, value: -180, outgoing: { type: "hold" } },
     ]);
     expect(evaluateNativeParameterTrack(rotation, 30)).toBe(-120);
   });
@@ -478,5 +499,40 @@ describe("useProjectAnimatedPropertyCommit", () => {
     expect(recordHistory).toHaveBeenCalledOnce();
     expect(onNativeDocumentCommitted).toHaveBeenCalledOnce();
     expect(legacyCommitProperties).not.toHaveBeenCalled();
+  });
+});
+
+describe("motion audit: authoring-time identity", () => {
+  it("keeps a queued explicit keyframe at the frame where the user invoked the edit", async () => {
+    const memory = memoryOptions(project());
+    let playhead = 2;
+    let releaseWrite!: () => void;
+    let markWriteStarted!: () => void;
+    const blockedWrite = new Promise<void>((resolve) => { releaseWrite = resolve; });
+    const writeStarted = new Promise<void>((resolve) => { markWriteStarted = resolve; });
+    let writes = 0;
+    const api = renderCommit({
+      ...memory.options,
+      getPlayheadSeconds: () => playhead,
+      writeProjectFile: async (...args) => {
+        if (writes++ === 0) {
+          markWriteStarted();
+          await blockedWrite;
+        }
+        await memory.options.writeProjectFile(...args);
+      },
+    });
+    const first = api.commitAnimatedProperty(selection(), "x", 10, { intent: "keyframe" });
+    await writeStarted;
+    // At project second 2 (clip-local frame 30), author rotation while X saves.
+    const second = api.commitAnimatedProperty(selection(), "rotation", 45, { intent: "keyframe" });
+    playhead = 3;
+    releaseWrite();
+    await Promise.all([first, second]);
+    const saved = parseNativeProjectDocument(JSON.parse(memory.getContent()!));
+    const rotation = saved.sequence.tracks[0]!.clips[0]!.parameterTracks.find(
+      (track) => track.parameterId === "transform.rotation",
+    )!;
+    expect(rotation.keyframes.map((key) => key.frame)).toEqual([30]);
   });
 });

@@ -281,7 +281,7 @@ describe("commitDraggedClipMove", () => {
     expect(map.c3).toEqual({ start: 0, track: 8 });
   });
 
-  it("dropping onto an overlap spill sub-lane persists the base lane's shared authored track", () => {
+  it("dropping onto a shared lane preserves its authored track", () => {
     // Authored track 2 holds two time-overlapping clips, which packTrackLanes
     // spills onto display sub-lanes 1 and 2 (both authoredTrack 2). Dropping
     // 'a' onto the spill sub-lane (2) is a legitimate same-track join: the
@@ -292,7 +292,7 @@ describe("commitDraggedClipMove", () => {
       { ...el("b1", 2, 0, 5), authoredTrack: 2 },
       { ...el("b2", 2, 3, 5), authoredTrack: 2 }, // overlaps b1 → spills
     ]);
-    expect(elements.map((e) => e.track)).toEqual([0, 1, 2]); // spill happened
+    expect(elements.map((e) => e.track)).toEqual([0, 2, 2]); // overlaps remain on their authored row
     const spillLane = elements.find((e) => e.id === "b2")!.track;
     const { onMoveElements } = runClipMove(
       drag(elements[0], { previewStart: 30, previewTrack: spillLane, desiredTrack: spillLane }),
@@ -483,7 +483,7 @@ describe("commitDraggedClipMove", () => {
     expect(map.b.track).toBe(2); // at/below the insert → +1 shift
   });
 
-  it("a selected audio passenger moves in time during a visual insert without being renumbered", () => {
+  it("a selected audio passenger shifts in time and follows an explicit row insertion", () => {
     const a = { ...el("a", 0, 0, 5), sourceFile: "scene.html" };
     const b = { ...el("b", 1, 10, 5), sourceFile: "scene.html" };
     const t = { ...el("t", 1, 0, 5), sourceFile: "scene.html" };
@@ -503,10 +503,10 @@ describe("commitDraggedClipMove", () => {
     );
 
     const map = editMap(onMoveElements.mock.calls[0][0]);
-    expect(map.audio).toEqual({ start: 9, track: 7 });
+    expect(map.audio).toEqual({ start: 9, track: 3 });
   });
 
-  it("an audio insert persists zone-local tracks without rewriting visual lanes", () => {
+  it("an audio insertion shifts lower rows once and preserves upper rows", () => {
     const v0 = el("v0", 0, 0, 5);
     const v1 = el("v1", 1, 0, 5);
     const a = { ...el("a", 2, 0, 5, "audio"), authoredTrack: 0 };
@@ -519,9 +519,11 @@ describe("commitDraggedClipMove", () => {
     );
 
     expect(editMap(onMoveElements.mock.calls[0][0])).toEqual({
-      a: { start: 0, track: 0 },
-      t: { start: 0, track: 1 },
-      b: { start: 10, track: 2 },
+      v0: { start: 0, track: 0 },
+      v1: { start: 0, track: 1 },
+      a: { start: 0, track: 2 },
+      t: { start: 0, track: 3 },
+      b: { start: 10, track: 4 },
     });
   });
 
@@ -705,7 +707,7 @@ describe("commitDraggedClipMove", () => {
       );
       expect(lane.dragged).toBe(0); // aimed at the very top
       expect(lane.top).toBe(1);
-      expect(lane.mid).toBe(2);
+      expect(lane.mid).toBe(6);
     });
 
     it("BETWEEN-insert of a non-overlapping clip lands it between its neighbours", async () => {
@@ -1285,7 +1287,7 @@ describe("commitZMirrorLaneMove", () => {
     expect(map.b.track).toBe(2);
   });
 
-  it("visual mirror inserts never persist or renumber same-file audio", async () => {
+  it("explicit mirror insertion shifts audio and visual rows together", async () => {
     // b and t share a visual lane because they do not overlap. Inserting t between
     // a and b creates one extra visual lane, so whole-timeline normalization moves
     // audio from display lane 2 to 3. That display-only shift must not be written.
@@ -1304,11 +1306,12 @@ describe("commitZMirrorLaneMove", () => {
 
     expect(moved).toBe(true);
     const map = editMap(onMoveElements.mock.calls[0][0]);
-    expect(map.audio).toBeUndefined();
+    expect(map.audio).toEqual({ start: 0, track: 3 });
     expect(map).toEqual({
       a: { start: 0, track: 0 },
       b: { start: 10, track: 2 },
       t: { start: 0, track: 1 },
+      audio: { start: 0, track: 3 },
     });
   });
 
@@ -1407,10 +1410,10 @@ describe("commitZMirrorLaneMove", () => {
     // The renumber compacts t's vacated top lane, so the whole set shifts up by
     // one while t lands on the b/c boundary — strictly between the two.
     expect(map).toEqual({
-      b: { start: 0, track: 0 },
-      t: { start: 0, track: 1 },
-      c: { start: 0, track: 2 },
-      far: { start: 20, track: 3 },
+      b: { start: 0, track: 1 },
+      t: { start: 0, track: 2 },
+      c: { start: 0, track: 3 },
+      far: { start: 20, track: 4 },
     });
     expect(map.b.track).toBeLessThan(map.t.track);
     expect(map.t.track).toBeLessThan(map.c.track);

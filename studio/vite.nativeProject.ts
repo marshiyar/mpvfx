@@ -176,6 +176,7 @@ export function createNativeProjectExportMaterialization(
   projectDir: string,
   destinationDir: string,
   stagingRootDir: string,
+  options: { renderBodyScripts?: readonly string[]; entryFile?: string } = {},
 ): string {
   const sourceRoot = resolve(projectDir);
   const destinationRoot = resolve(destinationDir);
@@ -192,10 +193,11 @@ export function createNativeProjectExportMaterialization(
     throw new Error("Native export materialization must be a strict child of its staging root");
   }
   const content = readNativeProjectDocumentContent(sourceRoot);
-  if (!content.trim()) return sourceRoot;
-  const project = parseNativeProjectDocument(JSON.parse(content) as unknown);
-  const assetsById = new Map(project.assets.map((asset) => [asset.id, asset]));
-  const mutedMediaClips = project.sequence.tracks.flatMap((track) => track.clips).filter((clip) => {
+  const renderScripts = options.renderBodyScripts ?? [];
+  if (!content.trim() && renderScripts.length === 0) return sourceRoot;
+  const project = content.trim() ? parseNativeProjectDocument(JSON.parse(content) as unknown) : null;
+  const assetsById = new Map(project?.assets.map((asset) => [asset.id, asset]) ?? []);
+  const mutedMediaClips = (project?.sequence.tracks.flatMap((track) => track.clips) ?? []).filter((clip) => {
     const kind = assetsById.get(clip.assetId)?.kind;
     return clip.muted && (kind === "audio" || kind === "video");
   });
@@ -216,7 +218,7 @@ export function createNativeProjectExportMaterialization(
       );
     }
   }
-  if (mutedMediaClips.length === 0) return sourceRoot;
+  if (mutedMediaClips.length === 0 && renderScripts.length === 0) return sourceRoot;
 
   try {
     mkdirSync(destinationRoot);
@@ -247,12 +249,21 @@ export function createNativeProjectExportMaterialization(
       const ownsMutedBinding = mutedMediaClips.some(
         (clip) => normalizedSourceFile(clip.binding!.sourceFile) === normalizedFile,
       );
-      if (ownsMutedBinding) {
-        const transformed = applyNativeProjectExportAudioMutes(
-          readFileSync(sourcePath, "utf8"),
-          project,
-          normalizedFile,
-        );
+      const injectScripts = renderScripts.length > 0 &&
+        normalizedFile === normalizedSourceFile(options.entryFile ?? "index.html");
+      if (ownsMutedBinding || injectScripts) {
+        let transformed = readFileSync(sourcePath, "utf8");
+        if (ownsMutedBinding && project) {
+          transformed = applyNativeProjectExportAudioMutes(transformed, project, normalizedFile);
+        }
+        if (injectScripts) {
+          // The installed producer does not consume a renderBodyScripts config
+          // property. Materialize the scripts into its actual compilation input.
+          const tags = renderScripts.map(script => `<script>${script.replace(/<\/script/gi, "<\\/script")}</script>`).join("\n");
+          transformed = /<\/body\s*>/i.test(transformed)
+            ? transformed.replace(/<\/body\s*>/i, () => `${tags}\n</body>`)
+            : `${transformed}\n${tags}`;
+        }
         writeFileSync(destinationPath, transformed);
       } else {
         linkOrCopyFile(sourcePath, destinationPath);
@@ -410,8 +421,11 @@ function nativeRuntimeSource(project: NativeProjectDocument): string {
       if (!(element instanceof HTMLElement)) continue;
       applied += 1;
       const localFrame = projectFrame - clip.startFrame;
-      const visible = localFrame >= 0 && localFrame < clip.durationFrames;
+      const visible = localFrame >= 0 && localFrame < clip.durationFrames && !element.hasAttribute("data-hidden");
       element.style.visibility = visible ? "visible" : "hidden";
+      const graded = element.id ? document.getElementById("__hf_color_grading_" + element.id) : null;
+      const picture = graded?.hasAttribute("data-hf-color-grading-canvas") ? graded : null;
+      if (picture) picture.style.visibility = visible ? "visible" : "hidden";
       const media = mediaTarget(clip, element);
       if (media) {
         const sourceRate = playbackRate(clip);
@@ -481,12 +495,21 @@ function nativeRuntimeSource(project: NativeProjectDocument): string {
       }
       const ownsOpacity = parameterOrder.some((id) => opacityIds.has(id) && values.has(id));
       const ownedOpacityBefore = [...previousOwned].some((id) => opacityIds.has(id));
-      if (ownsOpacity || ownedOpacityBefore) element.style.opacity = number(opacity);
+      if (ownsOpacity || ownedOpacityBefore) {
+        element.setAttribute("data-studio-native-opacity", number(opacity));
+        if (!element.hasAttribute("data-hf-color-grading-source-hidden")) element.style.opacity = number(opacity);
+      } else element.removeAttribute("data-studio-native-opacity");
       if (values.has("layout.width")) element.style.width = number(Math.max(0, values.get("layout.width"))) + "px";
       else if (previousOwned.has("layout.width")) element.style.removeProperty("width");
       if (values.has("layout.height")) element.style.height = number(Math.max(0, values.get("layout.height"))) + "px";
       else if (previousOwned.has("layout.height")) element.style.removeProperty("height");
       element.setAttribute("data-studio-native-owned", parameterOrder.filter((id) => values.has(id)).join(" "));
+      if (picture) {
+        if (ownsTransform || ownedTransformBefore) picture.style.transform = element.style.transform;
+        if (ownsOpacity || ownedOpacityBefore) picture.style.opacity = number(opacity);
+        if (values.has("layout.width")) picture.style.width = element.style.width;
+        if (values.has("layout.height")) picture.style.height = element.style.height;
+      }
     }
     return applied;
   };

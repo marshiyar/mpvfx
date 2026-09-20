@@ -263,7 +263,7 @@ describe("TimelineTrackHeader", () => {
     expect(rows("rotation")[0]?.textContent).toContain("Rotation");
     expect(rows("rotation")[0]?.textContent).toContain("-90°");
     expect(rows("scale")[0]?.textContent).toContain("Scale");
-    expect(rows("scale")[0]?.textContent).toContain("1.5");
+    expect(rows("scale")[0]?.textContent).toContain("150%");
     expect(rows("visual")[0]?.textContent).toContain("Opacity");
     expect(rows("visual")[0]?.textContent).toContain("50%");
     expect(rows("size")[0]?.textContent).toContain("Size");
@@ -389,7 +389,7 @@ describe("TimelineTrackHeader", () => {
   // The visibility control is the old hide eye. On an audio track it silences
   // rather than hides, and the row already says so with a speaker elsewhere —
   // so the eye's slot stays empty there. A non-audio track is untouched.
-  it("keeps the visibility control off audio track headers", () => {
+  it("offers a speaker mute control on audio track headers", () => {
     const audio: TimelineElement = { ...ELEMENT, tag: "audio" };
     const view = renderHeader({
       keyframeClip: audio,
@@ -401,7 +401,7 @@ describe("TimelineTrackHeader", () => {
       b.getAttribute("aria-label"),
     );
     expect(labels.some((l) => l && /^(Hide|Show) track/.test(l))).toBe(false);
-    expect(labels).not.toContain("Mute");
+    expect(labels.some(label => label?.startsWith("Mute track"))).toBe(true);
     act(() => view.root.unmount());
   });
 
@@ -410,7 +410,7 @@ describe("TimelineTrackHeader", () => {
   // attribute, and nothing else writes it. Withholding the eye unconditionally
   // meant a track hidden by "Hide all" (or by hand, or before that rule existed)
   // was silent with no control anywhere to bring it back.
-  it("offers the eye on an audio track that is already hidden, so it can be restored", () => {
+  it("offers unmute on an audio track that is already muted", () => {
     const audio: TimelineElement = { ...ELEMENT, tag: "audio" };
     const view = renderHeader({
       keyframeClip: audio,
@@ -422,7 +422,7 @@ describe("TimelineTrackHeader", () => {
     const labels = Array.from(view.host.querySelectorAll("button")).map((b) =>
       b.getAttribute("aria-label"),
     );
-    expect(labels.some((l) => l && /^Show track/.test(l))).toBe(true);
+    expect(labels.some((l) => l && /^Unmute track/.test(l))).toBe(true);
     act(() => view.root.unmount());
   });
 
@@ -600,7 +600,7 @@ describe("TimelineTrackHeader", () => {
     });
 
     expect(view.host.querySelector('[data-property-group="position"]')?.textContent).toContain(
-      "12.5, 6.25",
+      "13, 6",
     );
 
     // The same sampled value is what an added keyframe gets stamped with, so a
@@ -1041,4 +1041,22 @@ describe("TimelineTrackHeader", () => {
       act(() => view.root.unmount());
     });
   });
+});
+
+it("offers audio-only mute beside visibility on a mixed track", () => {
+  const onToggleTrackHidden = vi.fn();
+  const view = renderHeader({ trackElements: [ELEMENT, { ...ELEMENT, id: "sound", tag: "audio" }], clipCount: 2, onToggleTrackHidden });
+  const mute = view.host.querySelector<HTMLButtonElement>('[aria-label="Mute track 1"]');
+  expect(mute).not.toBeNull();
+  act(() => mute!.click());
+  expect(onToggleTrackHidden).toHaveBeenCalledWith(1 / 6, true, 1, true);
+  expect(view.host.querySelector('[aria-label="Hide track 1"]')).not.toBeNull();
+  act(() => view.root.unmount());
+});
+
+it("uses the rendered native frame for add/remove state when the playhead is between frame boundaries", () => {
+  const view = renderHeader({ currentTime: 0.025, nativeLanes: NATIVE_HEADER_LANES, nativeHeaderSource: NATIVE_HEADER_SOURCE });
+  expect(view.host.querySelector('[aria-label="Remove Position keyframe"]')).not.toBeNull();
+  expect(view.host.querySelector('[aria-label="Add Position keyframe"]')).toBeNull();
+  act(() => view.root.unmount());
 });

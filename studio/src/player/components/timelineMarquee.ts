@@ -11,6 +11,7 @@ export const MARQUEE_DRAG_THRESHOLD_PX = 4;
 const MIN_CLIP_W = 4;
 
 export interface MarqueeClipInput {
+  mediaRow?: number;
   id: string;
   start: number;
   duration: number;
@@ -68,18 +69,19 @@ export function getMarqueeRect(
  * Returns null when the clip's track is not currently displayed.
  */
 export function getTimelineClipRect(
-  clip: Pick<MarqueeClipInput, "start" | "duration" | "track">,
+  clip: Pick<MarqueeClipInput, "start" | "duration" | "track" | "mediaRow">,
   rowGeometry: TimelineRowGeometry,
   pps: number,
   contentOrigin: number,
+  mediaHeight = TRACK_H,
 ): Rect | null {
   const row = rowGeometry.getRowIndex(clip.track);
   if (row < 0 || !Number.isFinite(pps) || pps <= 0) return null;
   return {
     left: contentOrigin + clip.start * pps,
-    top: rowGeometry.getRowTop(row) + CLIP_Y,
+    top: rowGeometry.getRowTop(row) + CLIP_Y + (clip.mediaRow ?? 0) * mediaHeight,
     width: Math.max(clip.duration * pps, MIN_CLIP_W),
-    height: TRACK_H - CLIP_Y * 2,
+    height: mediaHeight - CLIP_Y * 2,
   };
 }
 
@@ -136,11 +138,12 @@ export function computeMarqueeSelection(input: {
   contentOrigin: number;
   marquee: Rect;
   baseSelection?: Iterable<string>;
+  mediaHeight?: number;
 }): MarqueeSelectionResult {
   const ids = new Set<string>(input.baseSelection ?? []);
   let primaryId: string | null = null;
   for (const clip of input.clips) {
-    const rect = getTimelineClipRect(clip, input.rowGeometry, input.pps, input.contentOrigin);
+    const rect = getTimelineClipRect(clip, input.rowGeometry, input.pps, input.contentOrigin, input.mediaHeight);
     if (rect && rectsOverlap(rect, input.marquee)) {
       ids.add(clip.id);
       primaryId = clip.id;

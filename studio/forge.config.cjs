@@ -7,9 +7,6 @@ const { assertPackagedLegalResources } = require("./scripts/verify-packaged-lega
 const {
   assertPackagedRuntimeDependencies,
 } = require("./scripts/verify-packaged-runtime-dependencies.cjs");
-const {
-  prunePackagedNativeBinaries,
-} = require("./scripts/prune-packaged-native-binaries.cjs");
 
 module.exports = {
   packagerConfig: {
@@ -19,7 +16,7 @@ module.exports = {
     extendInfo: { LSMinimumSystemVersion: "15.0" },
     asar: {
       unpack:
-        "**/node_modules/{ffmpeg-static,@ffprobe-installer/**,onnxruntime-node/**,sharp/**,@img/**,esbuild/**,@esbuild/**}/**",
+        "**/node_modules/{ffmpeg-static,@ffprobe-installer/**,@img/**,esbuild/**,@esbuild/**}/**",
     },
     extraResource: [".puppeteer-cache/chrome-headless-shell", "resources/legal"],
     ignore: [
@@ -46,7 +43,6 @@ module.exports = {
       platform,
       arch,
     ) => {
-      prunePackagedNativeBinaries(buildPath, platform, arch);
       assertPreparedMediaBinaries(buildPath, platform, arch);
     },
     postPackage: async (_forgeConfig, packageResult) => {

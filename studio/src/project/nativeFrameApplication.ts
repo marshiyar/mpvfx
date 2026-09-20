@@ -1,3 +1,4 @@
+import { applyNativeGestureDraft } from "./nativeGestureDraft";
 import { evaluateNativeParameterTrack } from "./nativeKeyframeEvaluator";
 import type {
   NativeParameterTrack,
@@ -213,7 +214,15 @@ function applyVisualState(element: HTMLElement, state: NativeVisualState): void 
   const ownsOpacity = state.ownedParameters.some((id) => OPACITY_PARAMETERS.has(id));
   const ownedOpacityBefore = [...previousOwned].some((id) => OPACITY_PARAMETERS.has(id));
   if (ownsOpacity || ownedOpacityBefore) {
-    element.style.opacity = formatCssNumber(state.opacity);
+    const opacity = formatCssNumber(state.opacity);
+    element.setAttribute("data-studio-native-opacity", opacity);
+    // The grading renderer owns the source's opacity while its replacement
+    // canvas is visible. Revealing it here draws the original over the effect.
+    if (!element.hasAttribute("data-hf-color-grading-source-hidden")) {
+      element.style.opacity = opacity;
+    }
+  } else {
+    element.removeAttribute("data-studio-native-opacity");
   }
   if (state.width !== null) element.style.width = `${formatCssNumber(state.width)}px`;
   else if (previousOwned.has("layout.width")) element.style.removeProperty("width");
@@ -246,7 +255,14 @@ export function applyNativeFrameToDocument(
     }
     appliedClipIds.push(clip.clipId);
     const localFrame = projectFrame - clip.startFrame;
-    const visible = localFrame >= 0 && localFrame < clip.durationFrames;
+    const visible = localFrame >= 0 && localFrame < clip.durationFrames &&
+      !element.hasAttribute("data-hidden");
+    const gradedPicture = element.id
+      ? document.getElementById(`__hf_color_grading_${element.id}`)
+      : null;
+    const picture = gradedPicture?.hasAttribute("data-hf-color-grading-canvas")
+      ? gradedPicture : null;
+    if (picture) picture.style.visibility = visible ? "visible" : "hidden";
     element.style.visibility = visible ? "visible" : "hidden";
     if (!visible) continue;
     const state = evaluateVisualState(clip.staticParameters, clip.parameterTracks, localFrame);
@@ -258,6 +274,18 @@ export function applyNativeFrameToDocument(
       element.hasAttribute(NATIVE_OWNED_PARAMETERS_ATTRIBUTE)
     ) {
       applyVisualState(element, state);
+      applyNativeGestureDraft(element);
+      if (picture) {
+        // The effect canvas is a sibling, not a child: it does not inherit the
+        // source transform, dimensions or alpha. Update it in this same pass.
+        if (state.ownedParameters.some(id => TRANSFORM_PARAMETERS.has(id))) {
+          picture.style.transform = element.style.transform;
+        }
+        const opacity = element.getAttribute("data-studio-native-opacity");
+        if (opacity !== null) picture.style.opacity = opacity;
+        if (state.width !== null) picture.style.width = element.style.width;
+        if (state.height !== null) picture.style.height = element.style.height;
+      }
     }
   }
 

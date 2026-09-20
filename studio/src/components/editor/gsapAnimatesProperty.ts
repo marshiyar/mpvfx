@@ -23,10 +23,6 @@ const GSAP_TRANSFORM_PROPS = [
  * True when GSAP animates any transform-affecting property on the element,
  * meaning GSAP owns `style.transform` and has neutralized CSS `translate`.
  */
-export function gsapAnimatesTransform(el: HTMLElement): boolean {
-  return gsapAnimatesProperty(el, ...GSAP_TRANSFORM_PROPS);
-}
-
 /**
  * Checks whether GSAP actively animates one or more CSS/GSAP properties on
  * the given element by inspecting all registered `__timelines`.

@@ -189,7 +189,8 @@ export function useGsapAwareEditing({
     ) => {
       if (projectPropertyCommit.isNativeSelection(selection)) {
         try {
-          await projectPropertyCommit.commitAnimatedProperties(selection, next, { intent: "edit" });
+          const { newX, newY } = computeDraggedGsapPosition(selection.element, next, { x: 0, y: 0 });
+          await projectPropertyCommit.commitAnimatedProperties(selection, { x: newX, y: newY }, { intent: "edit" });
           return;
         } catch (error) {
           trackGsapInteractionFailure(error, selection, "drag", "Move animated layer");
@@ -358,10 +359,15 @@ export function useGsapAwareEditing({
           label: "Resize layer",
           settle: () => undefined,
           persist: async () => {
+            const position = offset
+              ? computeDraggedGsapPosition(selection.element, offset, { x: 0, y: 0 })
+              : null;
             await projectPropertyCommit.commitAnimatedProperties(
               selection,
-              { ...next, ...(offset ?? {}) },
-              { intent: "edit" },
+              { ...next, ...(position ? { x: position.newX, y: position.newY } : {}) },
+              { intent: "edit", ...(selection.element.style.clipPath
+                ? { sourceStyles: { "clip-path": selection.element.style.clipPath } }
+                : {}) },
             );
           },
           restore,

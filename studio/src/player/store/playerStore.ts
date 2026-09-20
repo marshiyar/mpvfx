@@ -107,6 +107,8 @@ interface PlayerState
   loopEnabled: boolean;
   /** Timeline zoom: 'fit' auto-scales to viewport, 'manual' uses manualZoomPercent */
   zoomMode: ZoomMode;
+  timelineTrackHeight: number;
+  setTimelineTrackHeight: (height: number) => void;
   /** Timeline zoom percent relative to the fit width when in manual mode */
   manualZoomPercent: number;
   /**
@@ -351,6 +353,13 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   audioVolume: readStudioUiPreferences().audioVolume ?? 1,
   loopEnabled: false,
   zoomMode: "fit",
+  timelineTrackHeight: readStudioUiPreferences().timelineTrackHeight ?? 48,
+  setTimelineTrackHeight: (height) => {
+    if (!Number.isFinite(height)) return;
+    const timelineTrackHeight = Math.max(32, Math.min(96, Math.round(height)));
+    writeStudioUiPreferences({ timelineTrackHeight });
+    set({ timelineTrackHeight });
+  },
   manualZoomPercent: 100,
   zEditVersion: 0,
   timelinePps: 100,
@@ -542,7 +551,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     writeStudioUiPreferences({ timelineSnapEnabled: enabled });
     set({ timelineSnapEnabled: enabled });
   },
-  timeDisplayMode: readStudioUiPreferences().timeDisplayMode ?? "time",
+  timeDisplayMode: "time",
   setTimeDisplayMode: (mode) => {
     writeStudioUiPreferences({ timeDisplayMode: mode });
     set({ timeDisplayMode: mode });

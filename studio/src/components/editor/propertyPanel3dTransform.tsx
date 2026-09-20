@@ -3,7 +3,11 @@ import { RotateCcw } from "../../icons/SystemIcons";
 import type { DomEditSelection } from "./domEditingTypes";
 import { MetricField } from "./propertyPanelPrimitives";
 import { KeyframeNavigation } from "./KeyframeNavigation";
-import { formatPxMetricValue, parsePxMetricValue, RESPONSIVE_GRID } from "./propertyPanelHelpers";
+import {
+  formatTransformValue,
+  parsePxMetricValue,
+  RESPONSIVE_GRID,
+} from "./propertyPanelHelpers";
 import { Transform3DCube, type CubePose } from "./Transform3DCube";
 import { useTrackDesignInput } from "../../contexts/DesignPanelInputContext";
 
@@ -15,8 +19,11 @@ import { useTrackDesignInput } from "../../contexts/DesignPanelInputContext";
 // can't be read (detached/unmeasured), never to a fixed magic number.
 function naturalDepthPerspective(el: HTMLElement | null | undefined): number {
   if (!el) return 0;
-  const root = el.closest("[data-hf-inner-root],[data-composition-id]") as HTMLElement | null;
-  const compHeight = root?.offsetHeight || el.ownerDocument?.documentElement?.clientHeight || 0;
+  const root = el.closest(
+    "[data-hf-inner-root],[data-composition-id]",
+  ) as HTMLElement | null;
+  const compHeight =
+    root?.offsetHeight || el.ownerDocument?.documentElement?.clientHeight || 0;
   if (compHeight > 0) return Math.round(compHeight);
   return Math.round((el.offsetHeight || 0) * 4) || 0;
 }
@@ -29,6 +36,7 @@ type KeyframeEntry = Array<{
 }> | null;
 
 interface PropertyPanel3dTransformProps {
+  compact?: boolean;
   gsapRuntimeValues: Record<string, number>;
   gsapAnimId: string | null;
   resolveAnimIdForProp?: (prop: string) => string | null;
@@ -52,7 +60,10 @@ interface PropertyPanel3dTransformProps {
   onRemoveKeyframe?: (animId: string, pct: number) => void;
   onConvertToKeyframes?: (animId: string, duration?: number) => void;
   /** Live-set props on the preview element during a cube drag (no source write). */
-  onLivePreviewProps?: (element: DomEditSelection, props: Record<string, number>) => void;
+  onLivePreviewProps?: (
+    element: DomEditSelection,
+    props: Record<string, number>,
+  ) => void;
 }
 
 /** The draggable cube + its commit/recenter/live-preview wiring. */
@@ -70,7 +81,10 @@ function Cube3dControl({
     element: DomEditSelection,
     props: Record<string, number | string>,
   ) => Promise<void>;
-  onLivePreviewProps?: (element: DomEditSelection, props: Record<string, number>) => void;
+  onLivePreviewProps?: (
+    element: DomEditSelection,
+    props: Record<string, number>,
+  ) => void;
   onKeyframe?: () => void;
   keyframed?: boolean;
 }) {
@@ -88,7 +102,8 @@ function Cube3dControl({
   // resize — small enough to look like a premium card, not a flip.
   const DEPTH_POSE_X = 10;
   const DEPTH_POSE_Y = -15;
-  const isFlat = Math.round(pose.rotationX) === 0 && Math.round(pose.rotationY) === 0;
+  const isFlat =
+    Math.round(pose.rotationX) === 0 && Math.round(pose.rotationY) === 0;
   // Commit only the rotation axes the drag actually changed (each rounded to a
   // whole degree). Reuses the keyframe-aware animated-property commit, so a drag
   // at the playhead writes/updates a keyframe just like the numeric fields.
@@ -141,9 +156,10 @@ function Cube3dControl({
           onDepthDraft={(z) => {
             // Preview WITH a lens so depth is visible while scrolling — the same
             // default the commit applies, so the element doesn't snap on release.
-            const preview: Record<string, number> = gsapRuntimeValues.transformPerspective
-              ? { z }
-              : { z, transformPerspective: depthPerspective };
+            const preview: Record<string, number> =
+              gsapRuntimeValues.transformPerspective
+                ? { z }
+                : { z, transformPerspective: depthPerspective };
             // Depth-pose preview: a flat element only scales under Z, so mirror the
             // commit and preview the gentle tilt that makes the depth read as 3D.
             if (isFlat) {
@@ -160,7 +176,10 @@ function Cube3dControl({
             // only, and Perspective stays an independent, editable field. The cube's
             // scroll is clamped in front of the lens, so Z can't run away past it.
             const props: Record<string, number> = { z };
-            if (!gsapRuntimeValues.transformPerspective && depthPerspective > 0) {
+            if (
+              !gsapRuntimeValues.transformPerspective &&
+              depthPerspective > 0
+            ) {
               props.transformPerspective = depthPerspective;
             }
             // Depth-pose: a flat element (no tilt) only scales under Z — it can't read
@@ -214,7 +233,7 @@ const parseDeg = (s: string): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 const parseScale = (s: string): number | null => {
-  const n = Number.parseFloat(s);
+  const n = Number.parseFloat(s) / 100;
   return Number.isFinite(n) ? n : null;
 };
 const parsePxNonNeg = (s: string): number | null => {
@@ -248,10 +267,12 @@ function Transform3dField({
   const { gsapAnimId, onCommitAnimatedProperty } = ctx;
   const idFor = (p: string) => ctx.resolveAnimIdForProp?.(p) ?? gsapAnimId;
   const current = ctx.gsapRuntimeValues[prop] ?? defaultValue;
-  const canReset = Boolean(onCommitAnimatedProperty && current !== defaultValue);
+  const canReset = Boolean(
+    onCommitAnimatedProperty && current !== defaultValue,
+  );
   return (
     <div className="flex items-center gap-1">
-      <div className="flex-1">
+      <div className="min-w-0 flex-1">
         <MetricField
           label={label}
           value={format(current)}
@@ -284,9 +305,12 @@ function Transform3dField({
           keyframes={ctx.gsapKeyframes}
           currentPercentage={ctx.currentPct}
           currentFrame={ctx.currentFrame}
-          onSeek={(pct) => ctx.onSeekToTime?.(ctx.elStart + (pct / 100) * ctx.elDuration)}
+          onSeek={(pct) =>
+            ctx.onSeekToTime?.(ctx.elStart + (pct / 100) * ctx.elDuration)
+          }
           onAddKeyframe={() => {
-            if (onCommitAnimatedProperty) void onCommitAnimatedProperty(ctx.element, prop, current);
+            if (onCommitAnimatedProperty)
+              void onCommitAnimatedProperty(ctx.element, prop, current);
           }}
           onRemoveKeyframe={(pct) => {
             const id = idFor(prop);
@@ -305,6 +329,7 @@ function Transform3dField({
 }
 
 export function PropertyPanel3dTransform({
+  compact = false,
   gsapRuntimeValues,
   gsapAnimId,
   resolveAnimIdForProp,
@@ -321,9 +346,8 @@ export function PropertyPanel3dTransform({
   onConvertToKeyframes,
   onLivePreviewProps,
 }: PropertyPanel3dTransformProps) {
-  // Expanded by default — the cube gizmo is the headline of this panel, so show
-  // it up front rather than hiding it behind a collapsed header.
-  const [collapsed, setCollapsed] = useState(false);
+  // Keep advanced spatial controls available without crowding the primary transform rows.
+  const [collapsed, setCollapsed] = useState(true);
   const ctx: FieldCtx = {
     element,
     gsapRuntimeValues,
@@ -341,14 +365,14 @@ export function PropertyPanel3dTransform({
   };
 
   return (
-    <div className="mt-3 border-t border-neutral-800/40 pt-3">
+    <div className={compact ? "" : "mt-3 border-t border-neutral-800/40 pt-3"}>
       <button
         type="button"
         onClick={() => setCollapsed((v) => !v)}
         aria-expanded={!collapsed}
         className="mb-2 flex w-full items-center justify-between text-[10px] font-medium uppercase tracking-wider text-neutral-600 hover:text-neutral-400 active:scale-[0.99]"
       >
-        <span>3D Transform</span>
+        <span>{compact ? "3D transform" : "3D Transform"}</span>
         <svg
           width="9"
           height="9"
@@ -362,66 +386,48 @@ export function PropertyPanel3dTransform({
       </button>
       {collapsed ? null : (
         <>
-          {onCommitAnimatedProperties && (
-            <Cube3dControl
-              element={element}
-              gsapRuntimeValues={gsapRuntimeValues}
-              onCommitAnimatedProperties={onCommitAnimatedProperties}
-              onLivePreviewProps={onLivePreviewProps}
-              keyframed={(gsapKeyframes ?? []).some(
-                (kf) =>
-                  "rotationX" in kf.properties ||
-                  "rotationY" in kf.properties ||
-                  "rotationZ" in kf.properties,
-              )}
-              onKeyframe={() => {
-                // Convert the 3D ("other"-group) static set to keyframes so the
-                // cube can animate; spans the element's clip via elDuration.
-                const id = resolveAnimIdForProp?.("rotationX") ?? gsapAnimId;
-                if (id) onConvertToKeyframes?.(id, elDuration);
-              }}
-            />
-          )}
-          <div className={RESPONSIVE_GRID}>
+          <div className="space-y-1">
             <Transform3dField
               ctx={ctx}
-              label="Z"
+              label="Depth"
               prop="z"
               scrub
-              format={formatPxMetricValue}
+              format={formatTransformValue}
               parse={parsePxMetricValue}
               defaultValue={0}
             />
+            {!compact && (
+              <Transform3dField
+                ctx={ctx}
+                label="Scale"
+                prop="scale"
+                scrub
+                format={(v) => formatTransformValue(v * 100, "%")}
+                parse={parseScale}
+                defaultValue={1}
+              />
+            )}
             <Transform3dField
               ctx={ctx}
-              label="Scale"
-              prop="scale"
-              scrub
-              format={(v) => String(v)}
-              parse={parseScale}
-              defaultValue={1}
-            />
-            <Transform3dField
-              ctx={ctx}
-              label="RotX"
+              label="Tilt X"
               prop="rotationX"
-              format={(v) => `${v}°`}
+              format={(v) => formatTransformValue(v, "°")}
               parse={parseDeg}
               defaultValue={0}
             />
             <Transform3dField
               ctx={ctx}
-              label="RotY"
+              label="Tilt Y"
               prop="rotationY"
-              format={(v) => `${v}°`}
+              format={(v) => formatTransformValue(v, "°")}
               parse={parseDeg}
               defaultValue={0}
             />
             <Transform3dField
               ctx={ctx}
-              label="RotZ"
+              label="Roll"
               prop="rotationZ"
-              format={(v) => `${v}°`}
+              format={(v) => formatTransformValue(v, "°")}
               parse={parseDeg}
               defaultValue={0}
             />
@@ -430,7 +436,7 @@ export function PropertyPanel3dTransform({
               label="Perspective"
               prop="transformPerspective"
               scrub
-              format={formatPxMetricValue}
+              format={formatTransformValue}
               parse={parsePxNonNeg}
               defaultValue={0}
             />

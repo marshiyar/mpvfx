@@ -138,7 +138,9 @@ export const AudioWaveform = memo(function AudioWaveform({
     const barCount = Math.floor(width / BAR_STEP);
     for (let index = 0; index < barCount; index++) {
       const peakIndex = start + Math.min(span - 1, Math.floor((index / barCount) * span));
-      const amplitude = peaks[peakIndex] ?? 0;
+      const peakEnd = start + Math.min(span, Math.ceil(((index + 1) / barCount) * span));
+      let amplitude = 0;
+      for (let sample = peakIndex; sample < peakEnd; sample++) amplitude = Math.max(amplitude, peaks[sample] ?? 0);
       const barHeight = Math.max(2, amplitude * height);
       context.fillStyle = `rgba(75,163,210,${(0.45 + amplitude * 0.4).toFixed(2)})`;
       context.fillRect(index * BAR_STEP, height - barHeight, BAR_WIDTH, barHeight);
@@ -164,7 +166,7 @@ export const AudioWaveform = memo(function AudioWaveform({
       <canvas
         ref={setCanvasRef}
         className="absolute inset-x-0 bottom-0 w-full"
-        style={{ top: 16 }}
+        style={{ top: 16, height: "calc(100% - 16px)" }}
       />
       {snapshot.status === "loading" && (
         <div

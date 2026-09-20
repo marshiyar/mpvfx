@@ -316,14 +316,27 @@ describe("native keyframe UI projection", () => {
     if (!result.ok) expect(result.failure.code).toBe("invalid-playhead");
   });
 
-  it("rejects a playhead outside the selected clip instead of evaluating a clamped value", () => {
+  it.each([[0, 0], [150 / 30, 119]])("keeps selected-clip values and keyframe controls available outside its range at %s", (playheadSeconds, expectedFrame) => {
     const result = projectNativeKeyframeUi(makeDocument(), {
       selectedElement: { id: "clip:first" },
-      playheadSeconds: 150 / 30,
+      playheadSeconds,
     });
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.failure.code).toBe("playhead-outside-clip");
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.clipLocalFrame).toBe(expectedFrame);
+  });
+
+  it("shows paired static position and scale with scalar overrides", () => {
+    const document = makeDocument([]);
+    document.sequence.tracks[0]!.clips[0]!.staticParameters = {
+      "transform.position": { x: 240, y: 180 },
+      "transform.position.x": 300,
+      "transform.scale": { x: 1.2, y: 0.8 },
+    };
+    const result = expectSuccess(projectNativeKeyframeUi(document, {
+      selectedElement: { id: "clip:first" }, playheadSeconds: 75 / 30,
+    }));
+    expect(result.currentValues).toMatchObject({ x: 300, y: 180, scaleX: 1.2, scaleY: 0.8 });
   });
 
   it("projects static native values without fabricating keyframe rows", () => {

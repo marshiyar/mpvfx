@@ -92,6 +92,37 @@ function untouchedVideoProjectDocument(): NativeProjectDocument {
 }
 
 describe("native project render body script", () => {
+  it("applies native geometry and alpha to the graded picture without revealing its source", () => {
+    const project = projectDocument();
+    const element = document.createElement("div");
+    element.id = "graded-card";
+    element.setAttribute("data-studio-clip-id", "clip:1");
+    element.setAttribute("data-hf-color-grading-source-hidden", "true");
+    element.style.opacity = "0";
+    const picture = document.createElement("canvas");
+    picture.id = "__hf_color_grading_graded-card";
+    picture.setAttribute("data-hf-color-grading-canvas", "true");
+    document.body.replaceChildren(element, picture);
+    window.eval(createNativeProjectRenderBodyScript(serializeNativeProjectDocument(project))!);
+    window.dispatchEvent(new CustomEvent("hf-seek", { detail: { time: 2.5 } }));
+    expect(element.style.opacity).toBe("0");
+    expect(picture.style.opacity).toBe("0.75");
+    expect(picture.style.transform).toBe(element.style.transform);
+    window.dispatchEvent(new CustomEvent("hf-seek", { detail: { time: 0 } }));
+    expect(picture.style.visibility).toBe("hidden");
+  });
+
+  it("keeps a hidden native clip hidden on export seeks", () => {
+    const project = projectDocument();
+    const element = document.createElement("div");
+    element.setAttribute("data-studio-clip-id", "clip:1");
+    element.setAttribute("data-hidden", "true");
+    document.body.replaceChildren(element);
+    window.eval(createNativeProjectRenderBodyScript(serializeNativeProjectDocument(project))!);
+    window.dispatchEvent(new CustomEvent("hf-seek", { detail: { time: 2 } }));
+    expect(element.style.visibility).toBe("hidden");
+  });
+
   it("applies exact rational clip transport on every export seek", () => {
     const project = projectDocument();
     project.frameRate = { numerator: 30_000, denominator: 1_001 };
@@ -618,6 +649,20 @@ describe("native export integration", () => {
     projectDir = mkdtempSync(join(tmpdir(), "studio-legacy-project-"));
     expect(readNativeProjectDocumentContent(projectDir)).toBe("");
     expect(nativeProjectRequiresFullRenderer(projectDir)).toBe(false);
+  });
+
+  it("puts render scripts in the exported entry document without changing the source", () => {
+    const sourceDir = writeProject();
+    const html = '<!doctype html><html><body><div id="card"></div></body></html>';
+    writeFileSync(join(sourceDir, "index.html"), html);
+    const scripts = createStudioDevRenderBodyScripts(sourceDir);
+    const result = createNativeProjectExportMaterialization(sourceDir,
+      join(sourceDir, ".studio/export-view"), join(sourceDir, ".studio"),
+      { renderBodyScripts: scripts });
+    const exported = readFileSync(join(result, "index.html"), "utf8");
+    expect(exported).toContain("__studioNativeProjectApply");
+    expect(exported.indexOf("__studioNativeProjectApply")).toBeLessThan(exported.indexOf("</body>"));
+    expect(readFileSync(join(sourceDir, "index.html"), "utf8")).toBe(html);
   });
 
   it("materializes native mute into the offline mixer contract without hiding video", () => {

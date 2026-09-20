@@ -381,7 +381,7 @@ export const bootstrapNativeProjectFromTimeline = (
   const candidatesByAuthoredLane = new Map<string, BootstrapCandidate[]>();
   const candidatesByDisplayLane = new Map<number, BootstrapCandidate[]>();
   for (const candidate of candidates) {
-    const authoredKey = `${candidate.trackKind}\u0000${candidate.authoredTrack}`;
+    const authoredKey = `${candidate.trackKind}:${candidate.authoredTrack}`;
     candidatesByAuthoredLane.set(authoredKey, [
       ...(candidatesByAuthoredLane.get(authoredKey) ?? []),
       candidate,
@@ -398,7 +398,7 @@ export const bootstrapNativeProjectFromTimeline = (
   }
   for (const owners of candidatesByDisplayLane.values()) {
     const nativeTracks = new Set(
-      owners.map((owner) => `${owner.trackKind}\u0000${owner.authoredTrack}`),
+      owners.map((owner) => `${owner.authoredTrack}`),
     );
     if (nativeTracks.size > 1) owners.forEach((owner) => laneConflicts.add(owner));
   }
@@ -431,10 +431,12 @@ export const bootstrapNativeProjectFromTimeline = (
       });
     }
 
-    const candidateTrackId = trackId(candidate.authoredTrack, candidate.trackKind);
+    const laneKinds = new Set(accepted.filter(other => other.authoredTrack === candidate.authoredTrack && other.displayTrack === candidate.displayTrack).map(other => other.trackKind));
+    const mergedKind = laneKinds.size > 1 ? "mixed" : candidate.trackKind;
+    const candidateTrackId = trackId(candidate.authoredTrack, mergedKind);
     const track = trackById.get(candidateTrackId) ?? {
       id: candidateTrackId,
-      kind: candidate.trackKind,
+      kind: mergedKind,
       lane: {
         authoredTrack: candidate.authoredTrack,
         displayTrack: candidate.displayTrack,

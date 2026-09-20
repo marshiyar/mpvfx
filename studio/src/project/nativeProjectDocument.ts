@@ -18,7 +18,7 @@ export const NATIVE_PROJECT_DOCUMENT_SCHEMA_VERSION = 1 as const;
 export const NATIVE_PROJECT_DOCUMENT_PATH = ".studio/project.json" as const;
 
 export type NativeProjectAssetKind = "video" | "audio" | "image";
-export type NativeProjectTrackKind = "video" | "audio";
+export type NativeProjectTrackKind = "video" | "audio" | "mixed";
 
 export interface NativeCanvas {
   width: number;
@@ -718,8 +718,8 @@ export function validateNativeProjectDocument(
     }
     requireId(track.id, `${trackPath}.id`, issues);
     collectDuplicateId(trackIds, track.id, `${trackPath}.id`, issues);
-    if (track.kind !== "video" && track.kind !== "audio") {
-      pushIssue(issues, "invalid-track", `${trackPath}.kind`, "Track kind must be video or audio");
+    if (track.kind !== "video" && track.kind !== "audio" && track.kind !== "mixed") {
+      pushIssue(issues, "invalid-track", `${trackPath}.kind`, "Track kind must be video, audio, or mixed");
     }
     const lane = validateTrackLane(track.lane, trackIndex, `${trackPath}.lane`, issues);
     if (lane) {
@@ -733,7 +733,7 @@ export function validateNativeProjectDocument(
       } else {
         displayLaneIds.add(lane.displayTrack);
       }
-      if (track.kind === "video" || track.kind === "audio") {
+      if (track.kind === "video" || track.kind === "audio" || track.kind === "mixed") {
         const authoredLaneId = `${track.kind}\u0000${lane.authoredTrack}`;
         if (authoredLaneIds.has(authoredLaneId)) {
           pushIssue(
@@ -802,6 +802,7 @@ export function validateNativeProjectDocument(
       validateStaticParameters(clip.staticParameters, `${clipPath}.staticParameters`, issues);
       if (
         asset &&
+        asset.kind !== "image" &&
         isNonNegativeInteger(clip.sourceInFrame) &&
         isPositiveInteger(clip.durationFrames) &&
         isPositiveInteger(asset.durationFrames) &&

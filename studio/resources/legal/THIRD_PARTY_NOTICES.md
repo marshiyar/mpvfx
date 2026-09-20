@@ -1,6 +1,6 @@
 # MpVFX third-party notices
 
-This inventory was generated from `studio/package-lock.json` for MpVFX 0.8.21. It records
+This inventory was generated from `studio/package-lock.json` for MpVFX 0.0.1. It records
 the license identifiers declared by the exact JavaScript dependency versions in the lockfile. A
 package's own license file and notices control if they differ from this convenience inventory.
 
@@ -27,9 +27,6 @@ architecture, version, and configuration. Exact provenance and corresponding-sou
 - The separately stored Stack Overflow QA corpus is not an npm dependency. Its per-post authors,
   URLs, dates, license versions, and modification notices are in
   `third_party/stackexchange-video-qa/sources.jsonl`.
-- The background-removal weight is downloaded on demand and is not in the source or application
-  package. Its checksum, lineage, and unresolved asset-specific licensing are recorded in
-  `docs/REMOTE_ASSETS.md`.
 
 ## Runtime and production dependencies
 
@@ -128,32 +125,6 @@ architecture, version, and configuration. Exact provenance and corresponding-sou
 | [@hyperframes/studio-server](https://www.npmjs.com/package/@hyperframes%2Fstudio-server) | 0.8.20 | Apache-2.0 |
 | [@hyperframes/studio-server](https://www.npmjs.com/package/@hyperframes%2Fstudio-server) | 0.8.21 | Apache-2.0 |
 | [@img/colour](https://www.npmjs.com/package/@img%2Fcolour) | 1.1.0 | MIT |
-| [@img/sharp-darwin-arm64](https://www.npmjs.com/package/@img%2Fsharp-darwin-arm64) | 0.35.0 | Apache-2.0 |
-| [@img/sharp-darwin-x64](https://www.npmjs.com/package/@img%2Fsharp-darwin-x64) | 0.35.0 | Apache-2.0 |
-| [@img/sharp-freebsd-wasm32](https://www.npmjs.com/package/@img%2Fsharp-freebsd-wasm32) | 0.35.0 | Apache-2.0 |
-| [@img/sharp-libvips-darwin-arm64](https://www.npmjs.com/package/@img%2Fsharp-libvips-darwin-arm64) | 1.3.0 | LGPL-3.0-or-later |
-| [@img/sharp-libvips-darwin-x64](https://www.npmjs.com/package/@img%2Fsharp-libvips-darwin-x64) | 1.3.0 | LGPL-3.0-or-later |
-| [@img/sharp-libvips-linux-arm](https://www.npmjs.com/package/@img%2Fsharp-libvips-linux-arm) | 1.3.0 | LGPL-3.0-or-later |
-| [@img/sharp-libvips-linux-arm64](https://www.npmjs.com/package/@img%2Fsharp-libvips-linux-arm64) | 1.3.0 | LGPL-3.0-or-later |
-| [@img/sharp-libvips-linux-ppc64](https://www.npmjs.com/package/@img%2Fsharp-libvips-linux-ppc64) | 1.3.0 | LGPL-3.0-or-later |
-| [@img/sharp-libvips-linux-riscv64](https://www.npmjs.com/package/@img%2Fsharp-libvips-linux-riscv64) | 1.3.0 | LGPL-3.0-or-later |
-| [@img/sharp-libvips-linux-s390x](https://www.npmjs.com/package/@img%2Fsharp-libvips-linux-s390x) | 1.3.0 | LGPL-3.0-or-later |
-| [@img/sharp-libvips-linux-x64](https://www.npmjs.com/package/@img%2Fsharp-libvips-linux-x64) | 1.3.0 | LGPL-3.0-or-later |
-| [@img/sharp-libvips-linuxmusl-arm64](https://www.npmjs.com/package/@img%2Fsharp-libvips-linuxmusl-arm64) | 1.3.0 | LGPL-3.0-or-later |
-| [@img/sharp-libvips-linuxmusl-x64](https://www.npmjs.com/package/@img%2Fsharp-libvips-linuxmusl-x64) | 1.3.0 | LGPL-3.0-or-later |
-| [@img/sharp-linux-arm](https://www.npmjs.com/package/@img%2Fsharp-linux-arm) | 0.35.0 | Apache-2.0 |
-| [@img/sharp-linux-arm64](https://www.npmjs.com/package/@img%2Fsharp-linux-arm64) | 0.35.0 | Apache-2.0 |
-| [@img/sharp-linux-ppc64](https://www.npmjs.com/package/@img%2Fsharp-linux-ppc64) | 0.35.0 | Apache-2.0 |
-| [@img/sharp-linux-riscv64](https://www.npmjs.com/package/@img%2Fsharp-linux-riscv64) | 0.35.0 | Apache-2.0 |
-| [@img/sharp-linux-s390x](https://www.npmjs.com/package/@img%2Fsharp-linux-s390x) | 0.35.0 | Apache-2.0 |
-| [@img/sharp-linux-x64](https://www.npmjs.com/package/@img%2Fsharp-linux-x64) | 0.35.0 | Apache-2.0 |
-| [@img/sharp-linuxmusl-arm64](https://www.npmjs.com/package/@img%2Fsharp-linuxmusl-arm64) | 0.35.0 | Apache-2.0 |
-| [@img/sharp-linuxmusl-x64](https://www.npmjs.com/package/@img%2Fsharp-linuxmusl-x64) | 0.35.0 | Apache-2.0 |
-| [@img/sharp-wasm32](https://www.npmjs.com/package/@img%2Fsharp-wasm32) | 0.35.0 | Apache-2.0 AND LGPL-3.0-or-later AND MIT |
-| [@img/sharp-webcontainers-wasm32](https://www.npmjs.com/package/@img%2Fsharp-webcontainers-wasm32) | 0.35.0 | Apache-2.0 |
-| [@img/sharp-win32-arm64](https://www.npmjs.com/package/@img%2Fsharp-win32-arm64) | 0.35.0 | Apache-2.0 AND LGPL-3.0-or-later |
-| [@img/sharp-win32-ia32](https://www.npmjs.com/package/@img%2Fsharp-win32-ia32) | 0.35.0 | Apache-2.0 AND LGPL-3.0-or-later |
-| [@img/sharp-win32-x64](https://www.npmjs.com/package/@img%2Fsharp-win32-x64) | 0.35.0 | Apache-2.0 AND LGPL-3.0-or-later |
 | [@isaacs/fs-minipass](https://www.npmjs.com/package/@isaacs%2Ffs-minipass) | 4.0.1 | ISC |
 | [@jridgewell/sourcemap-codec](https://www.npmjs.com/package/@jridgewell%2Fsourcemap-codec) | 1.6.0 | MIT |
 | [@mcp-b/global](https://www.npmjs.com/package/@mcp-b%2Fglobal) | 5.1.0 | MIT |
@@ -249,8 +220,6 @@ architecture, version, and configuration. Exact provenance and corresponding-sou
 | [nanoid](https://www.npmjs.com/package/nanoid) | 3.3.18 | MIT |
 | [nth-check](https://www.npmjs.com/package/nth-check) | 3.0.1 | BSD-2-Clause |
 | [object-keys](https://www.npmjs.com/package/object-keys) | 1.1.1 | MIT |
-| [onnxruntime-common](https://www.npmjs.com/package/onnxruntime-common) | 1.21.1 | MIT |
-| [onnxruntime-node](https://www.npmjs.com/package/onnxruntime-node) | 1.21.1 | MIT |
 | [parse-cache-control](https://www.npmjs.com/package/parse-cache-control) | 1.0.1 | BSD-3-Clause |
 | [pend](https://www.npmjs.com/package/pend) | 1.2.0 | MIT |
 | [picocolors](https://www.npmjs.com/package/picocolors) | 1.1.1 | ISC |
@@ -270,7 +239,6 @@ architecture, version, and configuration. Exact provenance and corresponding-sou
 | [semver](https://www.npmjs.com/package/semver) | 7.8.5 | ISC |
 | [semver-compare](https://www.npmjs.com/package/semver-compare) | 1.0.0 | MIT |
 | [serialize-error](https://www.npmjs.com/package/serialize-error) | 7.0.1 | MIT |
-| [sharp](https://www.npmjs.com/package/sharp) | 0.35.0 | Apache-2.0 |
 | [source-map](https://www.npmjs.com/package/source-map) | 0.6.1 | BSD-3-Clause |
 | [source-map-js](https://www.npmjs.com/package/source-map-js) | 1.2.1 | BSD-3-Clause |
 | [sprintf-js](https://www.npmjs.com/package/sprintf-js) | 1.1.3 | BSD-3-Clause |

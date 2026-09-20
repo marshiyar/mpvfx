@@ -25,10 +25,9 @@ export const GridOverlay = memo(function GridOverlay({
 }: GridOverlayProps) {
   if (!visible || spacing <= 0) return null;
 
-  const overlaySpacingX = spacing * scaleX;
-  const overlaySpacingY = spacing * scaleY;
-
-  if (overlaySpacingX < 4 || overlaySpacingY < 4) return null;
+  const divisions = [2, 3, 4].includes(spacing) ? spacing : 3;
+  const overlaySpacingX = compositionWidth / divisions;
+  const overlaySpacingY = compositionHeight / divisions;
 
   return (
     <div

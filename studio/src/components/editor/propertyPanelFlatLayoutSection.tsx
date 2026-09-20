@@ -1,7 +1,11 @@
 import { useTrackDesignInput } from "../../contexts/DesignPanelInputContext";
-import { FlatRow, FlatSegmentedRow, FlatSelectRow } from "./propertyPanelFlatPrimitives";
+import {
+  FlatRow,
+  FlatSegmentedRow,
+  FlatSelectRow,
+} from "./propertyPanelFlatPrimitives";
 import { KeyframeNavigation } from "./KeyframeNavigation";
-import { formatPxMetricValue } from "./propertyPanelHelpers";
+import { formatTransformValue } from "./propertyPanelHelpers";
 import { resolveValueTier } from "./propertyPanelValueTier";
 import { PropertyPanel3dTransform } from "./propertyPanel3dTransform";
 import type { DomEditSelection } from "./domEditingTypes";
@@ -31,6 +35,7 @@ interface GeometryRowsProps {
   keyframeTargetId?: string | null;
   navKeyframes: KeyframeEntry;
   currentPct: number;
+  clipDuration?: number;
   currentFrame?: number;
   seekFromKfPct: (pct: number) => void;
   animIdForProp: (prop: string) => string;
@@ -44,6 +49,14 @@ interface GeometryRowsProps {
     property: string,
     value: number,
   ) => Promise<void>;
+  onCommitKeyframeProperties?: (
+    element: DomEditSelection,
+    properties: Record<string, number>,
+  ) => Promise<void>;
+  onRemoveKeyframeGroup?: (
+    properties: readonly string[],
+    percentage: number,
+  ) => void;
   onRemoveKeyframe?: (animId: string, pct: number) => void;
   onConvertToKeyframes?: (animId: string) => void;
 }
@@ -55,6 +68,7 @@ function KeyframeGutter({
   gsapAnimId,
   navKeyframes,
   currentPct,
+  clipDuration,
   currentFrame,
   seekFromKfPct,
   animIdForProp,
@@ -71,6 +85,7 @@ function KeyframeGutter({
   | "gsapAnimId"
   | "navKeyframes"
   | "currentPct"
+  | "clipDuration"
   | "currentFrame"
   | "seekFromKfPct"
   | "animIdForProp"
@@ -81,7 +96,9 @@ function KeyframeGutter({
 >) {
   const track = useTrackDesignInput();
   if (!gsapAnimId) return null;
-  const hasKeyframesOnProp = Boolean(navKeyframes?.some((kf) => property in kf.properties));
+  const hasKeyframesOnProp = Boolean(
+    navKeyframes?.some((kf) => property in kf.properties),
+  );
   const addPropertyKeyframe = () => {
     const commit = onCommitKeyframeProperty ?? onCommitAnimatedProperty;
     if (!commit) return;
@@ -89,11 +106,15 @@ function KeyframeGutter({
     void commit(element, property, displayValue);
   };
   return (
-    <span data-flat-kf-gutter="true" style={{ opacity: hasKeyframesOnProp ? 1 : 0.3 }}>
+    <span
+      data-flat-kf-gutter="true"
+      style={{ opacity: hasKeyframesOnProp ? 1 : 0.3 }}
+    >
       <KeyframeNavigation
         property={property}
         keyframes={navKeyframes}
         currentPercentage={currentPct}
+        clipDuration={clipDuration}
         currentFrame={currentFrame}
         onSeek={seekFromKfPct}
         onAddKeyframe={addPropertyKeyframe}
@@ -127,6 +148,41 @@ function KeyframeGutter({
   );
 }
 
+function GeometryGroupKeyframes({
+  label,
+  values,
+  props,
+}: {
+  label: string;
+  values: Record<string, number>;
+  props: GeometryRowsProps;
+}) {
+  const properties = Object.keys(values);
+  const grouped = new Map<number, NonNullable<KeyframeEntry>[number]>();
+  for (const row of props.navKeyframes ?? []) {
+    if (!properties.some((property) => property in row.properties)) continue;
+    grouped.set(row.percentage, { ...row, properties: { [label]: 1 } });
+  }
+  const add = () => {
+    void props.onCommitKeyframeProperties?.(props.element, values);
+  };
+  return (
+    <KeyframeNavigation
+      property={label}
+      keyframes={[...grouped.values()]}
+      currentPercentage={props.currentPct}
+      currentFrame={props.currentFrame}
+      clipDuration={props.clipDuration}
+      onSeek={props.seekFromKfPct}
+      onAddKeyframe={add}
+      onConvertToKeyframes={add}
+      onRemoveKeyframe={(percentage) =>
+        props.onRemoveKeyframeGroup?.(properties, percentage)
+      }
+    />
+  );
+}
+
 export function LayoutGeometryRows({
   element,
   displayX,
@@ -144,11 +200,14 @@ export function LayoutGeometryRows({
   keyframeTargetId,
   navKeyframes,
   currentPct,
+  clipDuration,
   currentFrame,
   seekFromKfPct,
   animIdForProp,
   onCommitAnimatedProperty,
   onCommitKeyframeProperty,
+  onCommitKeyframeProperties,
+  onRemoveKeyframeGroup,
   onRemoveKeyframe,
   onConvertToKeyframes,
 }: GeometryRowsProps) {
@@ -157,6 +216,7 @@ export function LayoutGeometryRows({
     gsapAnimId: keyframeTargetId ?? gsapAnimId,
     navKeyframes,
     currentPct,
+    clipDuration,
     currentFrame,
     seekFromKfPct,
     animIdForProp,
@@ -165,50 +225,141 @@ export function LayoutGeometryRows({
     onRemoveKeyframe,
     onConvertToKeyframes,
   };
+  const grouped =
+    keyframeTargetId?.startsWith("native:") &&
+    onCommitKeyframeProperties &&
+    onRemoveKeyframeGroup;
+  const groupProps = {
+    ...gutterProps,
+    onCommitKeyframeProperties,
+    onRemoveKeyframeGroup,
+  } as GeometryRowsProps;
   return (
     <>
+      <div role="group" aria-label="Position" className="space-y-1">
+        <div className="flex items-center justify-between text-[11px] text-panel-text-3">
+          <span>Position</span>
+          {grouped && (
+            <GeometryGroupKeyframes
+              label="Position"
+              values={{ x: displayX, y: displayY }}
+              props={groupProps}
+            />
+          )}
+        </div>
+        <div className={grouped ? "grid grid-cols-2 gap-2" : "grid grid-cols-1 gap-1"}>
+          <FlatRow
+            compact
+            label="X"
+            value={formatTransformValue(displayX)}
+            tier={displayX === 0 ? "default" : "explicitCustom"}
+            disabled={manualOffsetEditingDisabled}
+            onCommit={(next) => commitManualOffset("x", next)}
+            onReset={
+              manualOffsetEditingDisabled
+                ? undefined
+                : () => commitManualOffset("x", "0px")
+            }
+            suffix={
+              !grouped && (
+                <KeyframeGutter
+                  property="x"
+                  displayValue={displayX}
+                  {...gutterProps}
+                />
+              )
+            }
+          />
+          <FlatRow
+            compact
+            label="Y"
+            value={formatTransformValue(displayY)}
+            tier={displayY === 0 ? "default" : "explicitCustom"}
+            disabled={manualOffsetEditingDisabled}
+            onCommit={(next) => commitManualOffset("y", next)}
+            onReset={
+              manualOffsetEditingDisabled
+                ? undefined
+                : () => commitManualOffset("y", "0px")
+            }
+            suffix={
+              !grouped && (
+                <KeyframeGutter
+                  property="y"
+                  displayValue={displayY}
+                  {...gutterProps}
+                />
+              )
+            }
+          />
+        </div>
+      </div>
+      <div role="group" aria-label="Size" className="space-y-1 py-1">
+        <div className="flex items-center justify-between text-[11px] text-panel-text-3">
+          <span>Size</span>
+          {grouped && (
+            <GeometryGroupKeyframes
+              label="Size"
+              values={{ width: displayW, height: displayH }}
+              props={groupProps}
+            />
+          )}
+        </div>
+        <div className={grouped ? "grid grid-cols-2 gap-2" : "grid grid-cols-1 gap-1"}>
+          <FlatRow
+            compact
+            label="W"
+            value={formatTransformValue(displayW)}
+            tier="default"
+            disabled={manualSizeEditingDisabled}
+            onCommit={(next) => commitManualSize("width", next)}
+            suffix={
+              !grouped && (
+                <KeyframeGutter
+                  property="width"
+                  displayValue={displayW}
+                  {...gutterProps}
+                />
+              )
+            }
+          />
+          <FlatRow
+            compact
+            label="H"
+            value={formatTransformValue(displayH)}
+            tier="default"
+            disabled={manualSizeEditingDisabled}
+            onCommit={(next) => commitManualSize("height", next)}
+            suffix={
+              !grouped && (
+                <KeyframeGutter
+                  property="height"
+                  displayValue={displayH}
+                  {...gutterProps}
+                />
+              )
+            }
+          />
+        </div>
+      </div>
       <FlatRow
-        label="X"
-        value={formatPxMetricValue(displayX)}
-        tier={displayX === 0 ? "default" : "explicitCustom"}
-        disabled={manualOffsetEditingDisabled}
-        onCommit={(next) => commitManualOffset("x", next)}
-        onReset={manualOffsetEditingDisabled ? undefined : () => commitManualOffset("x", "0px")}
-        suffix={<KeyframeGutter property="x" displayValue={displayX} {...gutterProps} />}
-      />
-      <FlatRow
-        label="Y"
-        value={formatPxMetricValue(displayY)}
-        tier={displayY === 0 ? "default" : "explicitCustom"}
-        disabled={manualOffsetEditingDisabled}
-        onCommit={(next) => commitManualOffset("y", next)}
-        onReset={manualOffsetEditingDisabled ? undefined : () => commitManualOffset("y", "0px")}
-        suffix={<KeyframeGutter property="y" displayValue={displayY} {...gutterProps} />}
-      />
-      <FlatRow
-        label="W"
-        value={formatPxMetricValue(displayW)}
-        tier="default"
-        disabled={manualSizeEditingDisabled}
-        onCommit={(next) => commitManualSize("width", next)}
-        suffix={<KeyframeGutter property="width" displayValue={displayW} {...gutterProps} />}
-      />
-      <FlatRow
-        label="H"
-        value={formatPxMetricValue(displayH)}
-        tier="default"
-        disabled={manualSizeEditingDisabled}
-        onCommit={(next) => commitManualSize("height", next)}
-        suffix={<KeyframeGutter property="height" displayValue={displayH} {...gutterProps} />}
-      />
-      <FlatRow
-        label="Angle"
-        value={`${displayR}°`}
+        label="Rotation"
+        value={formatTransformValue(displayR, "°")}
         tier={displayR === 0 ? "default" : "explicitCustom"}
         disabled={manualRotationEditingDisabled}
         onCommit={(next) => commitManualRotation(next.replace("°", ""))}
-        onReset={manualRotationEditingDisabled ? undefined : () => commitManualRotation("0")}
-        suffix={<KeyframeGutter property="rotation" displayValue={displayR} {...gutterProps} />}
+        onReset={
+          manualRotationEditingDisabled
+            ? undefined
+            : () => commitManualRotation("0")
+        }
+        suffix={
+          <KeyframeGutter
+            property="rotation"
+            displayValue={displayR}
+            {...gutterProps}
+          />
+        }
       />
     </>
   );
@@ -224,7 +375,7 @@ export function LayoutZIndexRow({
   const zIndex = String(parseInt(styles["z-index"] || "auto", 10) || 0);
   return (
     <FlatRow
-      label="Z-index"
+      label="Layer order"
       value={zIndex}
       tier={resolveValueTier(styles["z-index"], "auto")}
       onCommit={(next) => void onSetStyle("z-index", next)}
@@ -252,10 +403,24 @@ export function LayoutFlexBlock({
       </div>
       <FlatSegmentedRow
         label="Direction"
-        tier={resolveValueTier(styles["flex-direction"], "row") === "explicitCustom" ? "explicitCustom" : "default"}
+        tier={
+          resolveValueTier(styles["flex-direction"], "row") === "explicitCustom"
+            ? "explicitCustom"
+            : "default"
+        }
         options={[
-          { key: "row", node: "→ Row", label: "Row", active: direction === "row" },
-          { key: "column", node: "Column", label: "Column", active: direction === "column" },
+          {
+            key: "row",
+            node: "→ Row",
+            label: "Row",
+            active: direction === "row",
+          },
+          {
+            key: "column",
+            node: "Column",
+            label: "Column",
+            active: direction === "column",
+          },
         ]}
         disabled={disabled}
         onChange={(next) => void onSetStyle("flex-direction", next)}
@@ -291,7 +456,9 @@ export function LayoutFlexBlock({
         value={styles.gap ?? "0px"}
         tier={resolveValueTier(styles.gap, "0px")}
         disabled={disabled}
-        onCommit={(next) => void onSetStyle("gap", next.endsWith("px") ? next : `${next}px`)}
+        onCommit={(next) =>
+          void onSetStyle("gap", next.endsWith("px") ? next : `${next}px`)
+        }
         onReset={disabled ? undefined : () => void onSetStyle("gap", "0px")}
       />
     </div>
@@ -339,16 +506,25 @@ export function LayoutTransform3DBlock({
     props: Record<string, number | string>,
   ) => Promise<void>;
   onSeekToTime?: (time: number) => void;
+  onCommitKeyframeProperties?: (
+    element: DomEditSelection,
+    properties: Record<string, number>,
+  ) => Promise<void>;
+  onRemoveKeyframeGroup?: (
+    properties: readonly string[],
+    percentage: number,
+  ) => void;
   onRemoveKeyframe?: (animId: string, pct: number) => void;
   onConvertToKeyframes?: (animId: string, duration?: number) => void;
-  onLivePreviewProps?: (element: DomEditSelection, props: Record<string, number>) => void;
+  onLivePreviewProps?: (
+    element: DomEditSelection,
+    props: Record<string, number>,
+  ) => void;
 }) {
   return (
     <div className="border-t border-panel-hairline pt-2.5">
-      <div className="mb-[3px] text-[9px] font-semibold uppercase tracking-[0.12em] text-panel-text-5">
-        3D Transform
-      </div>
       <PropertyPanel3dTransform
+        compact
         gsapRuntimeValues={gsapRuntimeValues}
         gsapAnimId={gsapAnimId}
         resolveAnimIdForProp={resolveAnimIdForProp}
@@ -404,12 +580,52 @@ export function FlatLayoutSection({
   onLivePreviewProps,
   ...geometry
 }: FlatLayoutSectionProps) {
-  const isCompositionRoot = element.element?.hasAttribute("data-composition-id") ?? false;
+  const isCompositionRoot =
+    element.element?.hasAttribute("data-composition-id") ?? false;
   return (
     <div className="space-y-1.5">
-      <LayoutGeometryRows element={element} {...geometry} />
-      <LayoutZIndexRow styles={styles} onSetStyle={onSetStyle} />
-      <LayoutFlexBlock styles={styles} onSetStyle={onSetStyle} disabled={disabled} />
+      <LayoutGeometryRows
+        element={element}
+        {...geometry}
+        clipDuration={elDuration}
+      />
+      <FlatRow
+        label="Scale"
+        value={formatTransformValue((gsapRuntimeValues.scale ?? 1) * 100, "%")}
+        tier={
+          (gsapRuntimeValues.scale ?? 1) === 1 ? "default" : "explicitCustom"
+        }
+        disabled={!geometry.onCommitAnimatedProperty}
+        onCommit={(next) => {
+          const value = Number.parseFloat(next) / 100;
+          if (Number.isFinite(value) && value >= 0)
+            return geometry.onCommitAnimatedProperty?.(element, "scale", value);
+        }}
+        onReset={() =>
+          void geometry.onCommitAnimatedProperty?.(element, "scale", 1)
+        }
+        suffix={
+          <KeyframeGutter
+            {...geometry}
+            element={element}
+            property="scale"
+            gsapAnimId={geometry.keyframeTargetId ?? geometry.gsapAnimId}
+            displayValue={gsapRuntimeValues.scale ?? 1}
+            clipDuration={elDuration}
+          />
+        }
+      />
+      <details className="border-t border-panel-hairline pt-2">
+        <summary className="cursor-pointer text-[11px] text-panel-text-3">
+          Layout options
+        </summary>
+        <LayoutZIndexRow styles={styles} onSetStyle={onSetStyle} />
+        <LayoutFlexBlock
+          styles={styles}
+          onSetStyle={onSetStyle}
+          disabled={disabled}
+        />
+      </details>
       {!isCompositionRoot ? (
         <LayoutTransform3DBlock
           gsapRuntimeValues={gsapRuntimeValues}

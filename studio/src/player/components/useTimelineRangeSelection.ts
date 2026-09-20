@@ -1,3 +1,4 @@
+import { isAudioTimelineElement } from "../../utils/timelineInspector";
 import { useRef, useState, useCallback, useEffect } from "react";
 import {
   applyTimelineAutoScrollStep,
@@ -14,7 +15,7 @@ import {
   isTimelineRulerPress,
   type MarqueeClipInput,
 } from "./timelineMarquee";
-import type { Rect } from "../../utils/marqueeGeometry";
+import { rectsOverlap, type Rect } from "../../utils/marqueeGeometry";
 import type { TimelineRowGeometry } from "./timelineLayout";
 import type { TimelineClipIndex } from "../lib/timelineClipIndex";
 
@@ -42,6 +43,9 @@ interface MarqueeDragState {
   /** Pre-drag selection, restored on Escape-cancel. */
   baseIds: Set<string>;
   basePrimary: string | null;
+  baseKeyframes: Set<string>;
+  keyRects: Map<string, Rect>;
+  hasClipHits: boolean;
   /** Union new hits with baseIds (shift/cmd/ctrl at pointerdown). */
   additive: boolean;
   /** True once the pointer travelled past the click threshold. */
@@ -55,12 +59,13 @@ function snapshotSelection(): { ids: Set<string>; primary: string | null } {
   return { ids, primary: s.selectedElementId };
 }
 
-function toMarqueeClips(elements: TimelineElement[]): MarqueeClipInput[] {
+function toMarqueeClips(elements: TimelineElement[], clipIndex: TimelineClipIndex): MarqueeClipInput[] {
   return elements.map((el) => ({
     id: el.key ?? el.id,
     start: el.start,
     duration: el.duration,
     track: el.track,
+    mediaRow: isAudioTimelineElement(el) && clipIndex.rows.get(el.track)?.byStart.some(({element}) => !isAudioTimelineElement(element)) ? 1 : 0,
   }));
 }
 
@@ -86,13 +91,17 @@ function commitMarqueeSelection(
     contentOrigin,
   });
   const { ids, primaryId } = computeMarqueeSelection({
-    clips: toMarqueeClips([...candidates]),
+    clips: toMarqueeClips([...candidates], clipIndex),
+    mediaHeight: usePlayerStore.getState().timelineTrackHeight,
     rowGeometry,
     pps,
     contentOrigin,
     marquee: rect,
     baseSelection: additive ? marquee.baseIds : undefined,
   });
+  marquee.hasClipHits = ids.size > 0;
+  // Preserve the inspected lane while the box is still approaching its keys.
+  if (ids.size === 0) return;
   const store = usePlayerStore.getState();
   // Primary FIRST: setSelectedElementId collapses the multi-select set, so the set
   // must be written after it or the marquee selection would be wiped every frame.
@@ -201,17 +210,33 @@ export function useTimelineRangeSelection({
       // Live selection: every clip the box currently covers. Shift held
       // mid-drag (or cmd/ctrl at pointerdown) adds to the prior selection.
       const additive = marquee.additive || shiftKey;
-      commitMarqueeSelection(
-        rect,
-        additive,
-        marquee,
-        clipIndex,
-        rowGeometryRef.current,
-        ppsRef.current,
-        contentOrigin,
-      );
+      const viewport = scrollRef.current;
+      const bounds = viewport?.getBoundingClientRect();
+      if (viewport && bounds) {
+        for (const diamond of viewport.querySelectorAll<HTMLElement>("[data-keyframe-selection-key]")) {
+          const key = diamond.dataset.keyframeSelectionKey;
+          const box = diamond.getBoundingClientRect();
+          if (!key || box.width === 0 || box.height === 0) continue;
+          marquee.keyRects.set(key, {
+            left: box.left - bounds.left + viewport.scrollLeft,
+            top: box.top - bounds.top + viewport.scrollTop,
+            width: box.width, height: box.height,
+          });
+        }
+      }
+      const keys = new Set(additive ? marquee.baseKeyframes : []);
+      for (const [key, bounds] of marquee.keyRects) {
+        if (rectsOverlap(rect, bounds)) keys.add(key);
+      }
+      // Keep the clip inspected when the box encloses keys only. Changing the
+      // primary clip can swap the expanded lane out from underneath the drag.
+      if (keys.size === 0) {
+        commitMarqueeSelection(rect, additive, marquee, clipIndex,
+          rowGeometryRef.current, ppsRef.current, contentOrigin);
+      }
+      usePlayerStore.setState({ selectedKeyframes: keys });
     },
-    [toContentPoint, isGestureSessionCurrent, clipIndex, rowGeometryRef, ppsRef, contentOrigin],
+    [toContentPoint, isGestureSessionCurrent, clipIndex, rowGeometryRef, ppsRef, contentOrigin, scrollRef],
   );
 
   const stopMarqueeAutoScroll = useCallback(() => {
@@ -279,6 +304,9 @@ export function useTimelineRangeSelection({
       originY: point.y,
       baseIds: base.ids,
       basePrimary: base.primary,
+      baseKeyframes: new Set(usePlayerStore.getState().selectedKeyframes),
+      keyRects: new Map(),
+      hasClipHits: false,
       additive,
       active: false,
     };
@@ -373,10 +401,11 @@ export function useTimelineRangeSelection({
       stopMarqueeAutoScroll();
       setMarqueeRect(null);
       const store = usePlayerStore.getState();
-      if (!marquee.active) {
+      if (!marquee.active || (!marquee.hasClipHits && store.selectedKeyframes.size === 0)) {
         // Plain click on empty body (click-away): deselect everything.
         store.setSelectedElementId(null);
         store.clearSelectedElementIds();
+        store.clearSelectedKeyframes();
         onSelectElement?.(null);
         return;
       }
@@ -441,6 +470,7 @@ export function useTimelineRangeSelection({
         const store = usePlayerStore.getState();
         store.setSelectedElementId(marquee.basePrimary);
         store.setSelectedElementIds(marquee.baseIds);
+        usePlayerStore.setState({ selectedKeyframes: marquee.baseKeyframes });
       }
       if (updateUi) {
         setMarqueeRect(null);

@@ -46,6 +46,7 @@ export type CommitNativeTimelineRangeEditResult =
     }
   | {
       readonly committed: false;
+      readonly message?: string;
       readonly reason:
         | NativeTimelineRangeEditPlanFailureCode
         | "missing-native-project"
@@ -101,7 +102,7 @@ export async function commitNativeTimelineRangeEdit(
         requestedStartSeconds: input.requestedStartSeconds,
         requestedDurationSeconds: input.requestedDurationSeconds,
       });
-      if (!plan.ok) return { committed: false, reason: plan.failure.code };
+      if (!plan.ok) return { committed: false, reason: plan.failure.code, message: plan.failure.message };
       if (plan.sourceFile !== sourceFile) {
         throw new NativeTimelineRangeCompatibilityError(
           `Resolved clip source ${plan.sourceFile} does not match locked source ${sourceFile}`,

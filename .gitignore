@@ -9,7 +9,12 @@ __pycache__/
 
 # Local development tools and workspace state
 .agents/
+**/AGENTS.md
+editor-reliability-plugin/
+*.editor-reliability-plugin/
 .codex/
+*.codex/
+/scripts/*
 .claude/
 .chatgpt/
 .cursor/
@@ -30,12 +35,17 @@ __pycache__/
 /claude-export*/
 /ai-chat-export*/
 /conversations.json
+/audits/*
+/docs/audits/
 /shared_conversations.json
 /message_feedback.json
 /chat.html
 *.chatlog
 *.chat-transcript.*
-*.conversation-export.*
+*.conversation-export.
+*.verification-tmp
+*.stderr
+*.stdout
 
 # Local secrets and logs
 .env
@@ -101,6 +111,13 @@ studio/.vitest/
 studio/.puppeteer-cache/
 studio/resources/runtime/
 studio/cache/
+**/*cache*/
+studio/data/cache/
+studio/data/renders/
+studio/scripts/
+**/knip.jsonc
+**/ffmpeg-runtime-manifest.json
+*.puppeteer-cache
 
 # Local projects, renders, recovery state, and derived media caches
 studio/data/projects/

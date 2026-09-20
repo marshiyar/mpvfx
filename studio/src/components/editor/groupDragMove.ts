@@ -14,10 +14,6 @@ import {
   logDragMove,
   readDragPositions,
 } from "../../utils/dragDebug";
-import {
-  constrainMediaGroupDragDelta,
-  isCanvasBoundMediaElement,
-} from "./mediaCanvasContainment";
 
 /**
  * One frame of a group drag, kept out of onPointerMove — which already handles
@@ -79,21 +75,10 @@ export function createGroupDragMover(
       lastGesture = groupG;
       lastGroupPositions = {};
     }
-    let { dx, dy } = snapGroupDelta(groupG, e, {
+    const { dx, dy } = snapGroupDelta(groupG, e, {
       dx: e.clientX - groupG.startX,
       dy: e.clientY - groupG.startY,
     });
-    const compositionTarget = groupG.snapContext?.compositionTarget;
-    const mediaRects = groupG.originItems
-      .filter((item) => isCanvasBoundMediaElement(item.element))
-      .map((item) => item.rect);
-    if (compositionTarget && mediaRects.length > 0) {
-      ({ dx, dy } = constrainMediaGroupDragDelta({
-        rects: mediaRects,
-        canvas: compositionTarget,
-        proposed: { dx, dy },
-      }));
-    }
     groupG.lastSnappedDx = dx;
     groupG.lastSnappedDy = dy;
 

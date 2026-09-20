@@ -30,7 +30,10 @@ interface PendingReceipt {
 
 const isWithin = (root: string, candidate: string): boolean => {
   const offset = relative(root, candidate);
-  return offset === "" || (!isAbsolute(offset) && offset !== ".." && !offset.startsWith(`..${sep}`));
+  return (
+    offset === "" ||
+    (!isAbsolute(offset) && offset !== ".." && !offset.startsWith(`..${sep}`))
+  );
 };
 
 /**
@@ -64,7 +67,11 @@ export function createDurableWriteReceiptRegistry(
         const target = resolve(root, file.path);
         if (!isWithin(root, target)) continue;
         const entries = pending.get(target) ?? [];
-        entries.push({ content: file.after, token, expiresAt: timestamp + ttlMs });
+        entries.push({
+          content: file.after,
+          token,
+          expiresAt: timestamp + ttlMs,
+        });
         pending.set(target, entries);
       }
     },
@@ -80,7 +87,9 @@ export function createDurableWriteReceiptRegistry(
       if (!entries) return null;
       // The current filesystem bytes may already reflect a later queued commit;
       // match by content rather than assuming watcher delivery order.
-      const matchIndex = entries.findIndex((entry) => entry.content === currentContent);
+      const matchIndex = entries.findIndex(
+        (entry) => entry.content === currentContent,
+      );
       if (matchIndex < 0) return null;
       const [match] = entries.splice(matchIndex, 1);
       if (entries.length === 0) pending.delete(target);
@@ -88,4 +97,42 @@ export function createDurableWriteReceiptRegistry(
       return { path: target, version, writeToken: match!.token };
     },
   };
+}
+
+/** A watcher can report one write twice after its ownership receipt is consumed.
+ * Deduplicate identical bytes before publishing the tokenless second event, while
+ * preserving real external edits, deletions, and recreations.
+ */
+export function createFileChangeVersionFilter() {
+  const published = new Map<string, string>();
+  return (filePath: string, version: string | null): boolean => {
+    const target = resolve(filePath);
+    if (version === null) {
+      published.delete(target);
+      return true;
+    }
+    if (published.get(target) === version) return false;
+    published.set(target, version);
+    return true;
+  };
+}
+
+/** Watcher events must identify the owning project even when a write receipt
+ * carries only a relative filename. Generated artifacts never change the edit. */
+export function projectFileChangeScope(
+  projectsDir: string,
+  filePath: string,
+): { projectId: string; path: string } | null {
+  const offset = relative(resolve(projectsDir), resolve(filePath));
+  if (isAbsolute(offset) || offset.startsWith(`..${sep}`)) return null;
+  const [projectId, ...parts] = offset.split(sep);
+  if (!projectId || projectId === ".." || parts.length === 0) return null;
+  const path = parts.join("/");
+  if (!/\.(?:html|css|js|json)$/i.test(path)) return null;
+  if (
+    parts.some((part) => part.startsWith(".")) &&
+    path !== ".studio/project.json"
+  )
+    return null;
+  return { projectId, path };
 }

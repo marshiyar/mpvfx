@@ -304,7 +304,7 @@ export function FxSection({
    * it survives a reorder, and open by default: a preset that arrives already
    * hidden is one nobody learns is a chain they can edit.
    */
-  const [collapsedRuns, setCollapsedRuns] = useState<ReadonlySet<string>>(new Set());
+  const [collapsedRuns, setCollapsedRuns] = useState<ReadonlySet<string>>(() => new Set(runs.filter(run => run.preset).map(run => `${run.preset}-${run.items[0]?.i ?? 0}`)));
 
   const eqIds = useMemo(() => audioEqIds(chain), [chain]);
 

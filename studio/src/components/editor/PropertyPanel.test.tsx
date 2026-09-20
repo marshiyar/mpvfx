@@ -335,6 +335,7 @@ const RENDER_TIMEOUT_MS = 45_000;
 
 // Find the collapsed accordion row whose title matches and click it open.
 function openFlatGroup(host: HTMLElement, title: string) {
+  if (host.querySelector('[data-flat-group-open="true"]')?.textContent?.startsWith(title)) return;
   const row = Array.from(host.querySelectorAll('[data-flat-group-collapsed="true"]')).find((el) =>
     el.textContent?.includes(title),
   );
@@ -436,6 +437,7 @@ describe("PropertyPanel — Style group (flag on)", () => {
     async () => {
       const { host, root } = await renderPanel(true, styleOnlyElement());
       expect(host.textContent).toContain("Style");
+      openFlatGroup(host, "Style");
       expect(host.textContent).toContain("Fill");
       act(() => root.unmount());
     },
@@ -473,12 +475,12 @@ describe("PropertyPanel — Layout group (Plan 3a)", () => {
 
       const layoutCollapsedRow = Array.from(
         host.querySelectorAll('[data-flat-group-collapsed="true"]'),
-      ).find((el) => el.textContent?.includes("Layout"));
+      ).find((el) => el.textContent?.includes("Transform"));
       if (!layoutCollapsedRow) throw new Error("expected a collapsed Layout row");
       act(() => layoutCollapsedRow.dispatchEvent(new MouseEvent("click", { bubbles: true })));
 
       const openGroup = host.querySelector('[data-flat-group-open="true"]');
-      expect(openGroup?.textContent).toContain("Layout");
+      expect(openGroup?.textContent).toContain("Transform");
       expect(openGroup?.textContent).toContain("X");
       act(() => root.unmount());
     },
@@ -489,11 +491,7 @@ describe("PropertyPanel — Layout group (Plan 3a)", () => {
     "renders Flex exactly once on the flat path (flat Layout only, legacy suppressed)",
     async () => {
       const { host, root } = await renderPanel(true, flexElement());
-      const layoutCollapsedRow = Array.from(
-        host.querySelectorAll('[data-flat-group-collapsed="true"]'),
-      ).find((el) => el.textContent?.includes("Layout"));
-      if (!layoutCollapsedRow) throw new Error("expected a collapsed Layout row");
-      act(() => layoutCollapsedRow.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+      openFlatGroup(host, "Transform");
 
       // The legacy StyleSections Flex `Section` (data-panel-section="flex") must
       // NOT render on the flat path — the only two Flex renderers are the legacy
@@ -501,7 +499,7 @@ describe("PropertyPanel — Layout group (Plan 3a)", () => {
       // presence proves Flex renders exactly once (not twice, not zero).
       expect(host.querySelector('[data-panel-section="flex"]')).toBeNull();
       const openGroup = host.querySelector('[data-flat-group-open="true"]');
-      expect(openGroup?.textContent).toContain("Layout");
+      expect(openGroup?.textContent).toContain("Transform");
       expect(openGroup?.textContent).toContain("Flex");
       act(() => root.unmount());
     },
@@ -510,47 +508,16 @@ describe("PropertyPanel — Layout group (Plan 3a)", () => {
 });
 
 describe("PropertyPanel — Motion group (Plan 3b)", () => {
-  it(
-    "renders the Motion group with Timing, and opening it closes the previously open group (4-way exclusivity)",
-    async () => {
-      const { host, root } = await renderPanel(true, animatedElement());
-      // Text is open by default for the text-editable fixture.
-      expect(openGroupText(host)).toContain("Text");
-
-      openFlatGroup(host, "Motion");
-      const openGroup = openGroupText(host);
-      expect(openGroup).toContain("Motion");
-      // FlatTimingRow (Start/End/Duration) renders inside the Motion group.
-      expect(openGroup).toContain("Start");
-      expect(openGroup).toContain("Duration");
-      // One-open accordion: opening Motion closed the Text group.
-      expect(openGroup).not.toContain("Text");
-
-      // Reverse direction: opening Layout closes Motion.
-      openFlatGroup(host, "Layout");
-      const openAfter = openGroupText(host);
-      expect(openAfter).toContain("Layout");
-      expect(openAfter).not.toContain("Motion");
-      act(() => root.unmount());
-    },
-    RENDER_TIMEOUT_MS,
-  );
-
-  it(
-    "hides the effect list (showEffects off) when the GSAP edit handlers are absent",
-    async () => {
-      // None of the five required edit handlers are supplied here, so the
-      // effect list stays closed — only the Timing row shows.
-      const { host, root } = await renderPanel(true, animatedElement());
-      openFlatGroup(host, "Motion");
-      const openGroup = openGroupText(host);
-      expect(openGroup).toContain("Motion");
-      expect(openGroup).toContain("Duration"); // Timing still shows
-      expect(openGroup).not.toContain("Add effect"); // effects gated off
-      act(() => root.unmount());
-    },
-    RENDER_TIMEOUT_MS,
-  );
+  it("keeps clip timing in the timeline and preserves inspector group switching", async () => {
+    const { host, root } = await renderPanel(true, animatedElement());
+    expect(host.textContent).not.toContain("Clip timing");
+    openFlatGroup(host, "Transform");
+    expect(openGroupText(host)).toContain("Transform");
+    openFlatGroup(host, "Style");
+    expect(openGroupText(host)).toContain("Style");
+    expect(openGroupText(host)).not.toContain("Transform");
+    act(() => root.unmount());
+  }, RENDER_TIMEOUT_MS);
 
   it(
     "shows the effect list (showEffects on) when the flag and all five handlers are present",
@@ -562,7 +529,7 @@ describe("PropertyPanel — Motion group (Plan 3b)", () => {
         onAddGsapProperty: vi.fn(),
         onAddGsapAnimation: vi.fn(),
       });
-      openFlatGroup(host, "Motion");
+      openFlatGroup(host, "Animation");
       expect(openGroupText(host)).toContain("Add effect");
       act(() => root.unmount());
     },
@@ -636,7 +603,7 @@ describe("PropertyPanel — flat Layout/Motion timing agreement (whole-plan cohe
             ]),
           }),
       );
-      openFlatGroup(host, "Layout");
+      openFlatGroup(host, "Transform");
       const layoutGroup = host.querySelector('[data-flat-group-open="true"]');
       const xRow = Array.from(layoutGroup?.querySelectorAll<HTMLElement>(".group") ?? []).find(
         (row) => row.querySelector("span")?.textContent === "X",
@@ -653,25 +620,11 @@ describe("PropertyPanel — flat Layout/Motion timing agreement (whole-plan cohe
     RENDER_TIMEOUT_MS,
   );
 
-  it(
-    "Motion's Timing row shows the inferred start/end/duration for an element with animations but no explicit duration",
-    async () => {
-      const { host, root } = await renderPanel(true, inferredMotionElement(), {
-        gsapAnimations: [INFERRED_TIMING_ANIMATION],
-      });
-      openFlatGroup(host, "Motion");
-      const motionGroup = host.querySelector('[data-flat-group-open="true"]');
-      if (!motionGroup) throw new Error("expected the Motion group to be open");
-      expect(motionGroup.textContent).toContain("Inferred");
-      const inputs = motionGroup.querySelectorAll<HTMLInputElement>("input");
-      // FlatTimingRow renders Start, End, Duration in that order.
-      expect(inputs[0]?.value).toBe("2.00s");
-      expect(inputs[1]?.value).toBe("5.00s");
-      expect(inputs[2]?.value).toBe("3.00s");
-      act(() => root.unmount());
-    },
-    RENDER_TIMEOUT_MS,
-  );
+  it("does not duplicate inferred timing in the inspector", async () => {
+    const { host, root } = await renderPanel(true, inferredMotionElement(), { gsapAnimations: [INFERRED_TIMING_ANIMATION] });
+    expect(host.textContent).not.toContain("Clip timing");
+    act(() => root.unmount());
+  }, RENDER_TIMEOUT_MS);
 
   it(
     "Layout's X-row keyframe gutter seeks to the SAME absolute time Motion's Timing row shows as the midpoint (50% of an inferred 2s-5s range = 3.5s)",
@@ -691,7 +644,7 @@ describe("PropertyPanel — flat Layout/Motion timing agreement (whole-plan cohe
         { gsapAnimations: [INFERRED_TIMING_ANIMATION], onSeekToTime },
         2,
       );
-      openFlatGroup(host, "Layout");
+      openFlatGroup(host, "Transform");
       const layoutGroup = host.querySelector('[data-flat-group-open="true"]');
       if (!layoutGroup) throw new Error("expected the Layout group to be open");
 
@@ -736,7 +689,7 @@ describe("PropertyPanel — flat Layout currentPct basis (currentPct follow-up f
         { gsapAnimations: [INFERRED_TIMING_ANIMATION] },
         3.5,
       );
-      openFlatGroup(host, "Layout");
+      openFlatGroup(host, "Transform");
       const layoutGroup = host.querySelector('[data-flat-group-open="true"]');
       if (!layoutGroup) throw new Error("expected the Layout group to be open");
 
@@ -773,7 +726,7 @@ describe("PropertyPanel — flat Layout currentPct basis (currentPct follow-up f
         { gsapAnimations: [INFERRED_TIMING_ANIMATION], onSeekToTime },
         3.5,
       );
-      openFlatGroup(host, "Layout");
+      openFlatGroup(host, "Transform");
       const layoutGroup = host.querySelector('[data-flat-group-open="true"]');
       if (!layoutGroup) throw new Error("expected the Layout group to be open");
 
@@ -954,18 +907,18 @@ describe("PropertyPanel — Media group (Plan 4)", () => {
       // videoElement() has canEditStyles: true and no text fields, so Style is
       // the default-open group; Layout and Media render collapsed alongside it.
       const { host, root } = await renderPanel(true, videoElement() as never);
-      expect(openGroupText(host)).toContain("Style");
+      expect(openGroupText(host)).toContain("Transform");
 
       // Opening Media closes Style.
       openFlatGroup(host, "Media");
       const afterMedia = openGroupText(host);
       expect(afterMedia).toContain("Media");
-      expect(afterMedia).not.toContain("Style");
+      expect(afterMedia).not.toContain("Transform");
 
       // Reverse direction: opening Layout closes Media — same shared openGroupId.
-      openFlatGroup(host, "Layout");
+      openFlatGroup(host, "Transform");
       const afterLayout = openGroupText(host);
-      expect(afterLayout).toContain("Layout");
+      expect(afterLayout).toContain("Transform");
       expect(afterLayout).not.toContain("Media");
       act(() => root.unmount());
     },
@@ -1009,8 +962,8 @@ describe("PropertyPanel — fixed headers + scrollable open section (Plan 11)", 
       const { host, root } = await renderPanel(true, sixGroupElement());
       // sixGroupElement() opens Text by default; open Motion (index 3) to
       // match the worked example.
-      openFlatGroup(host, "Motion");
-      expect(openGroupText(host)).toContain("Motion");
+      openFlatGroup(host, "Style");
+      expect(openGroupText(host)).toContain("Style");
 
       const body = host.querySelector('[data-flat-panel-body="true"]');
       if (!body) throw new Error("expected the flat panel body container");
@@ -1024,21 +977,20 @@ describe("PropertyPanel — fixed headers + scrollable open section (Plan 11)", 
       });
       // Filter to just the group entries (drop any non-group nulls).
       const groupTitles = titles.filter((t): t is string => t !== null);
-      expect(groupTitles).toHaveLength(7);
+      expect(groupTitles).toHaveLength(6);
       expect(groupTitles[0]).toContain("Text");
-      expect(groupTitles[1]).toContain("Style");
-      expect(groupTitles[2]).toContain("Layout");
-      expect(groupTitles[3]).toContain("Motion");
-      expect(groupTitles[4]).toContain("Grade");
-      expect(groupTitles[5]).toContain("Effects");
-      expect(groupTitles[6]).toContain("Media");
+      expect(groupTitles[1]).toContain("Transform");
+      expect(groupTitles[2]).toContain("Style");
+      expect(groupTitles[3]).toContain("Grade");
+      expect(groupTitles[4]).toContain("Effects");
+      expect(groupTitles[5]).toContain("Media");
 
       // The open group (Motion, index 3) is the one wrapped in
       // data-flat-group-open, sitting between the before/after collapsed
       // headers — and it must contain a dedicated scrollable body.
       const openWrapper = host.querySelector('[data-flat-group-open="true"]');
       if (!openWrapper) throw new Error("expected the open-group wrapper");
-      expect(openWrapper.textContent).toContain("Motion");
+      expect(openWrapper.textContent).toContain("Style");
       expect(openWrapper.querySelector(".overflow-y-auto")).not.toBeNull();
 
       // Nothing anywhere in the panel body carries inline sticky positioning
@@ -1066,15 +1018,14 @@ describe("PropertyPanel — fixed headers + scrollable open section (Plan 11)", 
       const collapsedRows = Array.from(
         host.querySelectorAll<HTMLButtonElement>('[data-flat-group-collapsed="true"]'),
       );
-      expect(collapsedRows).toHaveLength(7);
+      expect(collapsedRows).toHaveLength(6);
       const titlesInOrder = collapsedRows.map((el) => el.textContent ?? "");
       expect(titlesInOrder[0]).toContain("Text");
-      expect(titlesInOrder[1]).toContain("Style");
-      expect(titlesInOrder[2]).toContain("Layout");
-      expect(titlesInOrder[3]).toContain("Motion");
-      expect(titlesInOrder[4]).toContain("Grade");
-      expect(titlesInOrder[5]).toContain("Effects");
-      expect(titlesInOrder[6]).toContain("Media");
+      expect(titlesInOrder[1]).toContain("Transform");
+      expect(titlesInOrder[2]).toContain("Style");
+      expect(titlesInOrder[3]).toContain("Grade");
+      expect(titlesInOrder[4]).toContain("Effects");
+      expect(titlesInOrder[5]).toContain("Media");
 
       const body = host.querySelector('[data-flat-panel-body="true"]');
       expect(body?.querySelector(".overflow-y-auto")).toBeNull();
@@ -1099,8 +1050,8 @@ describe("PropertyPanel — flat group entrance animation scoping (fix round)", 
       // shift scenario the justToggledIds mechanism exists to guard: Style
       // and Layout shift position in the before/after-open slices on both
       // toggles even though neither of them is the group being toggled.
-      openFlatGroup(host, "Motion");
-      expect(openGroupText(host)).toContain("Motion");
+      openFlatGroup(host, "Style");
+      expect(openGroupText(host)).toContain("Style");
       openFlatGroup(host, "Text");
       expect(openGroupText(host)).toContain("Text");
 
@@ -1114,14 +1065,14 @@ describe("PropertyPanel — flat group entrance animation scoping (fix round)", 
 
       // Untouched, non-adjacent siblings must NOT receive the entrance class,
       // even though they shifted position in the collapsed-header list.
-      expect(collapsedRowByTitle("Style").classList.contains("hf-flat-group-enter")).toBe(false);
-      expect(collapsedRowByTitle("Layout").classList.contains("hf-flat-group-enter")).toBe(false);
+      expect(collapsedRowByTitle("Effects").classList.contains("hf-flat-group-enter")).toBe(false);
+      expect(collapsedRowByTitle("Transform").classList.contains("hf-flat-group-enter")).toBe(false);
       expect(collapsedRowByTitle("Grade").classList.contains("hf-flat-group-enter")).toBe(false);
       expect(collapsedRowByTitle("Media").classList.contains("hf-flat-group-enter")).toBe(false);
 
       // Motion — open a moment ago, just implicitly closed by the click on
       // Text — must still play its own collapse-entrance animation (Finding 1).
-      expect(collapsedRowByTitle("Motion").classList.contains("hf-flat-group-enter")).toBe(true);
+      expect(collapsedRowByTitle("Style").classList.contains("hf-flat-group-enter")).toBe(true);
 
       // Text — the group actually clicked open — must animate too.
       const openWrapper = host.querySelector('[data-flat-group-open="true"]');
@@ -1135,6 +1086,27 @@ describe("PropertyPanel — flat group entrance animation scoping (fix round)", 
 });
 
 describe("PropertyPanel — native keyframe controls", () => {
+  it("keeps native scale and keyframe controls visible outside the clip", async () => {
+    const original = nativeKeyframeDocument();
+    const nativeDocument = { ...original, sequence: { ...original.sequence, tracks: original.sequence.tracks.map(track => ({ ...track, clips: track.clips.map(clip => ({ ...clip, startFrame: 60, staticParameters: { "transform.scale": 1.25 } })) })) } };
+    const { host, root } = await renderPanel(true, nativeKeyframeElement(), { nativeKeyframeTarget: true, nativeProjectDocument: nativeDocument as never }, 0);
+    openFlatGroup(host, "Transform");
+    expect(host.querySelector<HTMLInputElement>('[aria-label="Scale"]')?.value).toBe("125%");
+    expect(host.querySelector('[title="Remove rotation keyframe"]')).not.toBeNull();
+    act(() => root.unmount());
+  }, RENDER_TIMEOUT_MS);
+
+  it("reads current easing from the document instead of a stale focus request", async () => {
+    const original = nativeKeyframeDocument();
+    const outgoing = { type: "cubic-bezier", controlPoints: { x1: 0.42, y1: 0, x2: 0.58, y2: 1 } };
+    const nativeDocument = { ...original, sequence: { ...original.sequence, tracks: original.sequence.tracks.map(track => ({ ...track, clips: track.clips.map(clip => ({ ...clip, parameterTracks: clip.parameterTracks.map(parameter => ({ ...parameter, keyframes: parameter.keyframes.map(key => ({ ...key, outgoing })) })) })) })) } };
+    const { host, root } = await renderPanel(true, nativeKeyframeElement(), { nativeKeyframeTarget: true, nativeProjectDocument: nativeDocument as never });
+    const { usePlayerStore } = await import("../../player/store/playerStore");
+    act(() => { const store = usePlayerStore.getState(); store.beginTimelineSession("project:native-panel"); store.setSelectedElementId("index.html#legacy-camera"); store.setFocusedEaseSegment({ kind: "native", elementId: "index.html#legacy-camera", tweenPercentage: 0, nativeTargets: [{ sequenceId: "sequence:main", trackId: "track:v1", clipId: "clip:camera", parameterId: "transform.rotation", keyframeId: "key:start", frame: 0, hasFollowingKeyframe: true, outgoing: { type: "linear" } }] }); });
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="Keyframe easing"]')?.value).toBe("ease-in-out");
+    act(() => root.unmount());
+  }, RENDER_TIMEOUT_MS);
+
   it(
     "uses the native clip-local frame in the classic inspector at high frame rates",
     async () => {
@@ -1178,7 +1150,7 @@ describe("PropertyPanel — native keyframe controls", () => {
         0.0001,
       );
 
-      openFlatGroup(host, "Layout");
+      openFlatGroup(host, "Transform");
       // This is still project/clip frame 0 even though the floating percentage
       // is slightly above zero. Native selection is frame-addressed, not exact-float-addressed.
       expect(host.querySelector('[title="Remove rotation keyframe"]')).not.toBeNull();
@@ -1210,11 +1182,10 @@ describe("PropertyPanel — native keyframe controls", () => {
         1,
       );
 
-      openFlatGroup(host, "Layout");
+      openFlatGroup(host, "Transform");
       expect(host.querySelector('[title="Add rotation keyframe"]')).not.toBeNull();
 
-      openFlatGroup(host, "Motion");
-      expect(openGroupText(host)).toContain("Duration");
+      expect(host.textContent).not.toContain("Clip timing");
       expect(openGroupText(host)).not.toContain("Add effect");
       act(() => root.unmount());
     },
@@ -1260,16 +1231,14 @@ describe("PropertyPanel — native keyframe controls", () => {
         });
       });
 
-      expect(openGroupText(host)).toContain("Interpolation");
+      expect(openGroupText(host)).toContain("Keyframe easing");
       expect(openGroupText(host)).toContain("Hold");
       expect(openGroupText(host)).toContain("Linear");
-      expect(openGroupText(host)).toContain("Cubic");
+      expect(openGroupText(host)).toContain("Custom curve");
       expect(openGroupText(host)).not.toMatch(/Spring|Wiggle|Add effect/);
-      const hold = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find(
-        (button) => button.textContent?.trim() === "Hold",
-      );
-      if (!hold) throw new Error("expected native Hold interpolation control");
-      await act(async () => hold.click());
+      const easing = host.querySelector<HTMLSelectElement>('[aria-label="Keyframe easing"]');
+      expect(easing).not.toBeNull();
+      await act(async () => { easing!.value = "hold"; easing!.dispatchEvent(new Event("change", { bubbles: true })); });
 
       expect(onSetNativeKeyframesInterpolation).toHaveBeenCalledExactlyOnceWith(
         nativeTargets,
@@ -1316,10 +1285,10 @@ describe("PropertyPanel — native keyframe controls", () => {
         },
         1,
       );
-      openFlatGroup(host, "Layout");
+      openFlatGroup(host, "Transform");
 
       const angleLabel = Array.from(host.querySelectorAll("span")).find(
-        (node) => node.textContent === "Angle",
+        (node) => node.textContent === "Rotation",
       );
       const angleInput = angleLabel?.parentElement?.querySelector<HTMLInputElement>("input");
       expect(angleInput?.value).toBe("-90°");
@@ -1354,7 +1323,7 @@ describe("PropertyPanel — native keyframe controls", () => {
         },
         2,
       );
-      openFlatGroup(host, "Layout");
+      openFlatGroup(host, "Transform");
 
       const remove = host.querySelector('[title="Remove rotation keyframe"]');
       if (!remove) throw new Error("expected native remove-keyframe control");
@@ -1395,8 +1364,8 @@ describe("PropertyPanel — Motion is for things that move", () => {
     const titles = Array.from(
       host.querySelectorAll<HTMLElement>("[data-flat-group-collapsed], [data-flat-group-open]"),
     ).map((node) => node.textContent ?? "");
-    expect(titles.some((title) => title.includes("Motion"))).toBe(false);
-    expect(titles.some((title) => title.includes("Timing"))).toBe(true);
+    expect(titles.some((title) => title.includes("Animation"))).toBe(false);
+    expect(titles.some((title) => title.includes("Clip timing"))).toBe(false);
     act(() => root.unmount());
   });
 
@@ -1408,11 +1377,11 @@ describe("PropertyPanel — Motion is for things that move", () => {
         host.querySelectorAll<HTMLElement>("[data-flat-group-collapsed], [data-flat-group-open]"),
       ).map((el) => el.textContent ?? "");
       // The clip's placement survives — it is still a clip on a track.
-      expect(titles.some((t) => t.includes("Timing"))).toBe(true);
-      // "Motion" named the tween editor, which an <audio> element has no
+      expect(titles.some((t) => t.includes("Clip timing"))).toBe(false);
+      // "Clip timing" named the tween editor, which an <audio> element has no
       // transform, opacity or box for. Showing it was the panel gating on
       // handler presence rather than on the element.
-      expect(titles.some((t) => t.includes("Motion"))).toBe(false);
+      expect(titles.some((t) => t.includes("Animation"))).toBe(false);
       act(() => root.unmount());
     },
     RENDER_TIMEOUT_MS,
@@ -1425,8 +1394,8 @@ describe("PropertyPanel — Motion is for things that move", () => {
       const titles = Array.from(
         host.querySelectorAll<HTMLElement>("[data-flat-group-collapsed], [data-flat-group-open]"),
       ).map((el) => el.textContent ?? "");
-      expect(titles.some((t) => t.includes("Motion"))).toBe(false);
-      expect(titles.some((t) => t.includes("Timing"))).toBe(false);
+      expect(titles.some((t) => t.includes("Animation"))).toBe(false);
+      expect(titles.some((t) => t.includes("Clip timing"))).toBe(false);
       // It is still a mixer bus: the reason to select one at all.
       expect(titles.some((t) => t.includes("Audio FX"))).toBe(true);
       act(() => root.unmount());

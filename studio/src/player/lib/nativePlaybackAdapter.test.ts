@@ -279,6 +279,13 @@ describe("createNativePlaybackAdapter", () => {
     clock.advanceTo(1_100);
     clock.runNext();
     expect(media.currentTime).toBe(0.6);
+
+    media.setAttribute("data-hidden", "true");
+    adapter.seek(1.2);
+    expect(media.muted).toBe(true);
+    media.removeAttribute("data-hidden");
+    adapter.seek(1.2);
+    expect(media.muted).toBe(false);
   });
 
   it("leaves media transport properties untouched when native transport metadata is absent", () => {

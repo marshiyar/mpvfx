@@ -84,6 +84,7 @@ export interface TimelineEditCallbacks {
     track: number,
     hidden: boolean,
     displayNumber?: number | null,
+    audioOnly?: boolean,
   ) => Promise<void> | void;
   /** B7's bus strip: live-write the group's own attribute while dragging. */
   onSetAudioGroupAttributeLive?: (groupId: string, attr: string, value: string | null) => void;

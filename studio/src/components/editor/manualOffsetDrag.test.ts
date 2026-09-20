@@ -2,6 +2,7 @@ import { Window } from "happy-dom";
 import { describe, expect, it } from "vitest";
 import {
   applyManualOffsetDragCommit,
+  readGsapRotation,
   resumeGsapTimelines,
   applyManualOffsetDragDraft,
   applyManualOffsetDragMatrix,
@@ -494,5 +495,17 @@ describe("resumeGsapTimelines", () => {
     const element = window.document.createElement("div");
     window.document.body.append(element);
     expect(() => resumeGsapTimelines(element)).not.toThrow();
+  });
+});
+
+describe("native gesture transform baseline", () => {
+  it("refreshes stale GSAP rotation after the native player changes the picture", () => {
+    const window = new Window();
+    const element = window.document.createElement("div");
+    element.setAttribute("data-studio-native-owned", "transform.rotation");
+    Object.assign(window, { gsap: { set: () => undefined,
+      getProperty: (_el: unknown, _prop: string, _unit: unknown, uncache: boolean) => uncache ? 0 : -62,
+    } });
+    expect(readGsapRotation(element)).toBe(0);
   });
 });

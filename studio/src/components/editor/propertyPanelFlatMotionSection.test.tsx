@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FlatMotionSection, FlatTimingRow } from "./propertyPanelFlatMotionSection";
 import type { DomEditSelection } from "./domEditing";
+import { TimelineEditProvider } from "../../contexts/TimelineEditContext";
 import { usePlayerStore } from "../../player";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -58,6 +59,21 @@ function renderInto(node: React.ReactElement) {
 }
 
 describe("FlatTimingRow", () => {
+  it.each([[0, "10"], [1, "15"], [2, "7"]] as const)("routes timing field %s through the timeline transaction", async (fieldIndex, nextValue) => {
+    const element = baseElement();
+    const timelineElement = { id: "hero", sourceFile: "index.html", start: 8, duration: 4, track: 0, playbackStart: 0 };
+    usePlayerStore.getState().setElements([timelineElement as never]);
+    const onMoveElement = vi.fn(async () => {}); const onResizeElement = vi.fn(async () => {}); const onSetAttribute = vi.fn();
+    const { host, root } = renderInto(<TimelineEditProvider value={{ onMoveElement, onResizeElement }}><FlatTimingRow element={element} onSetAttribute={onSetAttribute} /></TimelineEditProvider>);
+    const input = host.querySelectorAll("input")[fieldIndex]!;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, nextValue); input.dispatchEvent(new Event("input", { bubbles: true })); });
+    await act(async () => input.dispatchEvent(new Event("focusout", { bubbles: true })));
+    if (fieldIndex === 0) expect(onMoveElement).toHaveBeenCalledWith(timelineElement, { start: 10, track: 0 });
+    else expect(onResizeElement).toHaveBeenCalledWith(timelineElement, { start: 8, duration: 7, playbackStart: 0 });
+    expect(onSetAttribute).not.toHaveBeenCalled();
+    act(() => root.unmount());
+  });
+
   it("renders Start, End, and Duration from the element's data attributes", () => {
     const { host, root } = renderInto(
       <FlatTimingRow element={baseElement()} onSetAttribute={vi.fn()} />,

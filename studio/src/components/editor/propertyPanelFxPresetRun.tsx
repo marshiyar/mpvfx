@@ -132,7 +132,7 @@ export function FxPresetRun({
 
   return (
     <div
-      className="hf-fx-preset-run space-y-1 rounded-[4px] border border-l-2 border-dashed border-panel-border-input p-1"
+      className="hf-fx-preset-run space-y-1 rounded-[4px] border border-panel-border-input p-1.5"
       data-fx-preset={run.preset}
       data-collapsed={collapsed ? "" : undefined}
       // The bracket's edge carries the preset's own colour, the way a module's
@@ -147,15 +147,11 @@ export function FxPresetRun({
       <div className="hf-fx-preset-run-head flex min-h-6 items-center gap-1 px-0.5">
         <button
           type="button"
-          className={`hf-fx-preset-run-label min-w-0 flex-1 truncate text-left leading-tight hover:opacity-80 ${style.type}`}
+          className={`hf-fx-preset-run-label min-w-0 flex-1 truncate text-left leading-tight hover:opacity-80 text-[11px] font-medium text-panel-text-1`}
           // The face and the colour are data, not classes: a Tailwind class
           // cannot name a font stack the config does not know, and adding eight
           // to the config to style one panel would put them in every
           // autocomplete in the studio.
-          style={{
-            color: style.color,
-            ...(style.family ? { fontFamily: style.family } : {}),
-          }}
           aria-expanded={!collapsed}
           title={
             collapsed ? `Show what ${preset.label} contains` : `Hide ${preset.label}'s effects`

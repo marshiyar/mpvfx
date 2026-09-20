@@ -111,10 +111,6 @@ vi.mock("../contexts/DomEditContext", () => ({
   }),
 }));
 
-vi.mock("../hooks/useRemoveBackground", () => ({
-  useRemoveBackground: () => vi.fn(),
-}));
-
 import { StudioRightPanel } from "./StudioRightPanel";
 
 let host: HTMLDivElement;

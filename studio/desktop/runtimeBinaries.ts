@@ -13,7 +13,6 @@ interface DesktopRuntimeEnvironmentInput {
   ffprobePath: string;
   esbuildPath: string;
   browserCacheDir: string;
-  backgroundRemovalModelsDir: string;
 }
 
 function bundledMediaRoot(ffmpegPath: string): string {
@@ -34,9 +33,6 @@ export function createDesktopRuntimeEnvironment(
     ESBUILD_BINARY_PATH: resolvePackagedBinaryPath(input.esbuildPath),
     MPVFX_BUNDLED_MEDIA_ROOT: bundledMediaRoot(input.ffmpegPath),
     PUPPETEER_CACHE_DIR: input.current.PUPPETEER_CACHE_DIR ?? input.browserCacheDir,
-    MPVFX_BACKGROUND_REMOVAL_MODELS_DIR:
-      input.current.MPVFX_BACKGROUND_REMOVAL_MODELS_DIR ??
-      input.backgroundRemovalModelsDir,
     MPVFX_PREFER_BUNDLED_BROWSER:
       input.current.MPVFX_PREFER_BUNDLED_BROWSER ?? "1",
   };
@@ -59,7 +55,6 @@ export function applyDesktopRuntimeEnvironment(input: DesktopRuntimeEnvironmentI
     "ESBUILD_BINARY_PATH",
     "MPVFX_BUNDLED_MEDIA_ROOT",
     "PUPPETEER_CACHE_DIR",
-    "MPVFX_BACKGROUND_REMOVAL_MODELS_DIR",
     "MPVFX_PREFER_BUNDLED_BROWSER",
   ] as const) {
     const value = configured[key];

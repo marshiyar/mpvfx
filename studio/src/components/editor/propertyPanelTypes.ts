@@ -7,22 +7,6 @@ import type { NativeProjectDocument } from "../../project/nativeProjectDocument"
 import type { NativeProjectKeyframeTarget } from "../../hooks/useNativeProjectKeyframeCommands";
 import type { NativeInterpolation } from "../../project/nativeKeyframeTypes";
 
-export interface BackgroundRemovalProgress {
-  status: "processing" | "complete" | "failed";
-  progress: number;
-  stage?: string;
-  outputPath?: string;
-  backgroundOutputPath?: string;
-  error?: string;
-  provider?: string;
-}
-
-export interface BackgroundRemovalResult {
-  outputPath: string;
-  backgroundOutputPath?: string;
-  provider?: string;
-}
-
 export interface MediaOverlayPlacement {
   start: number;
   duration?: number;
@@ -80,14 +64,6 @@ export interface PropertyPanelProps {
     value: string | null,
   ) => Promise<{ changedFiles: number; changedElements: number }>;
   onSetHtmlAttribute: (attr: string, value: string | null) => void | Promise<void>;
-  onRemoveBackground?: (
-    inputPath: string,
-    options: {
-      createBackgroundPlate?: boolean;
-      quality?: "fast" | "balanced" | "best";
-      onProgress?: (progress: BackgroundRemovalProgress) => void;
-    },
-  ) => Promise<BackgroundRemovalResult>;
   onSetManualOffset: (
     element: DomEditSelection,
     next: { x: number; y: number },
@@ -168,6 +144,7 @@ export interface PropertyPanelProps {
     selection: DomEditSelection,
     props: Record<string, number | string>,
   ) => Promise<void>;
+  onRemoveNativeKeyframes?: (targets: readonly NativeProjectKeyframeTarget[]) => Promise<void>;
   onRemoveNativeKeyframe?: (target: NativeProjectKeyframeTarget) => Promise<void>;
   onSetNativeKeyframesInterpolation?: (
     targets: readonly NativeProjectKeyframeTarget[],

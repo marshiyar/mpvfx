@@ -30,7 +30,6 @@ describe("packaged media runtime", () => {
           "/app.asar/node_modules/@ffprobe-installer/darwin-arm64/ffprobe",
         esbuildPath: "/app.asar/node_modules/@esbuild/darwin-arm64/bin/esbuild",
         browserCacheDir: "/resources/.puppeteer-cache",
-        backgroundRemovalModelsDir: "/user-data/cache/background-removal-models",
       }),
     ).toMatchObject({
       HYPERFRAMES_FFMPEG_PATH:
@@ -41,13 +40,12 @@ describe("packaged media runtime", () => {
       ESBUILD_BINARY_PATH:
         "/app.asar.unpacked/node_modules/@esbuild/darwin-arm64/bin/esbuild",
       PUPPETEER_CACHE_DIR: "/resources/.puppeteer-cache",
-      MPVFX_BACKGROUND_REMOVAL_MODELS_DIR: "/user-data/cache/background-removal-models",
       MPVFX_PREFER_BUNDLED_BROWSER: "1",
     });
   });
 
   it("applies desktop-only browser and model-cache settings to the live process", () => {
-    const keys = ["MPVFX_PREFER_BUNDLED_BROWSER", "MPVFX_BACKGROUND_REMOVAL_MODELS_DIR"] as const;
+    const keys = ["MPVFX_PREFER_BUNDLED_BROWSER"] as const;
     const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
     try {
       applyDesktopRuntimeEnvironment({
@@ -56,10 +54,8 @@ describe("packaged media runtime", () => {
         ffprobePath: "/runtime/ffprobe",
         esbuildPath: "/runtime/esbuild",
         browserCacheDir: "/runtime/browser",
-        backgroundRemovalModelsDir: "/runtime/models",
       });
       expect(process.env.MPVFX_PREFER_BUNDLED_BROWSER).toBe("1");
-      expect(process.env.MPVFX_BACKGROUND_REMOVAL_MODELS_DIR).toBe("/runtime/models");
     } finally {
       for (const key of keys) {
         const value = previous[key];

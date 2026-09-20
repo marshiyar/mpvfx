@@ -290,7 +290,7 @@ describe("native property edit planner", () => {
     if (!result.ok) expect(result.failure.code).toBe("ambiguous-clip");
   });
 
-  it.each([29, 120])("rejects project frame %s outside the resolved clip", (frame) => {
+  it.each([[29, 0], [120, 89]])("edits nearest visible frame when project frame %s is outside the selected clip", (frame, expectedFrame) => {
     const result = planNativePropertyEdit(documentFixture(), {
       selectedElement: { id: "clip:first" },
       playheadSeconds: secondsAtFrame(frame),
@@ -298,8 +298,8 @@ describe("native property edit planner", () => {
       selectionBounds: { width: 640, height: 360 },
     });
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.failure.code).toBe("playhead-outside-clip");
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.clipLocalFrame).toBe(expectedFrame);
   });
 
   it("maps every supported property to number parameters with deterministic baselines", () => {
@@ -453,7 +453,7 @@ describe("native property edit planner", () => {
     ]);
   });
 
-  it("plans an ordinary edit between authored keys as a whole-curve offset", () => {
+  it("plans an ordinary edit between authored keys as a playhead key", () => {
     const document = documentFixture();
     document.sequence.tracks[0]!.clips[0]!.parameterTracks = [
       createNativeParameterTrack({
@@ -479,12 +479,13 @@ describe("native property edit planner", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    // Local frame 30 evaluates to -90, so the complete curve moves by -30.
+    // The animated property keeps both endpoints and adds the edited local frame.
     expect(result.command.commands).toEqual([
       expect.objectContaining({
-        type: "offset-track",
+        type: "upsert",
         address: expect.objectContaining({ parameterId: "transform.rotation" }),
-        delta: -30,
+        frame: 30,
+        value: -120,
       }),
     ]);
   });

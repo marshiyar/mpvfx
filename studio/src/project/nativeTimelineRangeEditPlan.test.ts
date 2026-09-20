@@ -207,3 +207,11 @@ describe("native timeline range edit planner", () => {
     expect(result.failure.code).toBe("unsupported-range-change");
   });
 });
+
+it("does not treat millisecond-rounded unchanged boundaries as a second trim", () => {
+  const result = planNativeTimelineRangeEdit({ document: document(), element,
+    requestedStartSeconds: 1.001 - 0.0001, requestedDurationSeconds: 121 * 1001 / 30000,
+  });
+  expect(result.ok).toBe(true);
+  if (result.ok) expect(result.startFrame).toBe(30);
+});

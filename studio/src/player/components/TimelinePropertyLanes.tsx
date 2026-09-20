@@ -1,4 +1,9 @@
-import { useMemo, type MouseEvent as ReactMouseEvent, type RefObject } from "react";
+import { usePlayerStore } from "../store/playerStore";
+import {
+  useMemo,
+  type MouseEvent as ReactMouseEvent,
+  type RefObject,
+} from "react";
 import {
   classifyPropertyGroup,
   type GsapAnimation,
@@ -6,13 +11,19 @@ import {
 } from "@hyperframes/core/gsap-parser";
 import { toClipKeyframes } from "../../hooks/gsapShared";
 import { synthesizeFlatTweenKeyframes } from "../../hooks/gsapTweenSynth";
-import { TimelineDiamondLane, type TimelineDiamondKeyframe } from "./TimelineClipDiamonds";
+import {
+  TimelineDiamondLane,
+  type TimelineDiamondKeyframe,
+} from "./TimelineClipDiamonds";
 import { LANE_H, getTimelineLaneTop } from "./timelineLayout";
 import type {
   NativeTimelineKeyframeTarget,
   TimelineKeyframeTarget,
 } from "./timelineKeyframeIdentity";
-import { timelineLogicalRowCellId, timelinePropertyRowId } from "./timelineNavigationIdentity";
+import {
+  timelineLogicalRowCellId,
+  timelinePropertyRowId,
+} from "./timelineNavigationIdentity";
 
 /**
  * A projected native parameter track for the timeline UI.  This is deliberately
@@ -58,6 +69,7 @@ export interface TimelinePropertyLanesProps {
   clipLeftPx: number;
   clipWidthPx: number;
   effectLaneCount?: number;
+  mediaRowCount?: number;
   accentColor: string;
   isSelected: boolean;
   currentPercentage: number;
@@ -67,8 +79,14 @@ export interface TimelinePropertyLanesProps {
   onSelectSegment?: (target: TimelineKeyframeTarget) => void;
   onClickKeyframe?: (target: TimelineKeyframeTarget) => void;
   onShiftClickKeyframe?: (target: TimelineKeyframeTarget) => void;
-  onContextMenuKeyframe?: (e: ReactMouseEvent, target: TimelineKeyframeTarget) => void;
-  onMoveKeyframe?: (target: TimelineKeyframeTarget, toClipPercentage: number) => Promise<boolean>;
+  onContextMenuKeyframe?: (
+    e: ReactMouseEvent,
+    target: TimelineKeyframeTarget,
+  ) => void;
+  onMoveKeyframe?: (
+    target: TimelineKeyframeTarget,
+    toClipPercentage: number,
+  ) => Promise<boolean>;
   suppressClickRef?: RefObject<boolean>;
 }
 
@@ -94,7 +112,8 @@ function hasGroupProperty(
   group: PropertyGroupName,
 ): boolean {
   return Object.keys(properties).some(
-    (property) => isAnimatedProperty(property) && classifyPropertyGroup(property) === group,
+    (property) =>
+      isAnimatedProperty(property) && classifyPropertyGroup(property) === group,
   );
 }
 
@@ -106,7 +125,11 @@ function animationKeyframes(animation: GsapAnimation) {
 /** Flat tweens still own their property groups for inspector edit routing, but
  * their implicit endpoints are never exposed as authored timeline diamonds. */
 function animationRoutingKeyframes(animation: GsapAnimation) {
-  return animation.keyframes?.keyframes ?? synthesizeFlatTweenKeyframes(animation)?.keyframes ?? [];
+  return (
+    animation.keyframes?.keyframes ??
+    synthesizeFlatTweenKeyframes(animation)?.keyframes ??
+    []
+  );
 }
 
 /**
@@ -120,11 +143,14 @@ function animationRoutingKeyframes(animation: GsapAnimation) {
  * Single owner: the rendered lanes (sourceGroups) and the reserved row heights
  * (computeLaneCounts) both count groups through here, or they drift.
  */
-export function animationLaneGroups(animation: GsapAnimation): PropertyGroupName[] {
+export function animationLaneGroups(
+  animation: GsapAnimation,
+): PropertyGroupName[] {
   const groups = new Set<PropertyGroupName>();
   for (const keyframe of animationRoutingKeyframes(animation)) {
     for (const property of Object.keys(keyframe.properties)) {
-      if (isAnimatedProperty(property)) groups.add(classifyPropertyGroup(property));
+      if (isAnimatedProperty(property))
+        groups.add(classifyPropertyGroup(property));
     }
   }
   return Array.from(groups);
@@ -148,7 +174,9 @@ export function resolveAnimIdForProperty(
   fallbackAnimId: string | undefined,
 ): string {
   const group = classifyPropertyGroup(prop);
-  const groupAnim = animations?.find((a) => animationLaneGroups(a).includes(group));
+  const groupAnim = animations?.find((a) =>
+    animationLaneGroups(a).includes(group),
+  );
   return groupAnim?.id ?? fallbackAnimId ?? "";
 }
 
@@ -173,7 +201,10 @@ function sourceGroups(animations: readonly GsapAnimation[]) {
  *  several tweens, so a shared lane-level fallback would label a segment with a
  *  different animation's ease than the one the ease editor targets (it routes
  *  by animationId). */
-function keyframeEase(keyframe: { ease?: string }, animation: GsapAnimation): string | undefined {
+function keyframeEase(
+  keyframe: { ease?: string },
+  animation: GsapAnimation,
+): string | undefined {
   return keyframe.ease ?? animation.keyframes?.easeEach ?? animation.ease;
 }
 
@@ -195,7 +226,12 @@ function groupKeyframes(
     const inGroup = animationKeyframes(animation).filter((keyframe) =>
       hasGroupProperty(keyframe.properties, group),
     );
-    for (const keyframe of toClipKeyframes(inGroup, animation, clipStart, clipDuration)) {
+    for (const keyframe of toClipKeyframes(
+      inGroup,
+      animation,
+      clipStart,
+      clipDuration,
+    )) {
       keyframes.push({
         ...keyframe,
         // The LANE's group, not the tween's own classification: a mixed-property
@@ -239,7 +275,8 @@ export function mergeTimelinePropertyLanes(
 ): RenderPropertyLane[] {
   const legacy = getTimelinePropertyLanes(animations, clipStart, clipDuration);
   const native = getTimelineNativePropertyLanes(nativeLanes);
-  if (native.length === 0) return legacy;
+  if (nativeLanes.length === 0) return legacy;
+  const ownedGroups = new Set(nativeLanes.map((lane) => lane.propertyGroup));
 
   const nativeByGroup = new Map(native.map((lane) => [lane.group, lane]));
   const legacyByGroup = new Map(legacy.map((lane) => [lane.group, lane]));
@@ -247,7 +284,12 @@ export function mergeTimelinePropertyLanes(
     ...legacy.map((lane) => lane.group),
     ...native.map((lane) => lane.group),
   ]);
-  return [...groups].map((group) => nativeByGroup.get(group) ?? legacyByGroup.get(group)!);
+  return [...groups].flatMap((group) => {
+    const lane =
+      nativeByGroup.get(group) ??
+      (ownedGroups.has(group) ? undefined : legacyByGroup.get(group));
+    return lane ? [lane] : [];
+  });
 }
 
 /**
@@ -264,15 +306,15 @@ export function getTimelineNativePropertyLanes(
     const grouped = groups.get(propertyGroup) ?? [];
     grouped.push(
       ...keyframes.map((keyframe) => ({
-          percentage: keyframe.percentage,
-          tweenPercentage: keyframe.percentage,
-          propertyGroup,
-          animationId: id,
-          native: keyframe.native,
-          nativeTargets: keyframe.nativeTargets,
-          properties: keyframe.properties,
-          ease: keyframe.ease,
-        })),
+        percentage: keyframe.percentage,
+        tweenPercentage: keyframe.percentage,
+        propertyGroup,
+        animationId: id,
+        native: keyframe.native,
+        nativeTargets: keyframe.nativeTargets,
+        properties: keyframe.properties,
+        ease: keyframe.ease,
+      })),
     );
     groups.set(propertyGroup, grouped);
   }
@@ -283,8 +325,12 @@ export function getTimelineNativePropertyLanes(
         const sorted = keyframes.sort(
           (left, right) =>
             left.percentage - right.percentage ||
-            (left.native?.parameterId ?? "").localeCompare(right.native?.parameterId ?? "") ||
-            (left.native?.keyframeId ?? "").localeCompare(right.native?.keyframeId ?? "") ||
+            (left.native?.parameterId ?? "").localeCompare(
+              right.native?.parameterId ?? "",
+            ) ||
+            (left.native?.keyframeId ?? "").localeCompare(
+              right.native?.keyframeId ?? "",
+            ) ||
             (left.animationId ?? "").localeCompare(right.animationId ?? ""),
         );
         // Canonical native rows carry integer frames, so coincident scalar
@@ -308,10 +354,15 @@ export function getTimelineNativePropertyLanes(
             merged.push(initial);
             continue;
           }
-          existing.properties = { ...existing.properties, ...keyframe.properties };
+          existing.properties = {
+            ...existing.properties,
+            ...keyframe.properties,
+          };
           existing.nativeTargets = [
-            ...(existing.nativeTargets ?? (existing.native ? [existing.native] : [])),
-            ...(keyframe.nativeTargets ?? (keyframe.native ? [keyframe.native] : [])),
+            ...(existing.nativeTargets ??
+              (existing.native ? [existing.native] : [])),
+            ...(keyframe.nativeTargets ??
+              (keyframe.native ? [keyframe.native] : [])),
           ];
         }
         return merged;
@@ -329,6 +380,7 @@ export function TimelinePropertyLanes({
   clipLeftPx,
   clipWidthPx,
   effectLaneCount = 0,
+  mediaRowCount = 1,
   accentColor,
   isSelected,
   currentPercentage,
@@ -342,6 +394,7 @@ export function TimelinePropertyLanes({
   onMoveKeyframe,
   suppressClickRef,
 }: TimelinePropertyLanesProps) {
+  const mediaHeight = usePlayerStore((s) => s.timelineTrackHeight);
   // Memoized: TimelineDiamondLane is React.memo'd, and rebuilding the lanes (and
   // a fresh keyframesData literal per lane) on every render would re-render every
   // diamond in every expanded clip on each playhead tick.
@@ -351,14 +404,22 @@ export function TimelinePropertyLanes({
         ? []
         : nativeLanes === undefined
           ? getTimelinePropertyLanes(animations, clipStart, clipDuration)
-          : mergeTimelinePropertyLanes(animations, nativeLanes, clipStart, clipDuration),
+          : mergeTimelinePropertyLanes(
+              animations,
+              nativeLanes,
+              clipStart,
+              clipDuration,
+            ),
     [animations, clipStart, clipDuration, clipWidthPx, nativeLanes],
   );
   const laneData = useMemo(
     () =>
       lanes.map((lane) => ({
         ...lane,
-        keyframesData: { format: "percentage" as const, keyframes: lane.keyframes },
+        keyframesData: {
+          format: "percentage" as const,
+          keyframes: lane.keyframes,
+        },
       })),
     [lanes],
   );
@@ -373,17 +434,26 @@ export function TimelinePropertyLanes({
         return (
           <div
             key={group}
-            id={timelineLogicalRowCellId(id, timelinePropertyRowId(elementId, group), "content")}
+            id={timelineLogicalRowCellId(
+              id,
+              timelinePropertyRowId(elementId, group),
+              "content",
+            )}
             role="group"
             aria-label={`${group} keyframes`}
             data-property-group={group}
             data-timeline-element-id={elementId}
             data-timeline-property-lane=""
-            data-timeline-lane-top={getTimelineLaneTop(laneIndex, effectLaneCount)}
+            data-timeline-lane-top={getTimelineLaneTop(
+              laneIndex,
+              effectLaneCount,
+              mediaRowCount,
+              mediaHeight,
+            )}
             className="absolute"
             style={{
               left: clipLeftPx,
-              top: getTimelineLaneTop(laneIndex, effectLaneCount),
+              top: getTimelineLaneTop(laneIndex, effectLaneCount, mediaRowCount, mediaHeight),
               width: clipWidthPx,
               height: LANE_H,
             }}

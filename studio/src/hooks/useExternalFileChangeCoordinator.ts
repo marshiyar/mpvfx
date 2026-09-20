@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MutableRefObject,
+} from "react";
 import { readStudioFileChangePath } from "../components/editor/manualEdits";
 import { StudioFileConflictError } from "../utils/studioSaveDiagnostics";
 import type { ExternalConflictSnapshot } from "../utils/externalConflictStorage";
@@ -38,7 +44,10 @@ interface ExternalFileChangeCoordinatorOptions {
   discardPendingChanges: () => void;
   reloadPreview: () => void;
   reloadSdkSession: (path: string) => void;
-  persistConflictSnapshot: (projectId: string, conflict: StudioFileConflictError) => Promise<void>;
+  persistConflictSnapshot: (
+    projectId: string,
+    conflict: StudioFileConflictError,
+  ) => Promise<void>;
   persistFailureSnapshot?: (
     projectId: string,
     filePath: string,
@@ -51,7 +60,10 @@ interface ExternalFileChangeCoordinatorOptions {
     projectId: string,
     filePath: string,
   ) => Promise<ExternalConflictSnapshot | null>;
-  deleteConflictSnapshot?: (projectId: string, filePath: string) => Promise<void>;
+  deleteConflictSnapshot?: (
+    projectId: string,
+    filePath: string,
+  ) => Promise<void>;
   overwriteConflict: (conflict: StudioFileConflictError) => Promise<void>;
   readProjectFile: (path: string) => Promise<string>;
   onUseExternalFile?: (path: string, content: string) => void;
@@ -75,7 +87,8 @@ function testHotAdapter(): HotTestAdapter | null {
     .__HF_STUDIO_HOT_TEST_ADAPTER__;
   if (!value || typeof value !== "object") return null;
   const candidate = value as Partial<HotTestAdapter>;
-  return typeof candidate.on === "function" && typeof candidate.off === "function"
+  return typeof candidate.on === "function" &&
+    typeof candidate.off === "function"
     ? (candidate as HotTestAdapter)
     : null;
 }
@@ -134,7 +147,9 @@ export function useExternalFileChangeCoordinator({
   onUseExternalFile,
   resetSaveQueues,
 }: ExternalFileChangeCoordinatorOptions): ExternalFileChangeCoordinatorHandle {
-  const [blocked, setBlocked] = useState<ExternalFileChangeBlockedState | null>(null);
+  const [blocked, setBlocked] = useState<ExternalFileChangeBlockedState | null>(
+    null,
+  );
   const generationRef = useRef(0);
   const mountedRef = useRef(true);
   const lastEventIdentityRef = useRef<string | null>(null);
@@ -162,7 +177,12 @@ export function useExternalFileChangeCoordinator({
     let cancelled = false;
     void loadConflictSnapshot(projectId, recoveryFilePath)
       .then((snapshot) => {
-        if (cancelled || !snapshot || !mountedRef.current || generation !== generationRef.current) {
+        if (
+          cancelled ||
+          !snapshot ||
+          !mountedRef.current ||
+          generation !== generationRef.current
+        ) {
           return;
         }
         const payload = {
@@ -209,20 +229,27 @@ export function useExternalFileChangeCoordinator({
     [reloadPreview, reloadSdkSession],
   );
 
-  const persistSnapshotInOrder = useCallback(async (write: () => Promise<void>) => {
-    const next = snapshotWriteTailRef.current.catch(() => undefined).then(write);
-    snapshotWriteTailRef.current = next.then(
-      () => undefined,
-      () => undefined,
-    );
-    await next;
-  }, []);
+  const persistSnapshotInOrder = useCallback(
+    async (write: () => Promise<void>) => {
+      const next = snapshotWriteTailRef.current
+        .catch(() => undefined)
+        .then(write);
+      snapshotWriteTailRef.current = next.then(
+        () => undefined,
+        () => undefined,
+      );
+      await next;
+    },
+    [],
+  );
 
   const processChange = useCallback(
     // fallow-ignore-next-line complexity
     async (payload: unknown, allowDuplicate = false) => {
       const path = readStudioFileChangePath(payload);
       if (!path || !projectId) return;
+      const owner = readFileChangeField(payload, "projectId");
+      if (owner && owner !== projectId) return;
       const pendingTimelinePaths = pendingTimelineEditPathRef.current;
       // The old path-only suppression could drop a real agent/user write that
       // raced ahead of the timeline write receipt. Clear the legacy marker but
@@ -231,7 +258,11 @@ export function useExternalFileChangeCoordinator({
 
       const content = readFileChangeContent(payload);
       const token = readFileChangeWriteToken(payload);
-      logReload("file-change", { path, token: token ?? null, hasContent: content != null });
+      logReload("file-change", {
+        path,
+        token: token ?? null,
+        hasContent: content != null,
+      });
       if (consumeStudioWriteToken(token)) {
         logReload("suppressed", { path, why: "own write token" });
         return;
@@ -242,7 +273,11 @@ export function useExternalFileChangeCoordinator({
       }
 
       const identity = eventIdentity(path, payload);
-      if (!allowDuplicate && identity != null && identity === lastEventIdentityRef.current) {
+      if (
+        !allowDuplicate &&
+        identity != null &&
+        identity === lastEventIdentityRef.current
+      ) {
         logReload("suppressed", { path, why: "duplicate event" });
         return;
       }
@@ -270,7 +305,8 @@ export function useExternalFileChangeCoordinator({
       }
       if (result.status === "failed") {
         const candidate = getPendingCandidate?.();
-        const studioContent = candidate?.path === path ? candidate.content : null;
+        const studioContent =
+          candidate?.path === path ? candidate.content : null;
         let error = result.error;
         if (studioContent != null && persistFailureSnapshot) {
           try {
@@ -287,7 +323,9 @@ export function useExternalFileChangeCoordinator({
           } catch (snapshotError) {
             error = new Error(
               `Studio could not save the edit or its recovery snapshot: ${
-                snapshotError instanceof Error ? snapshotError.message : String(snapshotError)
+                snapshotError instanceof Error
+                  ? snapshotError.message
+                  : String(snapshotError)
               }`,
               { cause: result.error },
             );
@@ -306,7 +344,9 @@ export function useExternalFileChangeCoordinator({
         return;
       }
       try {
-        await persistSnapshotInOrder(() => persistConflictSnapshot(projectId, result.error));
+        await persistSnapshotInOrder(() =>
+          persistConflictSnapshot(projectId, result.error),
+        );
       } catch (error) {
         if (!mountedRef.current || generation !== generationRef.current) return;
         setBlocked({
@@ -321,7 +361,12 @@ export function useExternalFileChangeCoordinator({
         return;
       }
       if (!mountedRef.current || generation !== generationRef.current) return;
-      setBlocked({ status: "conflict", generation, error: result.error, payload });
+      setBlocked({
+        status: "conflict",
+        generation,
+        error: result.error,
+        payload,
+      });
     },
     [
       projectId,
@@ -364,8 +409,14 @@ export function useExternalFileChangeCoordinator({
     // fallow-ignore-next-line complexity
     async () => {
       const current = blockedRef.current;
-      if (!current || !projectId || current.generation !== generationRef.current) return;
-      const path = current.status === "conflict" ? current.error.filePath : current.path;
+      if (
+        !current ||
+        !projectId ||
+        current.generation !== generationRef.current
+      )
+        return;
+      const path =
+        current.status === "conflict" ? current.error.filePath : current.path;
       const external =
         current.status === "conflict" && current.error.currentContent != null
           ? current.error.currentContent
@@ -401,7 +452,8 @@ export function useExternalFileChangeCoordinator({
       if (!current.recovered || current.studioContent == null) return;
       try {
         const currentContent =
-          readFileChangeContent(current.payload) ?? (await readProjectFile(current.path));
+          readFileChangeContent(current.payload) ??
+          (await readProjectFile(current.path));
         conflict = new StudioFileConflictError({
           filePath: current.path,
           currentVersion: readFileChangeVersion(current.payload),
@@ -409,7 +461,8 @@ export function useExternalFileChangeCoordinator({
           attemptedContent: current.studioContent,
         });
       } catch (error) {
-        if (current.generation === generationRef.current) setBlocked({ ...current, error });
+        if (current.generation === generationRef.current)
+          setBlocked({ ...current, error });
         return;
       }
     }

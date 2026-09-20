@@ -113,6 +113,7 @@ describe("native timeline split planner", () => {
     });
     expect(left!.parameterTracks[0]!.keyframes).toEqual([
       expect.objectContaining({ frame: 0, value: 0 }),
+      expect.objectContaining({ frame: 29, value: 87 }),
     ]);
     expect(right!.parameterTracks[0]!.keyframes[0]).toMatchObject({ frame: 0, value: 90 });
     expect(JSON.stringify(original)).toBe(before);

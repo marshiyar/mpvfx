@@ -1,3 +1,4 @@
+import { deriveElementTiming } from "./propertyPanelFlatTimingDerivation";
 import { scopedElementKey } from "../../hooks/gsapKeyframeCacheHelpers";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -5,22 +6,23 @@ import { DesignPanelInputProvider } from "../../contexts/DesignPanelInputContext
 import { slugifyDesignInput } from "../../utils/designInputTracking";
 import { isTextEditableSelection } from "./domEditing";
 import type { PropertyPanelFlatProps } from "./propertyPanelFlatProps";
-import { formatPxMetricValue } from "./propertyPanelHelpers";
+import { formatTransformValue } from "./propertyPanelHelpers";
 import { audioFxSummary } from "./audioFxSummary";
 import { resolveAudioGroups } from "@hyperframes/core/audio-groups";
 import { PropertyPanelFlatHeader } from "./PropertyPanelFlatHeader";
-import { PropertyPanelFlatFooter } from "./PropertyPanelFlatFooter";
-import { closedGroupHeader, isSelectionHidden } from "./propertyPanelFlatClosedGroup";
+import {
+  closedGroupHeader,
+  isSelectionHidden,
+} from "./propertyPanelFlatClosedGroup";
 import { FlatGroupHeader } from "./propertyPanelFlatPrimitives";
 import { FlatTextSection } from "./propertyPanelFlatTextSection";
 import { FlatStyleSection } from "./propertyPanelFlatStyleSections";
 import { FlatLayoutSection } from "./propertyPanelFlatLayoutSection";
-import { FlatMotionSection, motionSectionLabel } from "./propertyPanelFlatMotionSection";
+import { FlatMotionSection } from "./propertyPanelFlatMotionSection";
 import { AudioFxGroup } from "./propertyPanelAudioFxGroup.js";
 import { useVolumeAutomation } from "./useVolumeAutomation";
 import { useAudioFxRevealSection } from "./useAudioFxRevealSection";
 import { FlatMediaSection } from "./propertyPanelFlatMediaSection";
-import { deriveElementTiming } from "./propertyPanelFlatTimingDerivation";
 import { createGsapLivePreview } from "./gsapLivePreview";
 import { formatTextFieldPreview } from "./propertyPanelSections";
 import { useColorGradingController } from "./useColorGradingController";
@@ -60,7 +62,6 @@ export function PropertyPanelFlat({
   clipboardCopied,
   onCopyElementInfo,
   projectId,
-  projectDir,
   assets,
   previewIframeRef,
   onClearSelection,
@@ -75,7 +76,6 @@ export function PropertyPanelFlat({
   onSetAttributeQuiet,
   onApplyColorGradingScope,
   onSetHtmlAttribute,
-  onRemoveBackground,
   onSetText,
   onSetTextFieldStyle,
   onPreviewTextFieldStyle,
@@ -101,6 +101,7 @@ export function PropertyPanelFlat({
   commitManualRotation,
   gsapAnimId,
   keyframeTargetId,
+  nativeProjectDocument,
   navKeyframes,
   currentTime,
   currentFrame,
@@ -112,6 +113,8 @@ export function PropertyPanelFlat({
   onCommitAnimatedProperty,
   onCommitAnimatedProperties,
   onCommitKeyframeProperty,
+  onCommitKeyframeProperties,
+  onRemoveKeyframeGroup,
   onSeekToTime,
   onRemoveKeyframe,
   onConvertToKeyframes,
@@ -139,17 +142,19 @@ export function PropertyPanelFlat({
   const [openGroupId, setOpenGroupId] = useState<string>(() =>
     isTextEditableSelection(element)
       ? "text"
-      : showEditableSections
-        ? "style"
-        : sections.media
-          ? "media"
-          : // An `<hf-audio-group>` has no style, no layout and no media — its
-            // chain is the only reason to select one. Without this the fallback
-            // landed on "layout", a section a bus does not render, so opening the
-            // rack on a group produced a panel with everything collapsed.
-            sections.audioFx
-            ? "audio-fx"
-            : "layout",
+      : sections.layout
+        ? "layout"
+        : showEditableSections
+          ? "style"
+          : sections.media
+            ? "media"
+            : // An `<hf-audio-group>` has no style, no layout and no media — its
+              // chain is the only reason to select one. Without this the fallback
+              // landed on "layout", a section a bus does not render, so opening the
+              // rack on a group produced a panel with everything collapsed.
+              sections.audioFx
+              ? "audio-fx"
+              : "layout",
   );
 
   // Tracks which group(s) are actively transitioning this toggle cycle, so
@@ -168,13 +173,14 @@ export function PropertyPanelFlat({
   // When the inline timeline ease button focuses a segment on this element,
   // force the Motion group open so its AnimationCard (which only mounts while
   // the group is expanded) can consume the focus and reveal the ease editor.
-  const { focusedEaseSegment, timelineProjectId, timelineSessionEpoch } = usePlayerStore(
-    useShallow((state) => ({
-      focusedEaseSegment: state.focusedEaseSegment,
-      timelineProjectId: state.timelineProjectId,
-      timelineSessionEpoch: state.timelineSessionEpoch,
-    })),
-  );
+  const { focusedEaseSegment, timelineProjectId, timelineSessionEpoch } =
+    usePlayerStore(
+      useShallow((state) => ({
+        focusedEaseSegment: state.focusedEaseSegment,
+        timelineProjectId: state.timelineProjectId,
+        timelineSessionEpoch: state.timelineSessionEpoch,
+      })),
+    );
   const storeElements = usePlayerStore((state) => state.elements);
   // Identity of the element THIS panel actually renders (not the store's
   // selectedElementId, which flips synchronously on selection while the panel
@@ -196,7 +202,15 @@ export function PropertyPanelFlat({
       selectedElementId,
     }) &&
     focusedEaseSegment.elementId === renderedElementId
-      ? focusedEaseSegment.nativeTargets
+      ? focusedEaseSegment.nativeTargets.map((target) => {
+          const clip = nativeProjectDocument?.sequence.tracks
+            .find((track) => track.id === target.trackId)
+            ?.clips.find((clip) => clip.id === target.clipId);
+          const keyframe = clip?.parameterTracks
+            .find((track) => track.parameterId === target.parameterId)
+            ?.keyframes.find((keyframe) => keyframe.id === target.keyframeId);
+          return keyframe ? { ...target, outgoing: keyframe.outgoing } : target;
+        })
       : null;
   if (focusedEaseSegment !== consumedFocus) {
     setConsumedFocus(focusedEaseSegment);
@@ -212,8 +226,13 @@ export function PropertyPanelFlat({
       focusedEaseSegment.elementId === renderedElementId &&
       (focusedEaseSegment.kind === "native"
         ? Boolean(focusedEaseSegment.nativeTargets?.length)
-        : gsapAnimations.some((animation) => animation.id === focusedEaseSegment.animationId));
-    if (focusesThisPanel) setOpenGroupId("motion");
+        : gsapAnimations.some(
+            (animation) => animation.id === focusedEaseSegment.animationId,
+          ));
+    if (focusesThisPanel)
+      setOpenGroupId(
+        focusedEaseSegment.kind === "native" ? "layout" : "motion",
+      );
   }
 
   /**
@@ -236,11 +255,14 @@ export function PropertyPanelFlat({
   }
 
   const [justToggledIds, setJustToggledIds] = useState<string[]>([]);
-  const justToggledTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const justToggledTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const panelBodyRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     return () => {
-      if (justToggledTimeoutRef.current) clearTimeout(justToggledTimeoutRef.current);
+      if (justToggledTimeoutRef.current)
+        clearTimeout(justToggledTimeoutRef.current);
     };
   }, []);
 
@@ -253,16 +275,28 @@ export function PropertyPanelFlat({
   });
 
   const isTextEditable = isTextEditableSelection(element);
-  const elementKind = sections.media ? "media" : element.textFields.length > 0 ? "text" : "other";
+  const elementKind = sections.media
+    ? "media"
+    : element.textFields.length > 0
+      ? "text"
+      : "other";
   const toggleOpen = (groupId: string) => {
     const isOpening = openGroupId !== groupId;
     const previousOpenGroupId = openGroupId;
     setOpenGroupId((current) => (current === groupId ? "" : groupId));
     const implicitlyClosedId =
-      previousOpenGroupId && previousOpenGroupId !== groupId ? previousOpenGroupId : null;
-    setJustToggledIds(implicitlyClosedId ? [groupId, implicitlyClosedId] : [groupId]);
-    if (justToggledTimeoutRef.current) clearTimeout(justToggledTimeoutRef.current);
-    justToggledTimeoutRef.current = setTimeout(() => setJustToggledIds([]), 200);
+      previousOpenGroupId && previousOpenGroupId !== groupId
+        ? previousOpenGroupId
+        : null;
+    setJustToggledIds(
+      implicitlyClosedId ? [groupId, implicitlyClosedId] : [groupId],
+    );
+    if (justToggledTimeoutRef.current)
+      clearTimeout(justToggledTimeoutRef.current);
+    justToggledTimeoutRef.current = setTimeout(
+      () => setJustToggledIds([]),
+      200,
+    );
     if (isOpening) {
       requestAnimationFrame(() =>
         panelBodyRef.current
@@ -271,13 +305,19 @@ export function PropertyPanelFlat({
       );
     }
   };
-  const { start: elStart, duration: elDuration } = deriveElementTiming(element, gsapAnimations);
-  const seekFromKfPct = (pct: number) => onSeekToTime?.(elStart + (pct / 100) * elDuration);
+  const derivedTiming = deriveElementTiming(element, gsapAnimations);
+  const elStart = nativeKeyframeTarget ? _elStart : derivedTiming.start;
+  const elDuration = nativeKeyframeTarget
+    ? _elDuration
+    : derivedTiming.duration;
+  const seekFromKfPct = (pct: number) =>
+    onSeekToTime?.(elStart + (pct / 100) * elDuration);
   // Use the same timing basis for seeking and active keyframe state.
-  const currentPct = elDuration > 0 ? ((currentTime - elStart) / elDuration) * 100 : 0;
+  const currentPct =
+    elDuration > 0 ? ((currentTime - elStart) / elDuration) * 100 : 0;
 
   // Match the legacy Motion gate while preserving TypeScript narrowing.
-  const showMotionTiming = Boolean(sections.timing);
+  const showMotionTiming = false;
   const gsapEffectHandlers =
     onUpdateGsapProperty &&
     onUpdateGsapMeta &&
@@ -314,7 +354,10 @@ export function PropertyPanelFlat({
     gsapEffectHandlers !== null && !audioSelection && !nativeKeyframeTarget;
   const showMotionGroup = showMotionTiming || showMotionEffects;
 
-  const volumeAutomation = useVolumeAutomation(element, onSetAttributeQuiet ?? onSetAttributeLive);
+  const volumeAutomation = useVolumeAutomation(
+    element,
+    onSetAttributeQuiet ?? onSetAttributeLive,
+  );
 
   // The group this clip belongs to, if any — the Audio FX summary reads
   // "in Voiceover" for a member (see `audioFxSummary`). Membership lives on the
@@ -323,7 +366,8 @@ export function PropertyPanelFlat({
     const doc = element.element?.ownerDocument;
     const id = element.id;
     if (!doc || !id) return undefined;
-    return resolveAudioGroups(doc).find((group) => group.memberIds.includes(id))?.label;
+    return resolveAudioGroups(doc).find((group) => group.memberIds.includes(id))
+      ?.label;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- store replacement signals live group membership changed
   }, [element, storeElements]);
 
@@ -350,7 +394,9 @@ export function PropertyPanelFlat({
   }
   if (showEditableSections) {
     const opacityValue = parseFloat(styles.opacity ?? "1");
-    const opacityPct = Math.round((Number.isFinite(opacityValue) ? opacityValue : 1) * 100);
+    const opacityPct = Math.round(
+      (Number.isFinite(opacityValue) ? opacityValue : 1) * 100,
+    );
     groups.push({
       id: "style",
       title: "Style",
@@ -372,59 +418,50 @@ export function PropertyPanelFlat({
   if (sections.layout) {
     groups.push({
       id: "layout",
-      title: "Layout",
-      summary: `${formatPxMetricValue(displayX)},${formatPxMetricValue(displayY)} · ${Math.round(displayW)}×${Math.round(displayH)}`,
-      content: (
-        <FlatLayoutSection
-          element={element}
-          styles={styles}
-          onSetStyle={onSetStyle}
-          disabled={!element.capabilities.canEditStyles}
-          displayX={displayX}
-          displayY={displayY}
-          displayW={displayW}
-          displayH={displayH}
-          displayR={displayR}
-          manualOffsetEditingDisabled={manualOffsetEditingDisabled}
-          manualSizeEditingDisabled={manualSizeEditingDisabled}
-          manualRotationEditingDisabled={manualRotationEditingDisabled}
-          commitManualOffset={commitManualOffset}
-          commitManualSize={commitManualSize}
-          commitManualRotation={commitManualRotation}
-          gsapAnimId={gsapAnimId}
-          keyframeTargetId={keyframeTargetId}
-          navKeyframes={navKeyframes}
-          currentPct={currentPct}
-          currentFrame={currentFrame}
-          seekFromKfPct={seekFromKfPct}
-          animIdForProp={animIdForProp}
-          resolveAnimIdForProp={animIdForProp}
-          gsapRuntimeValues={gsapRuntimeValues}
-          gsapKeyframes={navKeyframes}
-          elStart={elStart}
-          elDuration={elDuration}
-          onCommitAnimatedProperty={onCommitAnimatedProperty}
-          onCommitAnimatedProperties={onCommitAnimatedProperties}
-          onCommitKeyframeProperty={onCommitKeyframeProperty}
-          onSeekToTime={onSeekToTime}
-          onRemoveKeyframe={onRemoveKeyframe}
-          onConvertToKeyframes={onConvertToKeyframes}
-          onLivePreviewProps={createGsapLivePreview(previewIframeRef ?? { current: null })}
-        />
-      ),
-    });
-  }
-  if (showMotionGroup) {
-    groups.push({
-      id: "motion",
-      ...motionSectionLabel({
-        timingOnly: audioSelection,
-        start: elStart,
-        duration: elDuration,
-        effectCount: gsapAnimations.length,
-      }),
+      title: "Transform",
+      summary: `${formatTransformValue(displayX)},${formatTransformValue(displayY)} · ${Math.round(displayW)}×${Math.round(displayH)}`,
       content: (
         <div className="space-y-3">
+          <FlatLayoutSection
+            element={element}
+            styles={styles}
+            onSetStyle={onSetStyle}
+            disabled={!element.capabilities.canEditStyles}
+            displayX={displayX}
+            displayY={displayY}
+            displayW={displayW}
+            displayH={displayH}
+            displayR={displayR}
+            manualOffsetEditingDisabled={manualOffsetEditingDisabled}
+            manualSizeEditingDisabled={manualSizeEditingDisabled}
+            manualRotationEditingDisabled={manualRotationEditingDisabled}
+            commitManualOffset={commitManualOffset}
+            commitManualSize={commitManualSize}
+            commitManualRotation={commitManualRotation}
+            gsapAnimId={gsapAnimId}
+            keyframeTargetId={keyframeTargetId}
+            navKeyframes={navKeyframes}
+            currentPct={currentPct}
+            currentFrame={currentFrame}
+            seekFromKfPct={seekFromKfPct}
+            animIdForProp={animIdForProp}
+            resolveAnimIdForProp={animIdForProp}
+            gsapRuntimeValues={gsapRuntimeValues}
+            gsapKeyframes={navKeyframes}
+            elStart={elStart}
+            elDuration={elDuration}
+            onCommitAnimatedProperty={onCommitAnimatedProperty}
+            onCommitAnimatedProperties={onCommitAnimatedProperties}
+            onCommitKeyframeProperty={onCommitKeyframeProperty}
+            onCommitKeyframeProperties={onCommitKeyframeProperties}
+            onRemoveKeyframeGroup={onRemoveKeyframeGroup}
+            onSeekToTime={onSeekToTime}
+            onRemoveKeyframe={onRemoveKeyframe}
+            onConvertToKeyframes={onConvertToKeyframes}
+            onLivePreviewProps={createGsapLivePreview(
+              previewIframeRef ?? { current: null },
+            )}
+          />
           {focusedNativeTargets && (
             <section
               aria-label="Native keyframe interpolation"
@@ -433,7 +470,7 @@ export function PropertyPanelFlat({
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[10px] font-medium uppercase tracking-wider text-panel-text-2">
-                  Interpolation
+                  Keyframe easing
                 </span>
                 {focusedNativeTargets.length > 1 && (
                   <span className="text-[9px] text-panel-text-3">
@@ -446,22 +483,34 @@ export function PropertyPanelFlat({
                 disabled={!onSetNativeKeyframesInterpolation}
                 onCommit={(outgoing) => {
                   if (!onSetNativeKeyframesInterpolation) return;
-                  void onSetNativeKeyframesInterpolation(focusedNativeTargets, outgoing).catch(
-                    (error) => {
-                      showToast(
-                        `Couldn't change keyframe interpolation: ${error instanceof Error ? error.message : String(error)}`,
-                        "error",
-                      );
-                    },
-                  );
+                  void onSetNativeKeyframesInterpolation(
+                    focusedNativeTargets,
+                    outgoing,
+                  ).catch((error) => {
+                    showToast(
+                      `Couldn't change keyframe interpolation: ${error instanceof Error ? error.message : String(error)}`,
+                      "error",
+                    );
+                  });
                 }}
               />
             </section>
           )}
+        </div>
+      ),
+    });
+  }
+  if (showMotionGroup) {
+    groups.push({
+      id: "motion",
+      title: showMotionEffects ? "Animation" : "Clip timing",
+      summary: `${elDuration.toFixed(2)}s`,
+      content: (
+        <div className="space-y-3">
           <FlatMotionSection
             element={element}
             animations={gsapAnimations}
-            showTiming={showMotionTiming}
+            showTiming={showMotionTiming && !showMotionEffects}
             showEffects={showMotionEffects}
             multipleTimelines={gsapMultipleTimelines}
             unsupportedTimelinePattern={gsapUnsupportedTimelinePattern}
@@ -473,6 +522,25 @@ export function PropertyPanelFlat({
       ),
     });
   }
+  if (showMotionTiming && showMotionEffects)
+    groups.push({
+      id: "timing",
+      title: "Clip timing",
+      summary: `${elDuration.toFixed(2)}s`,
+      content: (
+        <FlatMotionSection
+          element={element}
+          animations={[]}
+          showTiming
+          showEffects={false}
+          multipleTimelines={gsapMultipleTimelines}
+          unsupportedTimelinePattern={gsapUnsupportedTimelinePattern}
+          onSetAttribute={onSetAttribute}
+          onSetAttributes={onSetAttributes}
+          {...(gsapEffectHandlers ?? EMPTY_GSAP_EFFECT_HANDLERS)}
+        />
+      ),
+    });
   if (sections.colorGrading) {
     groups.push({
       id: "grade",
@@ -498,7 +566,9 @@ export function PropertyPanelFlat({
         />
       ),
     });
-    const activeEffects = activeColorGradingEffectCount(colorGradingController.grading);
+    const activeEffects = activeColorGradingEffectCount(
+      colorGradingController.grading,
+    );
     const effectsProps = {
       grading: colorGradingController.grading,
       onCommitColorGrading: colorGradingController.commitColorGrading,
@@ -542,18 +612,22 @@ export function PropertyPanelFlat({
       summary: element.tagName,
       content: (
         <FlatMediaSection
-          projectDir={projectDir}
           element={element}
           styles={styles}
           onSetStyle={onSetStyle}
           onSetAttribute={onSetAttribute}
           onPreviewAttribute={onPreviewAttributeLive}
           onSetHtmlAttribute={onSetHtmlAttribute}
-          onRemoveBackground={onRemoveBackground}
           {...volumeAutomation}
         />
       ),
     });
+  }
+
+  const transformIndex = groups.findIndex((group) => group.id === "layout");
+  if (transformIndex > 0) {
+    const [transform] = groups.splice(transformIndex, 1);
+    if (transform) groups.splice(isTextEditable ? 1 : 0, 0, transform);
   }
 
   const openIndex = groups.findIndex((g) => g.id === openGroupId);
@@ -590,16 +664,23 @@ export function PropertyPanelFlat({
             // control of its own now that mute and solo are gone. Only
             // hand-editing the HTML brought the audio back.
             onToggleHidden={
-              selectedElementId && onToggleElementHidden && (!audioSelection || hiddenNow)
-                ? () => void onToggleElementHidden(selectedElementId, !hiddenNow)
+              selectedElementId &&
+              onToggleElementHidden &&
+              (!audioSelection || hiddenNow)
+                ? () =>
+                    void onToggleElementHidden(selectedElementId, !hiddenNow)
                 : undefined
             }
             copied={clipboardCopied}
-            onResetDesign={onResetDesign ? () => void onResetDesign() : undefined}
+            onResetDesign={
+              onResetDesign ? () => void onResetDesign() : undefined
+            }
             onCopy={onCopyElementInfo}
             onClear={onClearSelection}
             onUngroup={onUngroup}
-            showUngroup={Boolean(onUngroup && element.dataAttributes["hf-group"] != null)}
+            showUngroup={Boolean(
+              onUngroup && element.dataAttributes["hf-group"] != null,
+            )}
           />
         </DesignPanelInputProvider>
         <div
@@ -609,8 +690,13 @@ export function PropertyPanelFlat({
         >
           {beforeOpen.map(renderClosedGroup)}
           {openGroup && (
-            <DesignPanelInputProvider section={slugifyDesignInput(openGroup.title)}>
-              <div data-flat-group-open="true" className="flex min-h-[180px] flex-none flex-col">
+            <DesignPanelInputProvider
+              section={slugifyDesignInput(openGroup.title)}
+            >
+              <div
+                data-flat-group-open="true"
+                className="flex min-h-[180px] flex-none flex-col"
+              >
                 <FlatGroupHeader
                   title={openGroup.title}
                   isOpen
@@ -628,13 +714,7 @@ export function PropertyPanelFlat({
           )}
           {afterOpen.map(renderClosedGroup)}
         </div>
-        <DesignPanelInputProvider section="footer">
-          <PropertyPanelFlatFooter
-            recordingState={recordingState}
-            recordingDuration={recordingDuration}
-            onToggleRecording={onToggleRecording}
-          />
-        </DesignPanelInputProvider>
+
       </div>
     </DesignPanelInputProvider>
   );

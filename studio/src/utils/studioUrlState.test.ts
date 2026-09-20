@@ -309,7 +309,7 @@ describe("studio url state", () => {
         },
       }),
     ).toBe(
-      "#project/demo?v=1&comp=compositions%2Ftitle.html&t=4.257&tab=design&rc=1&tv=0&selFile=index.html&selSelector=.card&selIndex=2",
+      "#project/demo?v=1&comp=compositions%2Ftitle.html&t=4.2571&tab=design&rc=1&tv=0&selFile=index.html&selSelector=.card&selIndex=2",
     );
   });
 
@@ -465,4 +465,12 @@ describe("studio url state", () => {
 
     harness.unmount();
   });
+});
+
+it("round-trips a frame-boundary playhead without landing one frame earlier", () => {
+  const initial = parseStudioUrlStateFromHash("#project/demo");
+  const time = 184 / 30;
+  const restored = parseStudioUrlStateFromHash(buildStudioHash("demo", { ...initial, currentTime: time }));
+  expect(restored.currentTime).toBe(time);
+  expect(Math.floor(restored.currentTime! * 30 + 1e-9)).toBe(184);
 });

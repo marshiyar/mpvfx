@@ -1,7 +1,7 @@
 import { useRef, useEffect, memo } from "react";
 import gsap from "gsap";
 import { MorphSVGPlugin } from "gsap/MorphSVGPlugin";
-import { formatFrameTime, formatTime } from "../lib/time";
+import { formatTime } from "../lib/time";
 import { liveTime, usePlayerStore } from "../store/playerStore";
 import { trackStudioEvent } from "../../utils/studioTelemetry";
 import { Tooltip } from "../../components/ui";
@@ -184,13 +184,8 @@ export const PlayerControls = memo(function PlayerControls({
   const outPoint = usePlayerStore((s) => s.outPoint);
   const setInPoint = usePlayerStore.getState().setInPoint;
   const setOutPoint = usePlayerStore.getState().setOutPoint;
-  const timeDisplayMode = usePlayerStore((s) => s.timeDisplayMode);
-  const setTimeDisplayMode = usePlayerStore.getState().setTimeDisplayMode;
-
   const timeDisplayRef = useRef<HTMLSpanElement>(null);
   const currentTimeRef = useRef(0);
-  const timeDisplayModeRef = useRef(timeDisplayMode);
-  timeDisplayModeRef.current = timeDisplayMode;
 
   const durationRef = useRef(duration);
   durationRef.current = duration;
@@ -200,8 +195,8 @@ export const PlayerControls = memo(function PlayerControls({
     if (!timeDisplayRef.current) return;
     const t = currentTimeRef.current;
     timeDisplayRef.current.textContent =
-      timeDisplayMode === "frame" ? formatFrameTime(t, duration) : formatTime(t);
-  }, [duration, timeDisplayMode]);
+      formatTime(t);
+  }, [duration]);
 
   useMountEffect(() => {
     const updateTime = (time: number) => {
@@ -209,9 +204,7 @@ export const PlayerControls = memo(function PlayerControls({
       if (!timeDisplayRef.current) return;
       const currentDuration = durationRef.current;
       timeDisplayRef.current.textContent =
-        timeDisplayModeRef.current === "frame"
-          ? formatFrameTime(time, currentDuration)
-          : formatTime(time);
+        formatTime(time);
     };
     const unsubscribe = liveTime.subscribe(updateTime);
     updateTime(usePlayerStore.getState().currentTime);
@@ -227,24 +220,11 @@ export const PlayerControls = memo(function PlayerControls({
           paddingBottom: "env(safe-area-inset-bottom)",
         }}
       >
-        <Tooltip
-          label={timeDisplayMode === "time" ? "Switch to frame display" : "Switch to time display"}
-        >
-          <button
-            type="button"
-            onClick={() => setTimeDisplayMode(timeDisplayMode === "time" ? "frame" : "time")}
-            disabled={disabled}
-            className="min-w-0 justify-self-start whitespace-nowrap font-mono text-[11px] tabular-nums text-neutral-400 transition-colors hover:text-neutral-200 disabled:pointer-events-none"
-          >
-            <span ref={timeDisplayRef}>{formatTime(0)}</span>
-            {timeDisplayMode === "time" ? (
-              <>
-                <span className="mx-0.5 text-neutral-700">/</span>
-                <span className="text-neutral-600">{formatTime(duration)}</span>
-              </>
-            ) : null}
-          </button>
-        </Tooltip>
+        <div aria-label="Playback time" className="min-w-0 justify-self-start whitespace-nowrap font-mono text-[11px] tabular-nums text-neutral-400">
+          <span ref={timeDisplayRef}>{formatTime(0)}</span>
+          <span className="mx-1 text-neutral-700">/</span>
+          <span className="text-neutral-500">{formatTime(duration)}</span>
+        </div>
 
         <Tooltip label={isPlaying ? "Pause" : "Play"}>
           <button

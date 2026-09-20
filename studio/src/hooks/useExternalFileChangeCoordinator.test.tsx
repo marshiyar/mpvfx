@@ -3,21 +3,30 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StudioFileConflictError } from "../utils/studioSaveDiagnostics";
-import { markStudioWriteToken, resetStudioWriteTokens } from "../utils/studioFileVersion";
+import {
+  markStudioWriteToken,
+  resetStudioWriteTokens,
+} from "../utils/studioFileVersion";
 import {
   useExternalFileChangeCoordinator,
   type ExternalFileChangeCoordinatorHandle,
 } from "./useExternalFileChangeCoordinator";
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+(
+  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
 
 type HotHandler = (payload?: unknown) => void;
-type CoordinatorOptions = Parameters<typeof useExternalFileChangeCoordinator>[0];
+type CoordinatorOptions = Parameters<
+  typeof useExternalFileChangeCoordinator
+>[0];
 const roots: Array<ReturnType<typeof createRoot>> = [];
 let handler: HotHandler | null;
 
 async function mountCoordinator(overrides: Partial<CoordinatorOptions> = {}) {
-  const captured: { handle: ExternalFileChangeCoordinatorHandle | null } = { handle: null };
+  const captured: { handle: ExternalFileChangeCoordinatorHandle | null } = {
+    handle: null,
+  };
   const defaults: CoordinatorOptions = {
     projectId: "project-a",
     activeCompPath: "index.html",
@@ -60,6 +69,29 @@ describe("external file change coordinator", () => {
     vi.unstubAllGlobals();
   });
 
+  it("ignores another project's write before consuming tokens or draining this project's edits", async () => {
+    const { options } = await mountCoordinator();
+    await act(async () =>
+      handler?.({
+        projectId: "project-b",
+        path: "index.html",
+        version: "other",
+      }),
+    );
+    expect(options.drainPendingChanges).not.toHaveBeenCalled();
+    expect(options.reloadPreview).not.toHaveBeenCalled();
+    await act(async () =>
+      handler?.({
+        data: JSON.stringify({
+          projectId: "project-a",
+          path: "index.html",
+          version: "ours",
+        }),
+      }),
+    );
+    expect(options.reloadPreview).toHaveBeenCalledOnce();
+  });
+
   it("drains before reloading Preview and SDK exactly once", async () => {
     const order: string[] = [];
     const { captured } = await mountCoordinator({
@@ -70,19 +102,31 @@ describe("external file change coordinator", () => {
       reloadPreview: () => order.push("preview"),
       reloadSdkSession: () => order.push("sdk"),
     });
-    await act(async () => handler?.({ path: "index.html", content: "external", version: "v2" }));
+    await act(async () =>
+      handler?.({ path: "index.html", content: "external", version: "v2" }),
+    );
     expect(order).toEqual(["drain", "preview", "sdk"]);
     expect(captured.handle?.blocked).toBeNull();
   });
 
   it("suppresses an exact Studio write receipt", async () => {
-    const drainPendingChanges = vi.fn(async () => ({ status: "clean" as const }));
+    const drainPendingChanges = vi.fn(async () => ({
+      status: "clean" as const,
+    }));
     const reloadPreview = vi.fn();
     const reloadSdkSession = vi.fn();
-    await mountCoordinator({ drainPendingChanges, reloadPreview, reloadSdkSession });
+    await mountCoordinator({
+      drainPendingChanges,
+      reloadPreview,
+      reloadSdkSession,
+    });
     markStudioWriteToken("studio-write-1");
     await act(async () =>
-      handler?.({ path: "index.html", content: "studio", writeToken: "studio-write-1" }),
+      handler?.({
+        path: "index.html",
+        content: "studio",
+        writeToken: "studio-write-1",
+      }),
     );
     expect(drainPendingChanges).not.toHaveBeenCalled();
     expect(reloadPreview).not.toHaveBeenCalled();
@@ -90,10 +134,16 @@ describe("external file change coordinator", () => {
   });
 
   it("suppresses its own write when production EventSource delivers JSON in MessageEvent.data", async () => {
-    const drainPendingChanges = vi.fn(async () => ({ status: "clean" as const }));
+    const drainPendingChanges = vi.fn(async () => ({
+      status: "clean" as const,
+    }));
     const reloadPreview = vi.fn();
     const reloadSdkSession = vi.fn();
-    await mountCoordinator({ drainPendingChanges, reloadPreview, reloadSdkSession });
+    await mountCoordinator({
+      drainPendingChanges,
+      reloadPreview,
+      reloadSdkSession,
+    });
     markStudioWriteToken("studio-write-event-source");
 
     await act(async () =>
@@ -113,7 +163,9 @@ describe("external file change coordinator", () => {
 
   it("does not suppress a racing external write by path alone", async () => {
     const pendingTimelineEditPathRef = { current: new Set(["index.html"]) };
-    const drainPendingChanges = vi.fn(async () => ({ status: "clean" as const }));
+    const drainPendingChanges = vi.fn(async () => ({
+      status: "clean" as const,
+    }));
     const reloadPreview = vi.fn();
     const reloadSdkSession = vi.fn();
     await mountCoordinator({
@@ -122,7 +174,9 @@ describe("external file change coordinator", () => {
       reloadPreview,
       reloadSdkSession,
     });
-    await act(async () => handler?.({ path: "index.html", content: "agent edit", version: "v2" }));
+    await act(async () =>
+      handler?.({ path: "index.html", content: "agent edit", version: "v2" }),
+    );
     expect(pendingTimelineEditPathRef.current).not.toContain("index.html");
     expect(drainPendingChanges).toHaveBeenCalledOnce();
     expect(reloadPreview).toHaveBeenCalledOnce();
@@ -138,12 +192,20 @@ describe("external file change coordinator", () => {
     });
     const persistConflictSnapshot = vi.fn(async () => undefined);
     const { captured, options } = await mountCoordinator({
-      drainPendingChanges: async () => ({ status: "conflict", error: conflict }),
+      drainPendingChanges: async () => ({
+        status: "conflict",
+        error: conflict,
+      }),
       persistConflictSnapshot,
     });
-    await act(async () => handler?.({ path: "index.html", content: "external", version: "v2" }));
+    await act(async () =>
+      handler?.({ path: "index.html", content: "external", version: "v2" }),
+    );
     expect(persistConflictSnapshot).toHaveBeenCalledWith("project-a", conflict);
-    expect(captured.handle?.blocked).toMatchObject({ status: "conflict", error: conflict });
+    expect(captured.handle?.blocked).toMatchObject({
+      status: "conflict",
+      error: conflict,
+    });
     expect(options.reloadPreview).not.toHaveBeenCalled();
     expect(options.reloadSdkSession).not.toHaveBeenCalled();
   });
@@ -177,7 +239,9 @@ describe("external file change coordinator", () => {
         createdAt: 100,
       })),
     });
-    await vi.waitFor(() => expect(captured.handle?.blocked?.status).toBe("conflict"));
+    await vi.waitFor(() =>
+      expect(captured.handle?.blocked?.status).toBe("conflict"),
+    );
     expect(captured.handle?.blocked).toMatchObject({
       error: { currentContent: "external", attemptedContent: "studio" },
     });
@@ -192,7 +256,10 @@ describe("external file change coordinator", () => {
         .fn()
         .mockResolvedValueOnce({ status: "failed" as const, error: failure })
         .mockResolvedValueOnce({ status: "clean" as const }),
-      getPendingCandidate: () => ({ path: "index.html", content: "final local candidate" }),
+      getPendingCandidate: () => ({
+        path: "index.html",
+        content: "final local candidate",
+      }),
       persistFailureSnapshot,
       deleteConflictSnapshot,
     });
@@ -211,7 +278,10 @@ describe("external file change coordinator", () => {
       failure,
     );
     await act(async () => captured.handle?.retry());
-    expect(deleteConflictSnapshot).toHaveBeenCalledWith("project-a", "index.html");
+    expect(deleteConflictSnapshot).toHaveBeenCalledWith(
+      "project-a",
+      "index.html",
+    );
   });
 
   it("restores and overwrites from a durable failed draft", async () => {
@@ -230,14 +300,19 @@ describe("external file change coordinator", () => {
         createdAt: 100,
       })),
     });
-    await vi.waitFor(() => expect(captured.handle?.blocked?.status).toBe("failed"));
+    await vi.waitFor(() =>
+      expect(captured.handle?.blocked?.status).toBe("failed"),
+    );
     expect(captured.handle?.blocked).toMatchObject({
       studioContent: "recover me",
       recovered: true,
     });
     await act(async () => captured.handle?.keepStudioFile());
     expect(overwriteConflict).toHaveBeenCalledWith(
-      expect.objectContaining({ attemptedContent: "recover me", currentVersion: "v2" }),
+      expect.objectContaining({
+        attemptedContent: "recover me",
+        currentVersion: "v2",
+      }),
     );
   });
 });

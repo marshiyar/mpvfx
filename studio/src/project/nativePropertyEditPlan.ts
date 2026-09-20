@@ -1,9 +1,7 @@
 import {
   validateRationalFrameRate,
-  type NativeParameterTrack,
   type RationalFrameRate,
 } from "./nativeKeyframeTypes";
-import { evaluateNativeParameterTrack } from "./nativeKeyframeEvaluator";
 import type {
   NativeProjectParameterAddress,
 } from "./nativeProjectKeyframeCommands";
@@ -52,7 +50,8 @@ export interface NativePropertyEditPlanRequest {
   /** Measured pre-native values from the selected preview element. */
   readonly propertyBaselines?: Readonly<Partial<Record<NativeEditableProperty, number>>>;
   /** Explicit keyframe buttons always use `keyframe`. Ordinary inspector and
-   * gesture edits use `edit` and follow the auto-keyframe preference. */
+   * gesture edits use `edit`; existing tracks always keyframe, while the
+   * auto-keyframe preference controls starting animation on static properties. */
   readonly intent?: "edit" | "keyframe";
   readonly autoKeyframeEnabled?: boolean;
 }
@@ -359,13 +358,11 @@ export const planNativePropertyEdit = (
       error instanceof Error ? error.message : "The playhead time is invalid",
     );
   }
-  const clipLocalFrame = projectFrame - located.clip.startFrame;
-  if (clipLocalFrame < 0 || clipLocalFrame >= located.clip.durationFrames) {
-    return failure(
-      "playhead-outside-clip",
-      `Project frame ${projectFrame} is outside clip ${located.clip.id}`,
-    );
-  }
+  // A selected clip remains editable when the project playhead is elsewhere.
+  // Use its nearest visible frame, matching the inspector's clamped evaluation.
+  const clipLocalFrame = Math.max(0, Math.min(
+    located.clip.durationFrames - 1, projectFrame - located.clip.startFrame,
+  ));
 
   const propertyNames = Object.keys(request.properties);
   if (propertyNames.length === 0) {
@@ -476,14 +473,15 @@ export const planNativePropertyEdit = (
       });
       continue;
     }
-    const evaluated = evaluateNativeParameterTrack(
-      parameterTrack as NativeParameterTrack<"number">,
-      clipLocalFrame,
-    );
+    // Existing parameter tracks are animated. A value edit at a new time
+    // authors that frame; shifting the entire curve must be an explicit command.
     commands.push({
-      type: "offset-track",
+      type: "upsert",
       address,
-      delta: value - evaluated,
+      valueType: "number",
+      frame: clipLocalFrame,
+      value,
+      baselineValue: parameterTrack.keyframes[0]!.value as number,
     });
   }
 

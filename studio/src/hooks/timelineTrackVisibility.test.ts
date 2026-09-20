@@ -648,3 +648,20 @@ describe("createAudioGroupAndAssignMembers", () => {
     ).toBe(false);
   });
 });
+
+it("mutes only audio on a mixed track in one durable edit", async () => {
+  const files = new Map([["index.html", '<video id="picture"></video><audio id="sound"></audio>']]);
+  stubProjectFiles(files);
+  const recordEdit = vi.fn();
+  await toggleTimelineTrackHidden({
+    projectId: "project-1", activeCompPath: "index.html",
+    timelineElements: [element({ id: "picture", domId: "picture", tag: "video" }), element({ id: "sound", domId: "sound", tag: "audio" })],
+    track: 0, hidden: true, audioOnly: true, displayNumber: 1, previewIframe: null,
+    writeProjectFile: async (path, content) => { files.set(path, content); }, recordEdit,
+    domEditSaveTimestampRef: { current: 0 }, pendingTimelineEditPathRef: { current: new Set() },
+  });
+  expect(files.get("index.html")).toContain('<video id="picture"></video>');
+  expect(files.get("index.html")).toContain('<audio id="sound" data-hidden=""></audio>');
+  expect(recordEdit).toHaveBeenCalledOnce();
+  expect(recordEdit.mock.calls[0]?.[0]?.label).toBe("Mute track 1");
+});

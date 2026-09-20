@@ -115,9 +115,9 @@ describe("PlainTrackHeader", () => {
 
   // A row that says what it is with a speaker does not also need the hide
   // affordance sitting in the eye's slot.
-  it("withholds the eye from an audible audio track", () => {
+  it("shows mute on an audible audio track", () => {
     const view = renderHeader();
-    expect(view.host.querySelector("button")).toBeNull();
+    expect(labelOf(view.host)).toBe("Mute track 1");
     view.unmount();
   });
 
@@ -127,7 +127,7 @@ describe("PlainTrackHeader", () => {
   // control anywhere to restore it.
   it("offers it back once the audio track is hidden", () => {
     const view = renderHeader({ isTrackHidden: true });
-    expect(labelOf(view.host)).toBe("Show track 1");
+    expect(labelOf(view.host)).toBe("Unmute track 1");
     view.unmount();
   });
 

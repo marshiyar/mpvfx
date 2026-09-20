@@ -35,15 +35,9 @@ import {
   canCanvasNudgeTargets,
   resolveCanvasNudgeDelta,
 } from "./domEditNudge";
-import {
-  constrainMediaGroupDragDelta,
-  isCanvasBoundMediaElement,
-} from "./mediaCanvasContainment";
-import { hugOrientedRectForElement } from "./domEditOverlayCrop";
 
 interface NudgeSession {
   members: ManualOffsetDragMember[];
-  mediaRects: OverlayRect[];
   isGroup: boolean;
   /** Accumulated delta of the burst, in composition px. */
   accum: { x: number; y: number };
@@ -142,7 +136,13 @@ function resolveSingleNudgeTarget(
 function shouldIgnoreNudgeKey(p: UseDomEditNudgeParams, event: KeyboardEvent): boolean {
   if (!p.allowCanvasMovement || event.defaultPrevented) return true;
   if (p.gestureRef.current || p.groupGestureRef.current || p.blockedMoveRef.current) return true;
-  return isTypingTarget(event.target);
+  const target = event.target;
+  // Capturing canvas shortcuts run before a focused control can preventDefault.
+  // Give editor controls their arrow keys instead of also moving the picture.
+  if (target instanceof Element && target.closest(
+    '[role="separator"], [role="slider"], [role="spinbutton"], [role="listbox"], [role="menu"]',
+  )) return true;
+  return isTypingTarget(target);
 }
 
 export function useDomEditNudge(params: UseDomEditNudgeParams): { flushNudge: () => void } {
@@ -204,13 +204,6 @@ export function useDomEditNudge(params: UseDomEditNudgeParams): { flushNudge: ()
     p.onManualDragStartRef.current?.();
     return {
       members,
-      mediaRects: targets
-        .filter((target) => isCanvasBoundMediaElement(target.element))
-        .map((target) =>
-          // Group overlay items are already crop-hugged by the RAF measurement;
-          // applying the inset again makes every nudge clamp too early.
-          isGroup ? target.rect : hugOrientedRectForElement(target.rect, target.element),
-        ),
       isGroup,
       accum: { x: 0, y: 0 },
       timer: null,
@@ -227,27 +220,7 @@ export function useDomEditNudge(params: UseDomEditNudgeParams): { flushNudge: ()
     sessionRef.current = session;
     event.preventDefault();
     const proposed = { x: session.accum.x + delta.dx, y: session.accum.y + delta.dy };
-    const compositionRect = p.compositionRectRef?.current;
-    if (
-      session.mediaRects.length > 0 &&
-      compositionRect &&
-      compositionRect.width > 0 &&
-      compositionRect.height > 0
-    ) {
-      const contained = constrainMediaGroupDragDelta({
-        rects: session.mediaRects,
-        canvas: {
-          left: compositionRect.left,
-          top: compositionRect.top,
-          right: compositionRect.left + compositionRect.width,
-          bottom: compositionRect.top + compositionRect.height,
-        },
-        proposed: { dx: proposed.x, dy: proposed.y },
-      });
-      session.accum = { x: contained.dx, y: contained.dy };
-    } else {
-      session.accum = proposed;
-    }
+    session.accum = proposed;
     for (const member of session.members) applyManualOffsetNudgeDraft(member, session.accum);
     if (session.timer) clearTimeout(session.timer);
     session.timer = setTimeout(() => commitSessionRef.current(), CANVAS_NUDGE_COMMIT_DEBOUNCE_MS);

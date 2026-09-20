@@ -1,5 +1,5 @@
 import type React from "react";
-import { Eye, EyeSlash } from "@phosphor-icons/react";
+import { Eye, EyeSlash, SpeakerHigh, SpeakerSlash } from "@phosphor-icons/react";
 import { Music } from "../../icons/SystemIcons";
 import type { TimelineEditCallbacks } from "./timelineCallbacks";
 import { TrackClipCount } from "./TrackClipCount";
@@ -22,7 +22,9 @@ export function VisibilityButton({
   trackDisplayNumber,
   visible,
   onToggle,
+  audio = false,
 }: {
+  audio?: boolean;
   hidden: boolean;
   trackNumber: number;
   trackDisplayNumber: number | null;
@@ -33,7 +35,7 @@ export function VisibilityButton({
   // Display number in the text, real key in the callback. The two must not be
   // conflated in either direction.
   const suffix = trackDisplaySuffix(trackDisplayNumber);
-  const label = visibilityButtonLabel(hidden, suffix);
+  const label = audio ? `${hidden ? "Unmute" : "Mute"} track${suffix}` : visibilityButtonLabel(hidden, suffix);
   return (
     <button
       type="button"
@@ -50,7 +52,7 @@ export function VisibilityButton({
         void onToggle?.(trackNumber, !hidden, trackDisplayNumber);
       }}
     >
-      {visibilityButtonIcon(hidden)}
+      {audio ? (hidden ? <SpeakerSlash size={14} /> : <SpeakerHigh size={14} />) : visibilityButtonIcon(hidden)}
     </button>
   );
 }
@@ -127,7 +129,8 @@ export function PlainTrackHeader({
             hidden={isTrackHidden}
             trackNumber={trackNumber}
             trackDisplayNumber={trackDisplayNumber}
-            visible={canToggleVisibility && (!isAudioTrack || isTrackHidden)}
+            visible={canToggleVisibility}
+            audio={isAudioTrack}
             onToggle={onToggleTrackHidden}
           />
           {trailing}

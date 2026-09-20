@@ -122,7 +122,7 @@ export function PreviewPane({
         onDragOver={handlePreviewDragOver}
         onDrop={handlePreviewDrop}
       >
-        <div className="absolute inset-0 overflow-hidden">
+        <div className={`absolute inset-x-0 bottom-0 overflow-hidden ${isFullscreen ? "top-0" : "top-9"}`}>
           <NLEPreview
             projectId={projectId}
             iframeRef={iframeRef}

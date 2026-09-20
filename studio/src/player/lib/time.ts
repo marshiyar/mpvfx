@@ -28,9 +28,3 @@ export function stepFrameTime(time: number, deltaFrames: number, fps = STUDIO_PR
   const nextFrame = Math.max(0, currentFrame + deltaFrames);
   return frameToSeconds(nextFrame, fps);
 }
-
-export function formatFrameTime(time: number, duration: number, fps = STUDIO_PREVIEW_FPS): string {
-  const currentFrame = secondsToFrame(time, fps);
-  const totalFrames = secondsToFrame(duration, fps);
-  return `${currentFrame}f / ${totalFrames}f`;
-}

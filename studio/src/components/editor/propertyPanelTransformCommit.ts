@@ -1,7 +1,6 @@
 import type { DomEditSelection } from "./domEditingTypes";
 import { readStudioBoxSize, readStudioPathOffset } from "./manualEdits";
 import { parsePxMetricValue, type PropertyPanelProps } from "./propertyPanelHelpers";
-import { constrainMediaPositionAxisValue } from "./mediaCanvasContainment";
 
 interface TransformCommitDeps {
   element: DomEditSelection;
@@ -69,25 +68,18 @@ export function createTransformCommitHandlers({
     const parsed = parsePxMetricValue(nextValue);
     if (parsed == null) return;
     const current = readStudioPathOffset(element.element);
-    const currentValue = hasGsapAnimation ? (runtimeValues?.[axis] ?? current[axis]) : current[axis];
-    const containedValue = constrainMediaPositionAxisValue({
-      element: element.element,
-      axis,
-      current: currentValue,
-      proposed: parsed,
-    });
     if (
       await commitAnimatedTransformValue(
         axis,
-        containedValue,
+        parsed,
         "This element's position can't be edited here yet — it is driven by its animation",
       )
     )
       return;
     await Promise.resolve(
       onSetManualOffset(element, {
-        x: axis === "x" ? containedValue : current.x,
-        y: axis === "y" ? containedValue : current.y,
+        x: axis === "x" ? parsed : current.x,
+        y: axis === "y" ? parsed : current.y,
       }),
     );
   };

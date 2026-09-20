@@ -243,9 +243,3 @@ export function planNativeTimelineSplits(
     sourceFiles: [...new Set(planned.map((split) => split.sourceFile))].sort(),
   };
 }
-
-export function planNativeTimelineSplit(
-  input: Omit<NativeTimelineSplitPlanInput, "splits"> & { readonly split: NativeTimelineSplitRequest },
-): NativeTimelineSplitPlanResult {
-  return planNativeTimelineSplits({ document: input.document, splits: [input.split] });
-}

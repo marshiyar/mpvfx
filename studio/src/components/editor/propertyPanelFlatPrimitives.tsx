@@ -8,7 +8,8 @@ import {
   type PropertyValueTier,
 } from "./propertyPanelValueTier";
 
-export const FLAT_PREVIEW_GRID = "grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-1";
+export const FLAT_PREVIEW_GRID =
+  "grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-1";
 
 /* ------------------------------------------------------------------ */
 /*  FlatRow — single-column label/value property row                   */
@@ -16,6 +17,7 @@ export const FLAT_PREVIEW_GRID = "grid grid-cols-[repeat(auto-fill,minmax(120px,
 
 export function FlatRow({
   label,
+  compact = false,
   value,
   tier,
   disabled,
@@ -27,6 +29,7 @@ export function FlatRow({
   onReset,
 }: {
   label: string;
+  compact?: boolean;
   value: string;
   tier: PropertyValueTier;
   disabled?: boolean;
@@ -40,18 +43,25 @@ export function FlatRow({
 }) {
   const track = useTrackDesignInput();
   return (
-    <div className="group flex min-h-[30px] items-center justify-between gap-3">
-      <span className={`text-[11px] ${VALUE_TIER_LABEL_CLASS[tier]}`}>{label}</span>
-      <span className="flex min-w-0 flex-shrink-0 items-center gap-1.5">
+    <div
+      className={`group flex min-h-[30px] min-w-0 items-center justify-between ${compact ? "gap-1 rounded bg-panel-bg px-1.5" : "gap-3"}`}
+    >
+      <span className={`text-[11px] ${VALUE_TIER_LABEL_CLASS[tier]}`}>
+        {label}
+      </span>
+      <span
+        className={`flex min-w-0 items-center gap-1 ${compact ? "flex-1" : "flex-shrink-0"}`}
+      >
         <span
           data-flat-row-value="true"
-          className={`min-w-0 border-b pb-px font-mono text-[11px] ${VALUE_TIER_VALUE_CLASS[tier]} ${
+          className={`${compact ? "w-10 flex-1" : "max-w-[150px]"} min-w-0 border-b pb-px font-mono text-[11px] ${VALUE_TIER_VALUE_CLASS[tier]} ${
             tier === "explicitCustom"
               ? "border-panel-accent/30 group-hover:border-panel-accent/70"
               : "border-panel-border-input/50 group-hover:border-panel-border-input"
           }`}
         >
           <CommitField
+            ariaLabel={label}
             value={value}
             disabled={disabled}
             liveCommit={liveCommit}
@@ -152,7 +162,9 @@ export function FlatSegmentedRow({
             >
               {option.node}
             </button>
-            {spacerAfterIndex === index && <span className="w-3" aria-hidden="true" />}
+            {spacerAfterIndex === index && (
+              <span className="w-3" aria-hidden="true" />
+            )}
           </span>
         ))}
         {tier === "explicitCustom" && onReset && (
@@ -218,7 +230,9 @@ export function FlatGroupHeader({
         className={`${animateEntrance ? "hf-flat-group-enter " : ""}flex min-h-10 w-full flex-shrink-0 items-center justify-between gap-2 border-b border-panel-hairline bg-panel-bg px-4 text-left`}
       >
         <span className="flex min-w-0 items-center gap-2">
-          <span className="text-[12px] font-medium text-panel-text-2">{title}</span>
+          <span className="text-[12px] font-medium text-panel-text-2">
+            {title}
+          </span>
           {summary && (
             <span className="min-w-0 truncate font-mono text-[9px] text-panel-text-4">
               {summary}
@@ -242,10 +256,17 @@ export function FlatGroupHeader({
     <div
       className={`${animateEntrance ? "hf-flat-group-enter " : ""}flex min-h-10 flex-shrink-0 items-center justify-between bg-panel-bg px-4`}
     >
-      <span className="text-[12px] font-semibold text-panel-text-0">{title}</span>
+      <span className="text-[12px] font-semibold text-panel-text-0">
+        {title}
+      </span>
       <span className="flex items-center gap-2.5 text-panel-text-5">
         {accessory}
-        <button type="button" onClick={onToggleOpen} title="Collapse" className="text-panel-text-3">
+        <button
+          type="button"
+          onClick={onToggleOpen}
+          title="Collapse"
+          className="text-panel-text-3"
+        >
           <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
             <path d="M2 4l4 4 4-4z" />
           </svg>
@@ -295,6 +316,7 @@ export function FlatSlider({
   onReset,
   onPreview,
   onCommit,
+  onCommitText,
 }: {
   label: string;
   value: number;
@@ -310,6 +332,7 @@ export function FlatSlider({
    * `onCommit` is reserved for the single durable write on release. */
   onPreview?: (nextValue: number) => void;
   onCommit: (nextValue: number) => void;
+  onCommitText?: (nextValue: string) => void | Promise<unknown>;
 }) {
   const track = useTrackDesignInput();
   // `draft` gives the knob instant, drag-local visual feedback. `onCommit` is
@@ -381,16 +404,23 @@ export function FlatSlider({
         // component unmounts mid-drag (e.g. selection changes away), and
         // silently discarding the user's last dragged position would look
         // like data loss.
-        if (pendingRef.current !== null) onCommitRef.current(pendingRef.current);
+        if (pendingRef.current !== null)
+          onCommitRef.current(pendingRef.current);
       }
     },
     [],
   );
 
-  const clampedPct = Math.max(0, Math.min(100, ((draft - min) / Math.max(max - min, 1e-6)) * 100));
+  const clampedPct = Math.max(
+    0,
+    Math.min(100, ((draft - min) / Math.max(max - min, 1e-6)) * 100),
+  );
 
   const stepFromClientX = (clientX: number, rect: DOMRect) => {
-    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(rect.width, 1)));
+    const ratio = Math.max(
+      0,
+      Math.min(1, (clientX - rect.left) / Math.max(rect.width, 1)),
+    );
     const raw = min + ratio * (max - min);
     const stepped = Math.round(raw / step) * step;
     return Math.max(min, Math.min(max, stepped));
@@ -450,8 +480,10 @@ export function FlatSlider({
   };
 
   return (
-    <div className="flex min-h-[28px] items-center gap-2.5">
-      <span className="w-[86px] flex-shrink-0 text-[11px] text-panel-text-3">{label}</span>
+    <div className="group flex min-h-[28px] items-center gap-2.5">
+      <span className="w-[86px] flex-shrink-0 text-[11px] text-panel-text-3">
+        {label}
+      </span>
       <div
         data-flat-slider-track="true"
         role="slider"
@@ -469,14 +501,21 @@ export function FlatSlider({
           dragStartValueRef.current = latestValueRef.current;
           activePointerIdRef.current = e.pointerId;
           e.currentTarget.setPointerCapture(e.pointerId);
-          const stepped = stepFromClientX(e.clientX, e.currentTarget.getBoundingClientRect());
+          const stepped = stepFromClientX(
+            e.clientX,
+            e.currentTarget.getBoundingClientRect(),
+          );
           setDraft(stepped);
           if (onPreviewRef.current) onPreviewRef.current(stepped);
           else scheduleCommit(stepped);
         }}
         onPointerMove={(e) => {
-          if (disabled || !e.currentTarget.hasPointerCapture(e.pointerId)) return;
-          const stepped = stepFromClientX(e.clientX, e.currentTarget.getBoundingClientRect());
+          if (disabled || !e.currentTarget.hasPointerCapture(e.pointerId))
+            return;
+          const stepped = stepFromClientX(
+            e.clientX,
+            e.currentTarget.getBoundingClientRect(),
+          );
           setDraft(stepped);
           if (onPreviewRef.current) onPreviewRef.current(stepped);
           else scheduleCommit(stepped);
@@ -493,7 +532,10 @@ export function FlatSlider({
           // closure — if pointerdown+pointerup land in the same React batch
           // (e.g. a very fast click), the onPointerUp handler can still be
           // bound to the pre-drag render, making `draft` stale.
-          const stepped = stepFromClientX(e.clientX, e.currentTarget.getBoundingClientRect());
+          const stepped = stepFromClientX(
+            e.clientX,
+            e.currentTarget.getBoundingClientRect(),
+          );
           setDraft(stepped);
           commitDraft(stepped);
           if (stepped !== dragStartValueRef.current) track("slider", label);
@@ -570,7 +612,9 @@ export function FlatSlider({
           data-flat-slider-knob="true"
           onDoubleClick={resetToDefault}
           className={`absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full ${
-            tier === "explicitCustom" ? "h-2 w-2 bg-white" : "h-[7px] w-[7px] bg-panel-text-4"
+            tier === "explicitCustom"
+              ? "h-2 w-2 bg-white"
+              : "h-[7px] w-[7px] bg-panel-text-4"
           }`}
           style={{ left: `${clampedPct}%` }}
         />
@@ -581,10 +625,16 @@ export function FlatSlider({
           tier === "explicitCustom" ? "text-panel-text-0" : "text-panel-text-3"
         }`}
       >
-        {displayValue}
+        {onCommitText ? (
+          <CommitField ariaLabel={label} value={displayValue} disabled={disabled}
+            align="right" onCommit={onCommitText} />
+        ) : displayValue}
       </span>
       {(centerTick || onReset) && (
-        <span data-flat-slider-reset-slot="true" className="w-3.5 flex-shrink-0">
+        <span
+          data-flat-slider-reset-slot="true"
+          className="w-3.5 flex-shrink-0"
+        >
           {tier === "explicitCustom" && onReset && (
             <button
               type="button"

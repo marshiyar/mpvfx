@@ -5,7 +5,6 @@ import {
   type NativeProjectClipFailureCode,
 } from "./nativeProjectClipCommands";
 import {
-  projectFrameFromSeconds,
   resolveNativeClipSelection,
   type NativeSelectedElementReference,
 } from "./nativePropertyEditPlan";
@@ -104,11 +103,8 @@ export function planNativeTimelineRangeEdit(
   let startFrame: number;
   let durationFrames: number;
   try {
-    startFrame = projectFrameFromSeconds(input.requestedStartSeconds, input.document.frameRate);
-    durationFrames = projectFrameFromSeconds(
-      input.requestedDurationSeconds,
-      input.document.frameRate,
-    );
+    startFrame = Math.round(input.requestedStartSeconds * input.document.frameRate.numerator / input.document.frameRate.denominator);
+    durationFrames = Math.round((input.requestedStartSeconds + input.requestedDurationSeconds) * input.document.frameRate.numerator / input.document.frameRate.denominator) - startFrame;
   } catch (error) {
     return fail("invalid-range", error instanceof Error ? error.message : "Invalid native range");
   }

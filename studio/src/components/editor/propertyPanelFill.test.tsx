@@ -12,6 +12,25 @@ afterEach(() => {
 });
 
 describe("GradientField stop reset", () => {
+  it("edits only the selected stop while retaining every stop on the strip", () => {
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    act(() => root.render(<GradientField value="linear-gradient(90deg, #000000 0%, #777777 50%, #ffffff 100%)" fallbackColor={undefined} onCommit={vi.fn()} />));
+    expect(host.querySelectorAll('[role="slider"][aria-label^="Stop"]')).toHaveLength(3);
+    expect(host.querySelectorAll('[data-gradient-stop-editor]')).toHaveLength(1);
+    act(() => host.querySelector<HTMLElement>('[aria-label="Stop 2 position"]')!.click());
+    expect(host.querySelector('[data-gradient-stop-editor]')?.textContent).toContain("Stop 2");
+    act(() => root.unmount());
+  });
+
+  it("adds a usable midpoint stop to a gradient whose endpoints already span 0–100%", () => {
+    const host = document.body.appendChild(document.createElement("div")); const root = createRoot(host); const onCommit = vi.fn();
+    act(() => root.render(<GradientField value="linear-gradient(90deg, #000000 0%, #ffffff 100%)" fallbackColor={undefined} onCommit={onCommit} />));
+    act(() => Array.from(host.querySelectorAll("button")).find(button => button.getAttribute("aria-label") === "Add stop")!.click());
+    expect(onCommit.mock.calls[0]?.[0]).toContain("50%");
+    act(() => root.unmount());
+  });
+
   it("double-clicking a stop handle restores its evenly spaced default and preserves siblings", () => {
     const host = document.createElement("div");
     document.body.append(host);
@@ -69,4 +88,15 @@ describe("GradientField stop reset", () => {
     expect(onCommit).not.toHaveBeenCalled();
     act(() => root.unmount());
   });
+});
+
+it("keeps gradient details collapsed behind a compact preview", () => {
+  const host = document.body.appendChild(document.createElement("div"));
+  const root = createRoot(host);
+  act(() => root.render(<GradientField value="linear-gradient(90deg, #000 0%, #fff 100%)" fallbackColor={undefined} onCommit={vi.fn()} />));
+  const editor = host.querySelector<HTMLDetailsElement>('[data-gradient-editor]');
+  expect(editor).not.toBeNull();
+  expect(editor!.open).toBe(false);
+  expect(host.querySelector('[role="slider"][aria-label="Position"]')).not.toBeNull();
+  act(() => root.unmount());
 });

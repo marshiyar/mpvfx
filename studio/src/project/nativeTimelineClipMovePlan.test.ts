@@ -137,10 +137,15 @@ describe("native timeline clip move planner", () => {
     });
   });
 
+  it("moves a visual clip into an audio row and preserves that row's identity", () => {
+    const result = planNativeTimelineClipMove({ document: document(), element, requestedStartSeconds: 3, requestedTrack: 23 });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.document.sequence.tracks.find(track => track.id === "audio-target-without-lane-in-id")).toMatchObject({ kind: "mixed", lane: { authoredTrack: 23 } });
+  });
+
   it.each([
     ["the destination's display-only lane number", 3],
     ["an unmapped authored lane", 9],
-    ["an incompatible audio authored lane", 23],
   ])("rejects %s without mutating the native document", (_name, requestedTrack) => {
     const original = document();
     const before = JSON.stringify(original);

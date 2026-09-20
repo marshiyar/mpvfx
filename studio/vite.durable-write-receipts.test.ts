@@ -2,7 +2,11 @@
 
 import { describe, expect, it } from "vitest";
 import { resolve } from "node:path";
-import { createDurableWriteReceiptRegistry } from "./vite.durable-write-receipts";
+import {
+  projectFileChangeScope,
+  createFileChangeVersionFilter,
+  createDurableWriteReceiptRegistry,
+} from "./vite.durable-write-receipts";
 
 describe("durable transaction watcher receipts", () => {
   it("matches every committed file by exact path and bytes with its own browser token", () => {
@@ -21,7 +25,11 @@ describe("durable transaction watcher receipts", () => {
     });
 
     expect(
-      registry.consume(resolve(projectRoot, "index.html"), "html-after", '"sha256:html"'),
+      registry.consume(
+        resolve(projectRoot, "index.html"),
+        "html-after",
+        '"sha256:html"',
+      ),
     ).toEqual({
       path: resolve(projectRoot, "index.html"),
       version: '"sha256:html"',
@@ -49,8 +57,16 @@ describe("durable transaction watcher receipts", () => {
       writeTokens: { "index.html": "studio-token" },
     });
 
-    expect(registry.consume(resolve(root, "index.html"), "external", "external-version")).toBeNull();
-    expect(registry.consume(resolve(root, "index.html"), "studio", "studio-version")).toMatchObject({
+    expect(
+      registry.consume(
+        resolve(root, "index.html"),
+        "external",
+        "external-version",
+      ),
+    ).toBeNull();
+    expect(
+      registry.consume(resolve(root, "index.html"), "studio", "studio-version"),
+    ).toMatchObject({
       writeToken: "studio-token",
     });
   });
@@ -69,17 +85,24 @@ describe("durable transaction watcher receipts", () => {
       writeTokens: { "index.html": "second-token" },
     });
 
-    expect(registry.consume(resolve(root, "index.html"), "second", "v2")).toMatchObject({
+    expect(
+      registry.consume(resolve(root, "index.html"), "second", "v2"),
+    ).toMatchObject({
       writeToken: "second-token",
     });
-    expect(registry.consume(resolve(root, "index.html"), "first", "v1")).toMatchObject({
+    expect(
+      registry.consume(resolve(root, "index.html"), "first", "v1"),
+    ).toMatchObject({
       writeToken: "first-token",
     });
   });
 
   it("ignores unsafe paths, missing tokens, and expired claims", () => {
     let now = 1_000;
-    const registry = createDurableWriteReceiptRegistry({ now: () => now, ttlMs: 100 });
+    const registry = createDurableWriteReceiptRegistry({
+      now: () => now,
+      ttlMs: 100,
+    });
     const root = resolve("/tmp/project-d");
     registry.register({
       projectRoot: root,
@@ -91,9 +114,55 @@ describe("durable transaction watcher receipts", () => {
       writeTokens: { "../outside": "bad-token", "index.html": "owned-token" },
     });
 
-    expect(registry.consume(resolve(root, "../outside"), "bad", "v")).toBeNull();
-    expect(registry.consume(resolve(root, "no-token.html"), "ignored", "v")).toBeNull();
+    expect(
+      registry.consume(resolve(root, "../outside"), "bad", "v"),
+    ).toBeNull();
+    expect(
+      registry.consume(resolve(root, "no-token.html"), "ignored", "v"),
+    ).toBeNull();
     now = 1_101;
-    expect(registry.consume(resolve(root, "index.html"), "owned", "v")).toBeNull();
+    expect(
+      registry.consume(resolve(root, "index.html"), "owned", "v"),
+    ).toBeNull();
+  });
+});
+
+describe("file watcher version deduplication", () => {
+  it("publishes a save once even when the watcher sends a second tokenless event", () => {
+    const shouldPublish = createFileChangeVersionFilter();
+    expect(shouldPublish("/project/index.html", "v1")).toBe(true);
+    expect(shouldPublish("/project/index.html", "v1")).toBe(false);
+    expect(shouldPublish("/project/index.html", "external-v2")).toBe(true);
+    expect(shouldPublish("/other/index.html", "v1")).toBe(true);
+    expect(shouldPublish("/project/index.html", null)).toBe(true);
+    expect(shouldPublish("/project/index.html", "external-v2")).toBe(true);
+  });
+});
+
+describe("project file change ownership", () => {
+  it("keeps project identity beside the relative receipt path", () => {
+    expect(
+      projectFileChangeScope(
+        "/work/projects",
+        "/work/projects/one/scenes/main.html",
+      ),
+    ).toEqual({ projectId: "one", path: "scenes/main.html" });
+    expect(
+      projectFileChangeScope(
+        "/work/projects",
+        "/work/projects/two/.studio/project.json",
+      ),
+    ).toEqual({ projectId: "two", path: ".studio/project.json" });
+  });
+  it("ignores generated caches, recovery history, and files outside the project root", () => {
+    for (const path of [
+      "one/.waveform-cache/wave.json",
+      "one/.hyperframes/edits/history.json",
+      "one/image.png",
+      "../other/index.html",
+    ])
+      expect(
+        projectFileChangeScope("/work/projects", `/work/projects/${path}`),
+      ).toBeNull();
   });
 });

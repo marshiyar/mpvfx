@@ -7,7 +7,6 @@ export const SUPPORTED_MEDIA_IMPORT_EXTENSIONS = {
 } as const;
 
 export type MediaImportKind = keyof typeof SUPPORTED_MEDIA_IMPORT_EXTENSIONS;
-export type TimelineMediaImportKind = Extract<MediaImportKind, "video" | "audio" | "image">;
 
 const MIME_BY_EXTENSION: Readonly<Record<string, string>> = {
   mp4: "video/mp4",

@@ -25,6 +25,8 @@ afterEach(() => {
 describe("minimum timeline track strips", () => {
   it("preserves the true empty state, then pads occupied timelines to six rows", () => {
     expect(padTimelineTrackOrder([], [])).toEqual([]);
+    expect(padTimelineTrackOrder([2, 3, 4], [2, 3, 4])).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(padTimelineTrackOrder([3, 4], [3, 4])).toEqual([0, 1, 2, 3, 4, 5]);
     expect(padTimelineTrackOrder([0], [0])).toEqual([0, 1, 2, 3, 4, 5]);
   });
 

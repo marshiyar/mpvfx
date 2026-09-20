@@ -1,6 +1,5 @@
 import type { RightPanelTab } from "./studioHelpers";
 import { buildProjectHash, parseProjectHashRoute } from "./projectRouting";
-import { roundTo3 } from "./rounding";
 
 export interface StudioUrlSelectionTarget {
   sourceFile?: string;
@@ -174,7 +173,7 @@ export function buildStudioHash(projectId: string, state: StudioUrlState): strin
   params.set("v", "1");
   if (state.activeCompPath) params.set("comp", state.activeCompPath);
   if (state.currentTime != null && Number.isFinite(state.currentTime)) {
-    params.set("t", String(Math.max(0, roundTo3(state.currentTime))));
+    params.set("t", String(Math.max(0, state.currentTime)));
   }
   if (state.rightPanelTab) params.set("tab", state.rightPanelTab);
   if (state.rightCollapsed != null) params.set("rc", state.rightCollapsed ? "1" : "0");

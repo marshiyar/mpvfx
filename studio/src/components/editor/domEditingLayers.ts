@@ -411,20 +411,6 @@ export async function resolveDomEditSelection(
   return null;
 }
 
-export async function refreshDomEditSelection(
-  selection: DomEditSelection,
-  activeCompositionPath: string | null,
-): Promise<DomEditSelection | null> {
-  const doc = selection.element.ownerDocument;
-  const nextElement = findElementForSelection(doc, selection, activeCompositionPath);
-  return nextElement
-    ? resolveDomEditSelection(nextElement, {
-        activeCompositionPath,
-        isMasterView: !activeCompositionPath || activeCompositionPath === "index.html",
-      })
-    : null;
-}
-
 // ─── Layer items ─────────────────────────────────────────────────────────────
 
 export function getDomEditLayerKey(

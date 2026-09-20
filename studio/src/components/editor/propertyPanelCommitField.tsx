@@ -10,6 +10,7 @@ function arrowDirection(key: string): 1 | -1 | null {
 
 export function CommitField({
   value,
+  ariaLabel,
   disabled,
   liveCommit,
   align = "left",
@@ -17,6 +18,7 @@ export function CommitField({
   onCommit,
 }: {
   value: string;
+  ariaLabel?: string;
   disabled?: boolean;
   liveCommit?: boolean;
   align?: "left" | "right";
@@ -182,6 +184,7 @@ export function CommitField({
 
   return (
     <input
+      aria-label={ariaLabel}
       ref={inputRef}
       type="text"
       value={draft}

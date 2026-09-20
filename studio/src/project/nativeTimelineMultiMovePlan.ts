@@ -76,14 +76,15 @@ const fail = (
   changeIndex?: number,
 ): NativeTimelineMultiMovePlanResult => ({
   ok: false,
-  failure: { code, message, ...(changeIndex === undefined ? {} : { changeIndex }) },
+  failure: {
+    code,
+    message,
+    ...(changeIndex === undefined ? {} : { changeIndex }),
+  },
 });
 
 const addressKey = (address: NativeProjectClipAddress): string =>
   JSON.stringify([address.sequenceId, address.trackId, address.clipId]);
-
-const otherTrackKind = (kind: NativeProjectTrackKind): NativeProjectTrackKind =>
-  kind === "audio" ? "video" : "audio";
 
 /**
  * Plan a group gesture against one immutable native-project snapshot. Every
@@ -94,15 +95,22 @@ export function planNativeTimelineMultiMove(
   input: NativeTimelineMultiMovePlanInput,
 ): NativeTimelineMultiMovePlanResult {
   if (input.changes.length === 0) {
-    return fail("empty-change-set", "A native multi-clip move requires at least one change");
+    return fail(
+      "empty-change-set",
+      "A native multi-clip move requires at least one change",
+    );
   }
 
   const planned: NativeTimelineMultiMovePlannedMove[] = [];
   const nativeMoves: NativeProjectClipMove[] = [];
   const addressed = new Set<string>();
+  let workingDocument = input.document;
 
   for (const [changeIndex, change] of input.changes.entries()) {
-    if (!Number.isFinite(change.requestedStartSeconds) || change.requestedStartSeconds < 0) {
+    if (
+      !Number.isFinite(change.requestedStartSeconds) ||
+      change.requestedStartSeconds < 0
+    ) {
       return fail(
         "invalid-start",
         "Native timeline starts must be finite non-negative times",
@@ -110,19 +118,32 @@ export function planNativeTimelineMultiMove(
       );
     }
 
-    const resolution = resolveNativeClipSelection(input.document, change.element);
+    const resolution = resolveNativeClipSelection(
+      input.document,
+      change.element,
+    );
     if (!resolution.ok) {
       const code = resolution.failure.code;
-      if (code === "missing-selection-id" || code === "clip-not-found" || code === "ambiguous-clip") {
+      if (
+        code === "missing-selection-id" ||
+        code === "clip-not-found" ||
+        code === "ambiguous-clip"
+      ) {
         return fail(code, resolution.failure.message, changeIndex);
       }
       return fail("clip-not-found", resolution.failure.message, changeIndex);
     }
 
     const { clip, trackId } = resolution.located;
-    const sourceTrack = input.document.sequence.tracks.find((track) => track.id === trackId);
+    const sourceTrack = input.document.sequence.tracks.find(
+      (track) => track.id === trackId,
+    );
     if (!sourceTrack) {
-      return fail("clip-not-found", `Native source track ${trackId} does not exist`, changeIndex);
+      return fail(
+        "clip-not-found",
+        `Native source track ${trackId} does not exist`,
+        changeIndex,
+      );
     }
     if (!clip.binding) {
       return fail(
@@ -150,27 +171,49 @@ export function planNativeTimelineMultiMove(
       );
     }
 
-    const authoredTrack = change.destinationAuthoredTrack ?? sourceTrack.lane.authoredTrack;
-    const destinationTrack = findNativeProjectTrackByLane(input.document, {
-      kind: sourceTrack.kind,
-      authoredTrack,
-    });
+    const authoredTrack =
+      change.destinationAuthoredTrack ?? sourceTrack.lane.authoredTrack;
+    if (!Number.isSafeInteger(authoredTrack) || authoredTrack < 0) {
+      return fail(
+        "unmapped-lane",
+        "Choose a non-negative whole-number track",
+        changeIndex,
+      );
+    }
+    let destinationTrack = workingDocument.sequence.tracks.find(track => track.lane?.authoredTrack === authoredTrack);
     if (!destinationTrack?.lane) {
-      const incompatibleTrack = findNativeProjectTrackByLane(input.document, {
-        kind: otherTrackKind(sourceTrack.kind),
-        authoredTrack,
-      });
-      return incompatibleTrack
-        ? fail(
-            "incompatible-lane",
-            `Authored lane ${authoredTrack} is mapped only to an incompatible ${incompatibleTrack.kind} track`,
-            changeIndex,
+      // Empty timeline lanes are valid drop targets. Create their mapping in the
+      // same immutable transaction so a failed group move leaves no stray tracks.
+      const baseId = `native-track:${authoredTrack}:${sourceTrack.kind}`;
+      let id = baseId;
+      let suffix = 1;
+      while (workingDocument.sequence.tracks.some((track) => track.id === id))
+        id = `${baseId}:${suffix++}`;
+      destinationTrack = {
+        id,
+        kind: sourceTrack.kind,
+        lane: {
+          authoredTrack,
+          displayTrack: workingDocument.sequence.tracks.some(
+            (track) => track.lane?.displayTrack === authoredTrack,
           )
-        : fail(
-            "unmapped-lane",
-            `Authored lane ${authoredTrack} has no mapped ${sourceTrack.kind} track`,
-            changeIndex,
-          );
+            ? Math.max(
+                -1,
+                ...workingDocument.sequence.tracks.map(
+                  (track) => track.lane?.displayTrack ?? -1,
+                ),
+              ) + 1
+            : authoredTrack,
+        },
+        clips: [],
+      };
+      workingDocument = {
+        ...workingDocument,
+        sequence: {
+          ...workingDocument.sequence,
+          tracks: [...workingDocument.sequence.tracks, destinationTrack],
+        },
+      };
     }
 
     const address: NativeProjectClipAddress = {
@@ -194,8 +237,8 @@ export function planNativeTimelineMultiMove(
     );
     const destination = {
       trackId: destinationTrack.id,
-      authoredTrack: destinationTrack.lane.authoredTrack,
-      displayTrack: destinationTrack.lane.displayTrack,
+      authoredTrack: destinationTrack.lane!.authoredTrack,
+      displayTrack: destinationTrack.lane!.displayTrack,
     };
     planned.push({
       address,
@@ -213,7 +256,7 @@ export function planNativeTimelineMultiMove(
     });
   }
 
-  const command = applyNativeProjectClipCommand(input.document, {
+  const command = applyNativeProjectClipCommand(workingDocument, {
     type: "move-many",
     moves: nativeMoves,
   });

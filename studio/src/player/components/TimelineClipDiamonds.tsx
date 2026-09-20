@@ -357,6 +357,7 @@ export const TimelineDiamondLane = memo(function TimelineDiamondLane({
             }
             data-keyframe-at-playhead={String(atPlayhead)}
             data-keyframe-selected={String(isKfSelected)}
+            data-keyframe-selection-key={timelineKeyframeSelectionKey(elementId, target)}
             aria-current={atPlayhead ? "time" : undefined}
             data-keyframe-outside-clip={boundary ?? undefined}
             tabIndex={focusId === rovingTargetId ? 0 : -1}

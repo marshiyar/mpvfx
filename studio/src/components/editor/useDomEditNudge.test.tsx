@@ -231,7 +231,7 @@ describe("useDomEditNudge — selection cleanup keyed on stable identity", () =>
     elementB.remove();
   });
 
-  it("does not let arrow-key nudging push video beyond the composition", () => {
+  it("lets arrow-key nudging move video beyond the composition", () => {
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
@@ -263,7 +263,7 @@ describe("useDomEditNudge — selection cleanup keyed on stable identity", () =>
     act(() => vi.advanceTimersByTime(CANVAS_NUDGE_COMMIT_DEBOUNCE_MS + 10));
 
     expect(commit).toHaveBeenCalledTimes(1);
-    expect(commit.mock.calls[0]?.[1]).toEqual({ x: 0, y: 0 });
+    expect(commit.mock.calls[0]?.[1]).toEqual({ x: CANVAS_NUDGE_STEP_PX, y: 0 });
 
     act(() => root.unmount());
     host.remove();
@@ -309,4 +309,29 @@ describe("useDomEditNudge — selection cleanup keyed on stable identity", () =>
     host.remove();
     video.remove();
   });
+});
+
+it("does not move the selected picture when arrow keys resize an editor divider", () => {
+  vi.useFakeTimers();
+  __resetForTests();
+  const host = document.createElement("div");
+  const divider = document.createElement("div");
+  divider.setAttribute("role", "separator");
+  divider.tabIndex = 0;
+  const element = document.createElement("div");
+  element.id = "divider-test-picture";
+  document.body.append(host, divider, element);
+  const root = createRoot(host);
+  const commit = vi.fn();
+  act(() => root.render(React.createElement(Harness, {
+    selection: makeSelection("Picture", element), onPathOffsetCommit: commit,
+  })));
+  act(() => {
+    divider.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
+    vi.advanceTimersByTime(CANVAS_NUDGE_COMMIT_DEBOUNCE_MS + 1);
+  });
+  expect(commit).not.toHaveBeenCalled();
+  act(() => root.unmount());
+  host.remove(); divider.remove(); element.remove();
+  vi.useRealTimers();
 });

@@ -25,11 +25,10 @@ function renderEditor(value: NativeInterpolation = { type: "linear" }) {
 }
 
 function clickChoice(host: HTMLElement, label: string): void {
-  const choice = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find(
-    (button) => button.textContent?.trim() === label,
-  );
-  expect(choice, `Expected the ${label} interpolation choice`).toBeDefined();
-  act(() => choice?.click());
+  const select = host.querySelector<HTMLSelectElement>('[aria-label="Keyframe easing"]');
+  expect(select).not.toBeNull();
+  act(() => { select!.value = ({ Hold: "hold", Linear: "linear", Cubic: "custom" } as Record<string, string>)[label]!;
+    select!.dispatchEvent(new Event("change", { bubbles: true })); });
 }
 
 function commitField(host: HTMLElement, label: string, raw: string): HTMLInputElement {
@@ -46,15 +45,20 @@ function commitField(host: HTMLElement, label: string, raw: string): HTMLInputEl
 }
 
 describe("NativeInterpolationEditor", () => {
-  it("offers only native Hold, Linear, and Cubic interpolation choices", () => {
-    const { host } = renderEditor();
-    const labels = Array.from(host.querySelectorAll("button"), (button) =>
-      button.textContent?.trim(),
-    );
+  it("offers familiar easing presets that write native cubic curves", () => {
+    const { host, onCommit } = renderEditor();
+    const select = host.querySelector<HTMLSelectElement>('[aria-label="Keyframe easing"]');
+    expect(select).not.toBeNull();
+    act(() => { select!.value = "ease-in"; select!.dispatchEvent(new Event("change", { bubbles: true })); });
+    expect(onCommit).toHaveBeenCalledWith({ type: "cubic-bezier", controlPoints: { x1: 0.42, y1: 0, x2: 1, y2: 1 } });
+  });
 
-    expect(labels).toEqual(["Hold", "Linear", "Cubic"]);
+  it("presents easing by editing intent instead of raw interpolation types", () => {
+    const { host } = renderEditor();
+    expect(Array.from(host.querySelectorAll("option"), option => option.textContent)).toEqual([
+      "Linear · constant speed", "Ease in · slow start", "Ease out · slow finish", "Ease in & out", "Hold · no transition", "Custom curve…",
+    ]);
     expect(host.textContent).not.toMatch(/GSAP|Spring|Wiggle|HTML/i);
-    expect(host.querySelector('[aria-label="Interpolation"]')).not.toBeNull();
   });
 
   it("emits exact typed values for each interpolation choice", () => {

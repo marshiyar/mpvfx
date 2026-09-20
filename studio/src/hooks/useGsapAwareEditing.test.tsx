@@ -127,6 +127,32 @@ function mountGroupHandler({
 }
 
 describe("useGsapAwareEditing anchored resize", () => {
+  it("commits a native drag from its captured starting position, not from zero", async () => {
+    mocks.isNativeSelection.mockReturnValue(true);
+    const h = mountResizeHandler([]);
+    h.selection.element.setAttribute("data-hf-drag-gsap-base-x", "240");
+    h.selection.element.setAttribute("data-hf-drag-gsap-base-y", "180");
+    h.selection.element.setAttribute("data-hf-drag-initial-offset-x", "0");
+    h.selection.element.setAttribute("data-hf-drag-initial-offset-y", "0");
+    await act(() => h.api.handleGsapAwarePathOffsetCommit(h.selection, { x: 120, y: 72 }));
+    expect(mocks.projectCommitAnimatedProperties).toHaveBeenCalledWith(
+      h.selection, { x: 360, y: 252 }, { intent: "edit" },
+    );
+    act(() => h.root.unmount());
+  });
+
+  it("keeps the native resize center at its captured position on release", async () => {
+    mocks.isNativeSelection.mockReturnValue(true);
+    const h = mountResizeHandler([]);
+    h.selection.element.setAttribute("data-hf-drag-gsap-base-x", "292");
+    h.selection.element.setAttribute("data-hf-drag-gsap-base-y", "175");
+    await act(() => h.resize(h.selection, { width: 584, height: 328 }, { x: -52, y: -29 }));
+    expect(mocks.projectCommitAnimatedProperties).toHaveBeenCalledWith(
+      h.selection, { width: 584, height: 328, x: 240, y: 146 }, { intent: "edit" },
+    );
+    act(() => h.root.unmount());
+  });
+
   it("routes a native clip resize through one atomic native property commit", async () => {
     mocks.isNativeSelection.mockReturnValue(true);
     const h = mountResizeHandler([]);

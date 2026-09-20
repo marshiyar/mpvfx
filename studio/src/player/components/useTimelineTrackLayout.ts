@@ -8,6 +8,7 @@ import type { DraggedClipState } from "./timelineClipDragTypes";
 import { useTimelineTrackDerivations } from "./useTimelineTrackDerivations";
 import {
   TRACK_H,
+  timelineMediaRowCount,
   createTimelineRowGeometry,
   type TimelineRowGeometry,
   trackHeights,
@@ -180,6 +181,7 @@ function applyGroupStripHeights(
   rowHeights: number[],
   groups: readonly TimelineTrackGroupInfo[],
   expandedLaneOwnerIds: ReadonlySet<string>,
+  mediaHeight = TRACK_H,
 ): number[] {
   if (groups.length === 0) return rowHeights;
   const groupByAnchor = new Map(groups.map((group) => [group.anchorKey, group]));
@@ -188,7 +190,7 @@ function applyGroupStripHeights(
     if (!group || !expandedLaneOwnerIds.has(group.id)) return rowHeights[index] ?? TRACK_H;
     // The group's own automation rows, which its `∿` discloses. A row sized
     // without them clipped every lane it had just promised in the count.
-    return TRACK_H + groupOwnLaneCount(group) * AUTOMATION_LANE_H;
+    return mediaHeight + groupOwnLaneCount(group) * AUTOMATION_LANE_H;
   });
 }
 
@@ -201,6 +203,7 @@ function useTimelineRowHeights(
   nativeLaneCounts: ReadonlyMap<string, number>,
   nativeEffectMap: ReadonlyMap<string, readonly NativeClipEffect[]>,
 ) {
+  const mediaHeight = usePlayerStore((s) => s.timelineTrackHeight);
   const expandedClipIds = usePlayerStore((s) => s.expandedClipIds);
   const expandedLaneOwnerIds = usePlayerStore((s) => s.expandedLaneOwnerIds);
   const { laneCounts, rowGeometry } = useMemo(() => {
@@ -216,7 +219,8 @@ function useTimelineRowHeights(
         selectedElementIds,
       );
       const effectLaneCount = timelineAttachedEffectLaneCount(elements, nativeEffectMap);
-      if (!active && effectLaneCount === 0) return [];
+      const mediaRowCount = timelineMediaRowCount(elements);
+      if (!active && effectLaneCount === 0 && mediaRowCount === 1) return [];
       const holdingOpen = elements.find((element) =>
         expandedClipIds.has(element.key ?? element.id),
       );
@@ -231,14 +235,16 @@ function useTimelineRowHeights(
           laneCount: active ? (laneCounts.get(active.key ?? active.id) ?? 0) : 0,
           automationLaneCount: active ? trackAutomationLaneCount(elements) : 0,
           effectLaneCount,
+          mediaRowCount,
         },
       ];
     });
     const rowHeights = applyGroupStripHeights(
       tracks,
-      trackHeights(heightTracks, expandedClipIds),
+      trackHeights(heightTracks, expandedClipIds, mediaHeight),
       groups,
       expandedLaneOwnerIds,
+      mediaHeight,
     );
     return {
       laneCounts,
@@ -248,6 +254,7 @@ function useTimelineRowHeights(
       ),
     };
   }, [
+    mediaHeight,
     expandedLaneOwnerIds,
     expandedClipIds,
     gsapAnimations,
@@ -282,18 +289,18 @@ export function padTimelineTrackOrder(
   trackOrder: readonly number[],
   occupiedTrackKeys: readonly number[],
 ): number[] {
-  if (trackOrder.length === 0 || trackOrder.length >= MIN_TIMELINE_TRACK_STRIPS) {
-    return [...trackOrder];
+  if (trackOrder.length === 0) return [];
+  const occupied = new Set(occupiedTrackKeys);
+  const rows = new Set(trackOrder);
+  const highest = Math.max(0, ...occupiedTrackKeys.filter(Number.isInteger));
+  // Preserve vacant authored rows. Occupied keys omitted from trackOrder belong
+  // to collapsed groups and must stay hidden.
+  for (let track = 0; track <= highest; track += 1) {
+    if (!occupied.has(track)) rows.add(track);
   }
-  const usedIntegerKeys = new Set(occupiedTrackKeys.filter(Number.isInteger));
-  let nextTrack = usedIntegerKeys.size > 0 ? Math.max(...usedIntegerKeys) + 1 : 0;
-  const padded = [...trackOrder];
-  while (padded.length < MIN_TIMELINE_TRACK_STRIPS) {
-    while (usedIntegerKeys.has(nextTrack)) nextTrack += 1;
-    padded.push(nextTrack);
-    usedIntegerKeys.add(nextTrack);
-    nextTrack += 1;
-  }
+  const padded = [...rows].sort((a, b) => a - b);
+  let nextTrack = highest + 1;
+  while (padded.length < MIN_TIMELINE_TRACK_STRIPS) padded.push(nextTrack++);
   return padded;
 }
 
@@ -337,13 +344,14 @@ function useDisplayRowHeights(
   displayTrackOrder: readonly number[],
   rowGeometry: TimelineRowGeometry,
 ) {
+  const mediaHeight = usePlayerStore((s) => s.timelineTrackHeight);
   return useMemo(
     () =>
       displayTrackOrder.map((track) => {
         const row = rowGeometry.getRowIndex(track);
-        return row < 0 ? TRACK_H : rowGeometry.getRowHeight(row);
+        return row < 0 ? mediaHeight : rowGeometry.getRowHeight(row);
       }),
-    [displayTrackOrder, rowGeometry],
+    [displayTrackOrder, rowGeometry, mediaHeight],
   );
 }
 

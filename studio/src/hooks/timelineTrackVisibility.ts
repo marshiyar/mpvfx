@@ -34,6 +34,7 @@ interface ToggleTimelineTrackHiddenInput {
   /** The row the CLICKED control announced. Absent when the caller has no
    *  rendered number to hand over, which falls back to deriving one. */
   displayNumber?: number | null;
+  audioOnly?: boolean;
   previewIframe: HTMLIFrameElement | null;
   writeProjectFile: (path: string, content: string) => Promise<void>;
   recordEdit: (input: RecordEditInput) => Promise<void>;
@@ -212,6 +213,7 @@ export async function toggleTimelineTrackHidden({
   track,
   hidden,
   displayNumber,
+  audioOnly = false,
   previewIframe,
   writeProjectFile,
   recordEdit,
@@ -227,7 +229,7 @@ export async function toggleTimelineTrackHidden({
   const suffix = trackDisplaySuffix(
     displayNumber ?? trackDisplayNumber(timelineTrackOrder(timelineElements), track),
   );
-  const trackElements = timelineElements.filter((element) => element.track === track);
+  const trackElements = timelineElements.filter((element) => element.track === track && (!audioOnly || isAudioTimelineElement(element)));
   const isAudioOnlyTrack = trackElements.length > 0 && trackElements.every(isAudioTimelineElement);
   const label = isAudioOnlyTrack
     ? hidden
@@ -300,6 +302,7 @@ export function useTimelineTrackVisibilityEditing({
   track: number,
   hidden: boolean,
   displayNumber?: number | null,
+  audioOnly?: boolean,
 ) => Promise<void> {
   // Resolve the eye toggle against the EXPANDED rows the canvas actually renders:
   // virtual sub-comp children carry their own (display.track + idx) track numbers,
@@ -307,7 +310,7 @@ export function useTimelineTrackVisibilityEditing({
   // outer-scene sibling sharing that index.
   const expandedElements = useExpandedTimelineElements();
   return useCallback(
-    async (track: number, hidden: boolean, displayNumber?: number | null) => {
+    async (track: number, hidden: boolean, displayNumber?: number | null, audioOnly = false) => {
       if (isRecordingRef?.current) {
         showToast("Cannot edit timeline while recording", "error");
         return;
@@ -322,6 +325,7 @@ export function useTimelineTrackVisibilityEditing({
           track,
           hidden,
           displayNumber,
+          audioOnly,
           previewIframe: previewIframeRef.current,
           writeProjectFile,
           recordEdit,
