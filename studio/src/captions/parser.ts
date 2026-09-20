@@ -280,7 +280,10 @@ function parseTranscriptArray(arrayLiteral: string): TranscriptWord[] {
     // Not valid JSON — normalize single quotes, unquoted keys, trailing commas
     let normalized = arrayLiteral;
     normalized = normalized.replace(/'((?:[^'\\]|\\.)*)'/g, (_match, inner) => {
-      const escaped = inner.replace(/\\'/g, "'").replace(/"/g, '\\"');
+      const escaped = inner
+        .replace(/\\'/g, "'")
+        .replace(/\\/g, "\\\\")
+        .replace(/"/g, '\\"');
       return `"${escaped}"`;
     });
     normalized = normalized.replace(/([{,]\s*)([a-zA-Z_$][a-zA-Z0-9_$]*)\s*:/g, '$1"$2":');
