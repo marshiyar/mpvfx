@@ -154,16 +154,10 @@ describe("FlatStyleSection — Fill", () => {
     act(() => root.unmount());
   });
 
-  it("resets authored non-text element color without changing its fill", () => {
-    const { host, root, onSetStyle } = renderSection(
-      { color: "rgb(12, 34, 56)" },
-      { inlineStyles: { color: "rgb(12, 34, 56)" } },
-    );
-    const reset = host.querySelector<HTMLButtonElement>('[aria-label="Reset Text color"]');
-    expect(reset).not.toBeNull();
-    act(() => reset?.click());
-    expect(onSetStyle).toHaveBeenCalledWith("color", "rgb(0, 0, 0)");
-    expect(onSetStyle).not.toHaveBeenCalledWith("background-color", expect.anything());
+  it("does not expose irrelevant text color controls on a non-text selection", () => {
+    const { host, root, onSetStyle } = renderSection({ color: "rgb(12, 34, 56)" });
+    expect(host.textContent).not.toContain("Text color");
+    expect(onSetStyle).not.toHaveBeenCalled();
     act(() => root.unmount());
   });
 
@@ -283,7 +277,7 @@ describe("FlatStyleSection — Stroke and Radius", () => {
     });
     const input = getFlatRowInput(host, "Stroke width");
     const reset = input.closest(".group")?.querySelector<HTMLButtonElement>(
-      '[data-flat-row-reset="true"]',
+      '[data-flat-slider-reset="true"], [data-flat-row-reset="true"]',
     );
     if (!reset) throw new Error("expected the stroke width reset button");
     act(() => reset.dispatchEvent(new MouseEvent("click", { bubbles: true })));
@@ -348,55 +342,33 @@ describe("FlatStyleSection — Stroke and Radius", () => {
     act(() => root.unmount());
   });
 
-  it("uses BorderRadiusEditor for radius, linked by default, even when corners are uniform (fix 3)", () => {
+  it("shows a compact uniform corner field and keeps individual corners behind a disclosure", () => {
     const { host, root } = renderSection({ "border-radius": "12px" });
-    const unlinkButton = host.querySelector<HTMLButtonElement>('button[title="Unlink corners"]');
-    expect(unlinkButton).not.toBeNull();
-    expect(getMetricFieldInput(host, "All").value).toBe("12");
+    expect(host.querySelector<HTMLInputElement>('input[aria-label="Corners"]')?.value).toBe("12px");
+    const disclosure = Array.from(host.querySelectorAll("details")).find(el => el.textContent?.includes("Individual corners"));
+    expect(disclosure?.open).toBe(false);
     act(() => root.unmount());
   });
 
-  it("commits a uniform radius value through BorderRadiusEditor's linked All field", () => {
+  it("commits one uniform radius from Corners", () => {
     const { host, root, onSetStyle } = renderSection({ "border-radius": "12px" });
-    const allInput = getMetricFieldInput(host, "All");
-    act(() => setInputValue(allInput, "20"));
-    act(() => allInput.dispatchEvent(new Event("focusout", { bubbles: true })));
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="Corners"]')!;
+    act(() => setInputValue(input, "20"));
+    act(() => input.dispatchEvent(new Event("focusout", { bubbles: true })));
     expect(onSetStyle).toHaveBeenCalledWith("border-radius", "20px");
     act(() => root.unmount());
   });
 
-  it("commits a single-corner radius update after unlinking a uniform radius (fix 3)", () => {
-    const { host, root, onSetStyle } = renderSection({ "border-radius": "12px" });
-    const unlinkButton = host.querySelector<HTMLButtonElement>('button[title="Unlink corners"]');
-    if (!unlinkButton) throw new Error("expected the unlink toggle button");
-    act(() => unlinkButton.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    const trInput = getMetricFieldInput(host, "TR");
-    act(() => setInputValue(trInput, "18"));
-    act(() => trInput.dispatchEvent(new Event("focusout", { bubbles: true })));
+  it.each([undefined, { tl: 4, tr: 12, br: 4, bl: 4 }])("edits an individual corner without changing siblings: %s", (radii) => {
+    const { host, root, onSetStyle } = renderSection({ "border-radius": "12px" }, {}, radii);
+    const input = host.querySelector<HTMLInputElement>('[aria-label="Top right"]')!;
+    act(() => setInputValue(input, "18"));
+    act(() => input.dispatchEvent(new Event("focusout", { bubbles: true })));
     expect(onSetStyle).toHaveBeenCalledWith("border-top-right-radius", "18px");
     expect(onSetStyle).not.toHaveBeenCalledWith("border-radius", expect.anything());
     act(() => root.unmount());
   });
 
-  it("falls back to the legacy BorderRadiusEditor when corners are not uniform", () => {
-    const { host, root } = renderSection({}, {}, { tl: 4, tr: 12, br: 4, bl: 4 });
-    expect(host.textContent).not.toContain("Linked");
-    act(() => root.unmount());
-  });
-
-  it("commits a per-corner radius update through the legacy BorderRadiusEditor when unlinked", () => {
-    const { host, root, onSetStyle } = renderSection({}, {}, { tl: 4, tr: 12, br: 4, bl: 4 });
-    const trInput = Array.from(host.querySelectorAll<HTMLInputElement>("input")).find(
-      (el) => el.value === "12",
-    );
-    if (!trInput) throw new Error("expected the TR corner input");
-    act(() => setInputValue(trInput, "18"));
-    act(() => {
-      trInput.dispatchEvent(new Event("focusout", { bubbles: true }));
-    });
-    expect(onSetStyle).toHaveBeenCalledWith("border-top-right-radius", "18px");
-    act(() => root.unmount());
-  });
 });
 
 function getFlatSelectRow(host: HTMLElement, label: string) {
@@ -483,7 +455,7 @@ describe("FlatStyleSection — blur sliders", () => {
     expect(host.textContent).toContain("Layer blur");
     expect(host.textContent).toContain("Backdrop");
     expect(host.textContent).toContain("4px");
-    const track = host.querySelectorAll('[data-flat-slider-track="true"]')[0];
+    const track = host.querySelector('[role="slider"][aria-label="Layer blur"]')!;
     Object.defineProperty(track, "getBoundingClientRect", {
       value: () => ({ left: 0, width: 100, top: 0, height: 2, right: 100, bottom: 2 }),
     });
@@ -500,9 +472,8 @@ describe("FlatStyleSection — blur sliders", () => {
     const { host, root, onSetStyle } = renderSection({ "backdrop-filter": "blur(6px)" });
     expect(host.textContent).toContain("Backdrop");
     expect(host.textContent).toContain("6px");
-    const tracks = host.querySelectorAll('[data-flat-slider-track="true"]');
     // Track order is Layer blur, Backdrop, Opacity — Backdrop is the second track.
-    const backdropTrack = tracks[1];
+    const backdropTrack = host.querySelector('[role="slider"][aria-label="Backdrop"]')!;
     Object.defineProperty(backdropTrack, "getBoundingClientRect", {
       value: () => ({ left: 0, width: 100, top: 0, height: 2, right: 100, bottom: 2 }),
     });
@@ -520,7 +491,7 @@ describe("FlatStyleSection — blur sliders", () => {
     const tracks = host.querySelectorAll('[data-flat-slider-track="true"]');
     // Only the first two tracks are the blur sliders (Layer blur, Backdrop); Opacity
     // (the third track) always renders a fill by design, so it's excluded here.
-    const blurTracks = Array.from(tracks).slice(0, 2);
+    const blurTracks = Array.from(tracks).filter(el => ["Layer blur", "Backdrop"].includes(el.getAttribute("aria-label") ?? ""));
     for (const track of blurTracks) {
       expect(track.querySelectorAll('[data-flat-slider-fill="true"]')).toHaveLength(0);
     }
@@ -696,9 +667,8 @@ describe("FlatStyleSection — Overflow and Mask", () => {
   it("renders a uniform Mask inset slider and commits clip-path via buildInsetClipPathValue (fix 4)", () => {
     const { host, root, onSetStyle } = renderSection({ "clip-path": "inset(8px round 4px)" });
     expect(host.textContent).toContain("Mask inset");
-    const tracks = host.querySelectorAll('[data-flat-slider-track="true"]');
     // Track order: Layer blur, Backdrop, Mask inset, Opacity.
-    const maskInsetTrack = tracks[2];
+    const maskInsetTrack = host.querySelector('[role="slider"][aria-label="Mask inset"]')!;
     Object.defineProperty(maskInsetTrack, "getBoundingClientRect", {
       value: () => ({ left: 0, width: 100, top: 0, height: 2, right: 100, bottom: 2 }),
     });
@@ -809,4 +779,15 @@ describe("FlatStyleSection — Opacity", () => {
     expect(getSliderReset(host, "Opacity")).toBeNull();
     act(() => root.unmount());
   });
+});
+
+it("provides keyboard-adjustable corner and stroke sliders with exact-value fields", () => {
+  const { host, root, onSetStyle } = renderSection({ "border-radius": "12px", "border-width": "1px", "border-style": "solid" });
+  const corners = host.querySelector<HTMLElement>('[role="slider"][aria-label="Corners"]');
+  expect(corners).not.toBeNull();
+  act(() => corners!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
+  expect(onSetStyle).toHaveBeenCalledWith("border-radius", "13px");
+  expect(host.querySelector('[role="slider"][aria-label="Stroke width"]')).not.toBeNull();
+  expect(host.querySelector('input[aria-label="Corners"]')).not.toBeNull();
+  act(() => root.unmount());
 });

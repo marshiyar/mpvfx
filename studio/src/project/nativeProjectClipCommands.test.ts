@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { evaluateNativeParameterTrack } from "./nativeKeyframeEvaluator";
 import { createNativeParameterTrack } from "./nativeKeyframeTypes";
 import {
   applyNativeProjectClipCommand,
@@ -213,15 +214,6 @@ describe("native project clip move commands", () => {
       "missing-clip",
     ],
     [
-      "incompatible audio destination",
-      {
-        type: "move",
-        address: firstAddress,
-        destination: { trackId: "track:a1", startFrame: 1 },
-      },
-      "incompatible-destination",
-    ],
-    [
       "fractional start frame",
       {
         type: "move",
@@ -246,7 +238,7 @@ describe("native project clip move commands", () => {
     expect(serializeNativeProjectDocument(original)).toBe(serializeNativeProjectDocument(documentFixture()));
   });
 
-  it("rejects duplicate source targets and colliding destination targets as one atomic failure", () => {
+  it("rejects duplicate source targets but allows clips to share a destination time", () => {
     const original = documentFixture();
     const duplicate = applyNativeProjectClipCommand(original, {
       type: "move-many",
@@ -267,7 +259,8 @@ describe("native project clip move commands", () => {
         },
       ],
     });
-    expect(collision).toMatchObject({ ok: false, document: original, failure: { code: "destination-collision" } });
+    expect(collision.ok).toBe(true);
+    if (collision.ok) expect(collision.document.sequence.tracks.find(track => track.id === "track:v2")!.clips.filter(clip => clip.startFrame === 30)).toHaveLength(2);
     expect(serializeNativeProjectDocument(original)).toBe(serializeNativeProjectDocument(documentFixture()));
   });
 });
@@ -302,7 +295,7 @@ describe("native project clip trim, split, and delete commands", () => {
     const trimmed = findClip(result.document, "clip:first")!;
 
     expect(trimmed).toMatchObject({ startFrame: 0, sourceInFrame: 12, durationFrames: 60 });
-    expect(trimmed.parameterTracks[0]?.keyframes.map((keyframe) => keyframe.frame)).toEqual([0]);
+    expect(trimmed.parameterTracks[0]?.keyframes.map((keyframe) => keyframe.frame)).toEqual([0, 59]);
   });
 
   it("splits deterministically, preserving the left clip and creating a right clip with rebased local keyframes", () => {
@@ -318,7 +311,7 @@ describe("native project clip trim, split, and delete commands", () => {
     expect(right).toMatchObject({ startFrame: 60, sourceInFrame: 72, durationFrames: 60 });
     expect(right.effects).toEqual(left.effects);
     expect(right.staticParameters).toEqual(left.staticParameters);
-    expect(left.parameterTracks[0]?.keyframes.map((keyframe) => [keyframe.frame, keyframe.value])).toEqual([[0, 0]]);
+    expect(left.parameterTracks[0]?.keyframes.map((keyframe) => [keyframe.frame, keyframe.value])).toEqual([[0, 0], [59, -118]]);
     expect(right.parameterTracks[0]?.keyframes.map((keyframe) => [keyframe.frame, keyframe.value])).toEqual([
       [0, -120],
       [30, -180],
@@ -511,4 +504,61 @@ describe("native project clip trim, split, and delete commands", () => {
     });
     expect(result).toMatchObject({ ok: false, document: collision, failure: { code: "generated-id-collision" } });
   });
+});
+
+
+describe("timeline resize extension", () => {
+  it("extends trim-out into available source media without retiming keys", () => {
+    const original = documentFixture();
+    const result = expectMove(original, { type: "trim-out", address: firstAddress, endFrameExclusive: 180 });
+    expect(findClip(result.document, "clip:first")!.durationFrames).toBe(180);
+    expect(findClip(result.document, "clip:first")!.parameterTracks).toEqual(findClip(original, "clip:first")!.parameterTracks);
+  });
+
+  it("extends a still image beyond its initial duration", () => {
+    const original = documentFixture();
+    original.assets[0]!.kind = "image";
+    const result = expectMove(original, { type: "trim-out", address: firstAddress, endFrameExclusive: 1200 });
+    expect(findClip(result.document, "clip:first")!.durationFrames).toBe(1200);
+  });
+
+  it("extends trim-in using available source handles and shifts keys by the same frames", () => {
+    const original = documentFixture();
+    findClip(original, "clip:first")!.startFrame = 30;
+    const result = expectMove(original, { type: "trim-in", address: firstAddress, startFrame: 24 });
+    const clip = findClip(result.document, "clip:first")!;
+    expect(clip).toMatchObject({ startFrame: 24, sourceInFrame: 6, durationFrames: 126 });
+    expect(clip.parameterTracks[0]!.keyframes.find((key) => key.id === "rotation:90")!.frame).toBe(96);
+  });
+
+  it("rejects extending timed media past its available source with an actionable reason", () => {
+    const result = applyNativeProjectClipCommand(documentFixture(), { type: "trim-out", address: firstAddress, endFrameExclusive: 1000 });
+    expect(result).toMatchObject({ ok: false, failure: { code: "invalid-trim", message: expect.stringContaining("source") } });
+  });
+
+  it("preserves the visible linear motion when trimming before the next key", () => {
+    const original = documentFixture();
+    const result = expectMove(original, { type: "trim-out", address: firstAddress, endFrameExclusive: 60 });
+    const before = findClip(original, "clip:first")!.parameterTracks[0]!;
+    const after = findClip(result.document, "clip:first")!.parameterTracks[0]!;
+    for (let frame = 0; frame < 60; frame++) {
+      expect(evaluateNativeParameterTrack(after, frame)).toBeCloseTo(evaluateNativeParameterTrack(before, frame) as number, 6);
+    }
+  });
+});
+
+
+it.each(["trim-in", "trim-out"] as const)("preserves every visible eased frame after %s", (type) => {
+  const original = documentFixture();
+  const track = findClip(original, "clip:first")!.parameterTracks[0]!;
+  (track.keyframes[0] as any).outgoing = { type: "cubic-bezier", controlPoints: { x1: 0.42, y1: 0, x2: 0.58, y2: 1 } };
+  const result = expectMove(original, type === "trim-in"
+    ? { type, address: firstAddress, startFrame: 30 }
+    : { type, address: firstAddress, endFrameExclusive: 60 });
+  const clip = findClip(result.document, "clip:first")!;
+  for (let frame = 0; frame < clip.durationFrames; frame++) {
+    expect(evaluateNativeParameterTrack(clip.parameterTracks[0]!, frame)).toBeCloseTo(
+      evaluateNativeParameterTrack(track, frame + (type === "trim-in" ? 30 : 0)) as number, 5,
+    );
+  }
 });

@@ -178,17 +178,10 @@ export function persistMoveEdits(
   );
 }
 
-/**
- * A fractional track value for a NEW lane inserted at boundary `insertRow` in
- * `trackOrder` (0 = above the top, `length` = below the bottom). normalizeToZones
- * then compacts it to a distinct integer lane between its neighbours, and the
- * clips at/below the insert shift down by one — the sanctioned index-renumber.
- */
+/** Integer lane at an explicit insertion boundary. Existing rows at or below
+ * this lane shift once; ordinary discovery never repacks the vacated lane. */
 function insertTrackValue(trackOrder: number[], insertRow: number): number {
-  if (trackOrder.length === 0) return 0;
-  if (insertRow <= 0) return trackOrder[0] - 0.5;
-  if (insertRow >= trackOrder.length) return trackOrder[trackOrder.length - 1] + 0.5;
-  return (trackOrder[insertRow - 1] + trackOrder[insertRow]) / 2;
+  return Math.ceil(trackOrder[Math.max(0, insertRow)] ?? ((trackOrder.at(-1) ?? -1) + 1));
 }
 
 /**
@@ -365,31 +358,17 @@ function buildTrackInsertEdits(
   // Expanded-child rows are synthetic host lanes, not source-file topology.
   if (element.expandedParentStart != null) return null;
   const targetTrack = insertTrackValue(trackOrder, insertRow);
+  const writable = (src: TimelineElement): boolean =>
+    sameSourceFile(src, element) && src.expandedParentStart == null;
   const candidate = elements.map((e) => {
     if (keyOf(e) === editKey) return { ...e, start: previewStart, track: targetTrack };
-    if (multi?.keys.has(keyOf(e))) return { ...e, start: multi.movedStart(e) };
-    return e;
+    return {
+      ...e,
+      start: multi?.keys.has(keyOf(e)) ? multi.movedStart(e) : e.start,
+      track: writable(e) && e.track >= targetTrack ? e.track + 1 : e.track,
+    };
   });
-  // Foreign display rows and the opposite zone must not affect this topology.
-  const writableZone = classifyZone(element);
-  const writable = (src: TimelineElement): boolean =>
-    sameSourceFile(src, element) &&
-    classifyZone(src) === writableZone &&
-    src.expandedParentStart == null;
-  const topologyOrder = [...new Set(elements.filter(writable).map((e) => e.track))].sort(
-    (a, b) => a - b,
-  );
-  const topologyInsertRow = topologyOrder.filter((track) => track < targetTrack).length;
-  const topologyTargetTrack = insertTrackValue(topologyOrder, topologyInsertRow);
-  const normalized = normalizeToZones(
-    elements.filter(writable).map((e) => {
-      if (keyOf(e) === editKey) {
-        return { ...e, start: previewStart, track: topologyTargetTrack };
-      }
-      if (multi?.keys.has(keyOf(e))) return { ...e, start: multi.movedStart(e) };
-      return e;
-    }),
-  );
+  const normalized = candidate.filter(writable);
   const bySrc = new Map(elements.map((e) => [keyOf(e), e]));
   // A partial zone renumber creates collisions; refuse a shifted locked row.
   for (const norm of normalized) {

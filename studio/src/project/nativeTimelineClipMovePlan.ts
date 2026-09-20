@@ -90,10 +90,7 @@ export function planNativeTimelineClipMove(
   const destinationTrack =
     input.requestedTrack === input.element.currentTrack
       ? sourceTrack
-      : findNativeProjectTrackByLane(input.document, {
-          kind: sourceTrack.kind,
-          authoredTrack: input.requestedTrack,
-        });
+      : input.document.sequence.tracks.find(track => track.lane?.authoredTrack === input.requestedTrack);
   if (!destinationTrack?.lane) {
     return fail(
       "unsupported-lane-change",

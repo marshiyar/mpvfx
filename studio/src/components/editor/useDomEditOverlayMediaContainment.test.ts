@@ -139,6 +139,13 @@ function enableDragCommit(gesture: GestureState, element: HTMLElement) {
 }
 
 describe("media gesture canvas containment", () => {
+  it("snaps to the canvas even when no other visible object exists", () => {
+    const { handlers, gesture } = moveHarness(document.createElement("div"));
+    gesture.snapContext!.snapEnabled = true;
+    handlers.onPointerMove({ ...pointer(47, 0), altKey: false });
+    expect(gesture.lastSnappedDx).toBe(50);
+  });
+
   it("prevents a video from crossing the canvas edge even when snapping is off and Alt is held", () => {
     const { handlers, gesture, setOverlayRect } = moveHarness(
       document.createElement("video"),

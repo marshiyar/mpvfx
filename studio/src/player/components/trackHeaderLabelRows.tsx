@@ -1,3 +1,4 @@
+import { usePlayerStore } from "../store/playerStore";
 /**
  * The rows a track header draws BELOW its own line: one per disclosed keyframe
  * property group, one per automation envelope.
@@ -85,6 +86,7 @@ export function PropertyGroupHeaderRow({
   lane,
   laneIndex,
   effectLaneCount = 0,
+  mediaRowCount = 1,
   isLastLane,
   expandedElement,
   currentTime,
@@ -102,6 +104,7 @@ export function PropertyGroupHeaderRow({
   headerState?: LaneHeaderState;
   laneIndex: number;
   effectLaneCount?: number;
+  mediaRowCount?: number;
   isLastLane: boolean;
   expandedElement: TimelineElement;
   currentTime: number;
@@ -112,6 +115,7 @@ export function PropertyGroupHeaderRow({
   onSeek?: (time: number) => void;
   rovingTargetId: string | null;
 }) {
+  const mediaHeight = usePlayerStore((s) => s.timelineTrackHeight);
   const elementId = expandedElement.key ?? expandedElement.id;
   const { navigation, values, label, toggleTarget } =
     headerState ??
@@ -129,10 +133,10 @@ export function PropertyGroupHeaderRow({
       data-timeline-element-id={elementId}
       tabIndex={rovingTargetId === timelinePropertyRowId(elementId, lane.group) ? 0 : -1}
       data-property-group={lane.group}
-      data-timeline-lane-top={getTimelineLaneTop(laneIndex, effectLaneCount)}
+      data-timeline-lane-top={getTimelineLaneTop(laneIndex, effectLaneCount, mediaRowCount, mediaHeight)}
       className="absolute left-0 flex items-center gap-1 overflow-hidden px-1.5 text-[10px] text-white/65"
       style={{
-        top: getTimelineLaneTop(laneIndex, effectLaneCount),
+        top: getTimelineLaneTop(laneIndex, effectLaneCount, mediaRowCount, mediaHeight),
         // The header column narrows to contentOrigin whenever that is under
         // LABEL_COL_W; a lane row pinned to LABEL_COL_W then hangs its value
         // readout over the canvas, on top of the clips it is labelling.

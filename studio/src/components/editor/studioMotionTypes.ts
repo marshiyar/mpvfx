@@ -51,36 +51,6 @@ export interface StudioGsapMotion {
 export type StudioGsapMotionPreset = "fade-up" | "slide" | "pop";
 export type StudioGsapMotionDirection = "up" | "down" | "left" | "right";
 
-export const STUDIO_GSAP_EASE_OPTIONS = [
-  "none",
-  "power1.in",
-  "power1.out",
-  "power1.inOut",
-  "power2.in",
-  "power2.out",
-  "power2.inOut",
-  "power3.in",
-  "power3.out",
-  "power3.inOut",
-  "power4.in",
-  "power4.out",
-  "power4.inOut",
-  "sine.in",
-  "sine.out",
-  "sine.inOut",
-  "expo.in",
-  "expo.out",
-  "expo.inOut",
-  "circ.in",
-  "circ.out",
-  "circ.inOut",
-  "back.in(1.7)",
-  "back.out(1.7)",
-  "back.inOut(1.7)",
-  "elastic.out(1, 0.45)",
-  "bounce.out",
-] as const;
-
 export const DEFAULT_CUSTOM_EASE_POINTS: StudioCustomEaseControlPoints = {
   x1: 0.215,
   y1: 0.61,

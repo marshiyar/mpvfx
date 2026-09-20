@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { classifyWebAudioMediaRoute } from "@hyperframes/core/runtime/web-audio-route";
 import { ContextMenu } from "./AssetContextMenu";
-import { basename, getAudioSubtype, type CopyFeedback } from "./assetHelpers";
+import { basename, type CopyFeedback } from "./assetHelpers";
 import { TIMELINE_ASSET_MIME } from "../../utils/timelineAssetDrop";
 import { usePlayerStore } from "../../player/store/playerStore";
 import { useAssetPreviewStore } from "../../utils/assetPreviewStore";
@@ -42,7 +42,6 @@ export function AudioRow({
   const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
   const animRef = useRef<number>(0);
   const name = basename(asset);
-  const subtype = getAudioSubtype(asset);
   const serveUrl = resolveMediaPreviewUrl(asset, projectId);
   const isCopied = copyFeedback?.path === asset && copyFeedback.ok;
   const copyFailed = copyFeedback?.path === asset && !copyFeedback.ok;
@@ -266,15 +265,9 @@ export function AudioRow({
             >
               {name}
             </span>
-            {!playing && (
+            {!playing && meta?.duration && (
               <span className="text-[11px] text-panel-text-5 flex-shrink-0">
-                {meta?.duration ? `${meta.duration}s · ` : ""}
-                {subtype}
-              </span>
-            )}
-            {used && (
-              <span className="text-[9px] font-medium text-panel-accent bg-panel-accent/10 px-1.5 py-px rounded flex-shrink-0">
-                in use
+                {meta.duration}s
               </span>
             )}
             {(isCopied || copyFailed) && (

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import { CaptionOverlay } from "../../captions/components/CaptionOverlay";
 import { useCaptionStore } from "../../captions/store";
 import { DomEditOverlay } from "../editor/DomEditOverlay";
-import { MotionPathOverlay } from "../editor/MotionPathOverlay";
 import { SnapToolbar } from "../editor/SnapToolbar";
 import { useCompositionDimensions } from "../../hooks/useCompositionDimensions";
 import { useStudioPlaybackContext, useStudioShellContext } from "../../contexts/StudioContext";
@@ -269,7 +268,7 @@ export function PreviewOverlays({
     return {
       snapEnabled: p.snapEnabled ?? true,
       gridVisible: p.gridVisible ?? false,
-      gridSpacing: p.gridSpacing ?? 50,
+      gridSpacing: [2, 3, 4].includes(p.gridSpacing ?? 0) ? p.gridSpacing! : 3,
       snapToGrid: p.snapToGrid ?? false,
     };
   });
@@ -412,6 +411,8 @@ export function PreviewOverlays({
         onMarqueeSelect={applyMarqueeSelection}
       />
       <SnapToolbar
+        recordingState={recordingState}
+        onToggleRecording={onToggleRecording}
         onSnapChange={setSnapPrefs}
         crop={{
           available: cropAvailable,
@@ -422,12 +423,6 @@ export function PreviewOverlays({
           onCancel: cancelActiveCrop,
           onReset: resetCrop,
         }}
-      />
-      <MotionPathOverlay
-        iframeRef={previewIframeRef}
-        selection={shouldShowMotionPath ? domEditSelection : null}
-        compositionSize={compositionDimensions}
-        isPlaying={isPlaying}
       />
       {gestureOverlay}
       {captionModelPresent && captionDismissed && (

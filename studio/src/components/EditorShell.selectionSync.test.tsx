@@ -52,7 +52,6 @@ vi.mock("./nle/PreviewPane", () => ({ PreviewPane: () => null }));
 vi.mock("./nle/PreviewOverlays", () => ({ PreviewOverlays: () => null }));
 vi.mock("./nle/TimelinePane", () => ({ TimelinePane: () => null }));
 vi.mock("../captions/components/CaptionTimeline", () => ({ CaptionTimeline: () => null }));
-vi.mock("../webmcp/StudioAgentTools", () => ({ StudioAgentTools: () => null }));
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 

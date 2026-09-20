@@ -114,10 +114,6 @@ export function FxRackChain({
       {/* The rack IS the signal path, and saying so costs two lines. Without
           them the order reads as a list, which is the one reading that makes
           "move up" look cosmetic — it is the most consequential control here. */}
-      <p className="hf-fx-term flex items-baseline gap-1.5 px-1.5 font-mono text-[9px] uppercase tracking-wide text-panel-text-2">
-        <span className="hf-fx-term-cap text-panel-text-1">In</span>
-        <span>{signalPath.inLabel}</span>
-      </p>
       {/* Carve leads the rack, which is also where its effects sit in the signal
           path — corrective work before anything the author added. Present
           whenever there is a voice for it to listen to, rather than appearing
@@ -200,10 +196,6 @@ export function FxRackChain({
           );
         })
       )}
-      <p className="hf-fx-term hf-fx-term-out flex items-baseline gap-1.5 px-1.5 font-mono text-[9px] uppercase tracking-wide text-panel-text-2">
-        <span className="hf-fx-term-cap text-panel-text-1">Out</span>
-        <span>{signalPath.outLabel}</span>
-      </p>
     </div>
   );
 }

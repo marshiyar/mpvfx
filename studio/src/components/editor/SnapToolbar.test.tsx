@@ -13,7 +13,7 @@ import { SnapToolbar } from "./SnapToolbar";
 
 afterEach(() => {
   document.body.innerHTML = "";
-  window.localStorage.clear();
+  window.localStorage?.clear();
   usePlayerStore.getState().reset();
 });
 
@@ -164,4 +164,32 @@ describe("SnapToolbar crop access", () => {
     expect(host.querySelector('[aria-label="Start cropping"]')).toBeNull();
     act(() => root.unmount());
   });
+});
+
+describe("compact grid presets", () => {
+  it("offers three grid presets and selecting one enables the grid", () => {
+    const { root, onSnapChange } = renderToolbar();
+    act(() => document.querySelector<HTMLButtonElement>('[aria-label="Grid options"]')!.click());
+    const presets = document.querySelector('[aria-label="Grid preset"]')!;
+    expect(Array.from(presets.querySelectorAll('button')).map(button => button.textContent)).toEqual(['Thirds', 'Quarters', 'Center']);
+    expect(presets.querySelector('input')).toBeNull();
+    act(() => (presets.querySelectorAll('button')[1] as HTMLButtonElement).click());
+    expect(onSnapChange).toHaveBeenLastCalledWith(expect.objectContaining({gridVisible:true,gridSpacing:4}));
+    act(() => root.unmount());
+  });
+});
+
+it("places gesture recording in the preview toolbar and exposes its running state", () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const toggle = vi.fn();
+  act(() => root.render(<SnapToolbar recordingState="idle" onToggleRecording={toggle} />));
+  const button = host.querySelector<HTMLButtonElement>('[aria-label="Record gesture (R)"]')!;
+  expect(button.closest('[role="toolbar"]')).not.toBeNull();
+  act(() => button.click());
+  expect(toggle).toHaveBeenCalledOnce();
+  act(() => root.render(<SnapToolbar recordingState="recording" onToggleRecording={toggle} />));
+  expect(host.querySelector('[aria-label="Stop gesture recording"]')?.getAttribute("aria-pressed")).toBe("true");
+  act(() => root.unmount());
 });

@@ -127,19 +127,26 @@ export const projectNativeKeyframeUi = (
       error instanceof Error ? error.message : "The playhead time is invalid",
     );
   }
-  const clipLocalFrame = projectFrame - clip.startFrame;
-  if (clipLocalFrame < 0 || clipLocalFrame >= clip.durationFrames) {
-    return failure(
-      "playhead-outside-clip",
-      `Project frame ${projectFrame} is outside clip ${clip.id}`,
-    );
-  }
+  // Selection inspection is independent of playback visibility. Match property
+  // editing at the nearest visible clip frame so values and diamonds stay valid.
+  const clipLocalFrame = Math.max(0, Math.min(clip.durationFrames - 1, projectFrame - clip.startFrame));
 
   const currentValues: Partial<Record<NativeKeyframeUiProperty, number>> = {};
   const keyframeRows: NativeKeyframeUiRow[] = [];
   // Static clip values are the authored base state. Parameter tracks override
   // only the property they own; unanimated native values remain visible in the
   // inspector without being misrepresented as keyframes.
+  const position = clip.staticParameters?.["transform.position"];
+  if (position && typeof position === "object" && "x" in position && "y" in position) {
+    currentValues.x = position.x;
+    currentValues.y = position.y;
+  }
+  const scale = clip.staticParameters?.["transform.scale"];
+  if (scale && typeof scale === "object" && "x" in scale && "y" in scale) {
+    currentValues.scaleX = scale.x;
+    currentValues.scaleY = scale.y;
+    if (scale.x === scale.y) currentValues.scale = scale.x;
+  }
   for (const projection of PARAMETER_PROJECTIONS) {
     const value = clip.staticParameters?.[projection.parameterId];
     if (typeof value === "number") currentValues[projection.property] = value;

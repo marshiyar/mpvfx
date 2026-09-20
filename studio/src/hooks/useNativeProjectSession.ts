@@ -10,7 +10,8 @@ import {
   type NativeProjectRuntimeClock,
 } from "../project/nativeProjectRuntime";
 
-export type NativeProjectSessionStatus = "idle" | "loading" | "absent" | "ready" | "error";
+export type NativeProjectSessionStatus =
+  "idle" | "loading" | "absent" | "ready" | "error";
 
 export interface NativeProjectSessionState {
   status: NativeProjectSessionStatus;
@@ -29,9 +30,15 @@ export interface UseNativeProjectSessionOptions {
   /** Called only after a native adapter has installed successfully. */
   onNativeDuration?: (durationSeconds: number) => void;
   getPlaybackRate?: () => number;
+  /** Editor playhead may hydrate before the native sidecar/iframe arrives. */
+  getPlayheadSeconds?: () => number;
 }
 
-const idleState: NativeProjectSessionState = { status: "idle", document: null, error: null };
+const idleState: NativeProjectSessionState = {
+  status: "idle",
+  document: null,
+  error: null,
+};
 
 function browserClock(): NativeProjectRuntimeClock {
   return {
@@ -52,6 +59,11 @@ export function useNativeProjectSession(
   const [iframeDocumentVersion, setIframeDocumentVersion] = useState(0);
   const requestGeneration = useRef(0);
   const lastRequestedProjectId = useRef<string | null | undefined>(undefined);
+  const transportSnapshot = useRef<{
+    projectId: string;
+    time: number;
+    playing: boolean;
+  } | null>(null);
   const clock = useMemo(() => options.clock ?? browserClock(), [options.clock]);
 
   useEffect(() => {
@@ -74,21 +86,27 @@ export function useNativeProjectSession(
     void options
       .readOptionalProjectFile(NATIVE_PROJECT_DOCUMENT_PATH)
       .then((content) => {
-        if (abort.signal.aborted || generation !== requestGeneration.current) return;
+        if (abort.signal.aborted || generation !== requestGeneration.current)
+          return;
         if (content == null || content.trim().length === 0) {
           setState({ status: "absent", document: null, error: null });
           return;
         }
         const document = parseNativeProjectDocument(JSON.parse(content));
-        if (abort.signal.aborted || generation !== requestGeneration.current) return;
+        if (abort.signal.aborted || generation !== requestGeneration.current)
+          return;
         setState({ status: "ready", document, error: null });
       })
       .catch((error: unknown) => {
-        if (abort.signal.aborted || generation !== requestGeneration.current) return;
+        if (abort.signal.aborted || generation !== requestGeneration.current)
+          return;
         setState((previous) => ({
           status: "error",
           document: projectChanged ? null : previous.document,
-          error: error instanceof Error ? error : new Error("Unable to load native project sidecar"),
+          error:
+            error instanceof Error
+              ? error
+              : new Error("Unable to load native project sidecar"),
         }));
       });
     return () => abort.abort();
@@ -109,19 +127,30 @@ export function useNativeProjectSession(
   const iframeWindow = options.iframe?.contentWindow ?? null;
   const iframeDocument = options.iframe?.contentDocument ?? null;
   useEffect(() => {
-    if (!state.document || !iframeWindow || !iframeDocument) return;
+    const nativeDocument = state.document;
+    if (!nativeDocument || !iframeWindow || !iframeDocument) return;
     let runtime: ReturnType<typeof installNativeProjectRuntime> | null = null;
     try {
       runtime = installNativeProjectRuntime({
         window: iframeWindow,
         document: iframeDocument,
-        project: state.document,
+        project: nativeDocument,
         clock,
         getPlaybackRate: options.getPlaybackRate,
       });
+      // Effect cleanup runs before replacement installation, so the previous
+      // native adapter is no longer discoverable on the iframe window. Restore
+      // its transport explicitly instead of silently starting each save at zero.
+      const saved = transportSnapshot.current;
+      if (saved?.projectId === nativeDocument.id) {
+        runtime.player.seek(saved.time);
+        if (saved.playing) runtime.player.play();
+      } else if (options.getPlayheadSeconds) {
+        runtime.player.seek(options.getPlayheadSeconds());
+      }
       options.onNativeDuration?.(
-        (runtime.durationFrames * state.document.frameRate.denominator) /
-          state.document.frameRate.numerator,
+        (runtime.durationFrames * nativeDocument.frameRate.denominator) /
+          nativeDocument.frameRate.numerator,
       );
     } catch (error) {
       setState((previous) =>
@@ -129,18 +158,30 @@ export function useNativeProjectSession(
           ? {
               status: "error",
               document: null,
-              error: error instanceof Error ? error : new Error("Unable to install native playback"),
+              error:
+                error instanceof Error
+                  ? error
+                  : new Error("Unable to install native playback"),
             }
           : previous,
       );
     }
-    return () => runtime?.cleanup();
+    return () => {
+      if (!runtime) return;
+      transportSnapshot.current = {
+        projectId: nativeDocument.id,
+        time: runtime.player.getTime(),
+        playing: runtime.player.isPlaying?.() ?? false,
+      };
+      runtime.cleanup();
+    };
   }, [
     clock,
     iframeDocument,
     iframeDocumentVersion,
     iframeWindow,
     options.getPlaybackRate,
+    options.getPlayheadSeconds,
     options.onNativeDuration,
     state.document,
   ]);

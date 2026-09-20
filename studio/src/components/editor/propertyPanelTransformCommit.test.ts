@@ -56,7 +56,7 @@ describe("createTransformCommitHandlers", () => {
   });
 
   it.each([false, true])(
-    "clamps %s animated numeric video positions to the composition boundary",
+    "allows %s animated numeric video positions beyond the composition boundary",
     async (animated) => {
       const root = document.createElement("main");
       root.setAttribute("data-composition-id", "main");
@@ -96,10 +96,10 @@ describe("createTransformCommitHandlers", () => {
       await handlers.commitManualOffset("x", "300px");
 
       if (animated) {
-        expect(onCommitAnimatedProperty).toHaveBeenCalledWith(selected, "x", 50);
+        expect(onCommitAnimatedProperty).toHaveBeenCalledWith(selected, "x", 300);
         expect(onSetManualOffset).not.toHaveBeenCalled();
       } else {
-        expect(onSetManualOffset).toHaveBeenCalledWith(selected, { x: 50, y: 0 });
+        expect(onSetManualOffset).toHaveBeenCalledWith(selected, { x: 300, y: 0 });
         expect(onCommitAnimatedProperty).not.toHaveBeenCalled();
       }
       root.remove();
@@ -107,7 +107,7 @@ describe("createTransformCommitHandlers", () => {
   );
 
   it.each([false, true])(
-    "uses the cropped video margin when clamping %s numeric positions",
+    "allows offscreen cropped video positions with animated=%s",
     async (animated) => {
       const root = document.createElement("main");
       root.setAttribute("data-composition-id", "main");
@@ -147,13 +147,12 @@ describe("createTransformCommitHandlers", () => {
 
       await handlers.commitManualOffset("x", "300px");
 
-      // The hidden 50px at the right is no longer a margin. The visible edge
-      // starts at x=900, so this clip can move 100px before reaching x=1000.
+      // Cropping does not constrain the authored motion position.
       if (animated) {
-        expect(onCommitAnimatedProperty).toHaveBeenCalledWith(selected, "x", 100);
+        expect(onCommitAnimatedProperty).toHaveBeenCalledWith(selected, "x", 300);
         expect(onSetManualOffset).not.toHaveBeenCalled();
       } else {
-        expect(onSetManualOffset).toHaveBeenCalledWith(selected, { x: 100, y: 0 });
+        expect(onSetManualOffset).toHaveBeenCalledWith(selected, { x: 300, y: 0 });
         expect(onCommitAnimatedProperty).not.toHaveBeenCalled();
       }
       root.remove();

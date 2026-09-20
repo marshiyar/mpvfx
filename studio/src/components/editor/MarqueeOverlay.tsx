@@ -26,7 +26,7 @@ export function MarqueeOverlay({ candidateRects, marqueeRect }: MarqueeOverlayPr
       {marqueeRect && (
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute border border-dashed border-studio-accent bg-studio-accent/10"
+          className="pointer-events-none absolute border border-studio-accent bg-studio-accent/10"
           style={{
             left: marqueeRect.left,
             top: marqueeRect.top,

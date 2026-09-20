@@ -497,11 +497,10 @@ export function resolveTimelineAssetSrc(targetPath: string, assetPath: string): 
 }
 
 /**
- * Sequence one or more dropped files end-to-end starting at the drop point, all on
- * the track the user dropped onto. The clip lands where the ghost showed it — we do
- * NOT bump to a different track on overlap (that produced surprise "new tracks" and,
- * because it jumped past high indices like a grain-overlay track, wild numbers).
- * MpVFX allows time-overlap on a track; the user can nudge if they want a gap.
+ * Sequence one or more dropped files end-to-end starting at the drop point. The
+ * requested track is preserved here; the asset-drop operation resolves that
+ * requested track against existing same-zone clips after each asset's duration
+ * is known, so this helper only owns the time sequence and frame quantization.
  */
 export function buildTimelineFileDropPlacements(
   placement: { start: number; track: number },

@@ -1,7 +1,7 @@
 {
   "name": "mpvfx",
   "productName": "MpVFX",
-  "version": "0.8.21",
+  "version": "0.0.1",
   "description": "Standalone media-first nonlinear video editor",
   "private": true,
   "license": "Apache-2.0",
@@ -44,6 +44,8 @@
     "desktop:make:linux": "node scripts/check-desktop-packaging-node.mjs && npm run desktop:build && electron-forge make --platform=linux --arch=x64",
     "postinstall": "node scripts/install-redistributable-ffmpeg.mjs && node scripts/apply-exact-keyframe-writer-patch.mjs && node scripts/apply-export-capture-geometry-patch.mjs",
     "typecheck": "tsc --noEmit && tsc --project tsconfig.desktop.json --noEmit",
+    "knip": "knip",
+    "knip:production": "knip --production",
     "test": "node ./node_modules/vitest/vitest.mjs run --exclude desktop/server.integration.test.ts && node ./node_modules/vitest/vitest.mjs run desktop/server.integration.test.ts",
     "test:timeline-virtualization": "TIMELINE_ROW_VIRTUALIZATION=on TIMELINE_ELEMENT_COUNT=50000 node tests/e2e/timeline-virtualization.mjs",
     "test:keyframes-e2e": "node tests/e2e/keyframe-workflow.mjs",
@@ -64,7 +66,6 @@
     "@hyperframes/producer": "^0.8.20",
     "@hyperframes/sdk": "0.8.20",
     "@hyperframes/studio-server": "0.8.20",
-    "@mcp-b/global": "^5.0.1",
     "@phosphor-icons/react": "^2.1.10",
     "@tanstack/react-virtual": "^3.14.6",
     "acorn": "^8.18.0",
@@ -74,10 +75,8 @@
     "ffmpeg-static": "^5.3.0",
     "gsap": "^3.13.0",
     "mediabunny": "^1.45.3",
-    "onnxruntime-node": "^1.21.1",
     "puppeteer": "^25.9.0",
-    "puppeteer-core": "^25.9.0",
-    "sharp": "^0.35.0"
+    "puppeteer-core": "^25.9.0"
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.11.2",
@@ -94,6 +93,7 @@
     "fake-indexeddb": "^6.2.5",
     "happy-dom": "^20.12.0",
     "jsdom": "^30.0.1",
+    "knip": "6.37.0",
     "postcss": "^8.4.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -116,7 +116,6 @@
     "@ffprobe-installer/linux-x64@5.2.0": true,
     "@ffprobe-installer/win32-x64@5.1.0": true,
     "ffmpeg-static@5.3.0": true,
-    "onnxruntime-node@1.21.1": true,
     "puppeteer@25.9.0": true,
     "electron-winstaller@5.4.4": true,
     "fs-xattr@0.3.1": true,

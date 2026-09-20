@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatFrameTime, frameToSeconds, secondsToFrame, stepFrameTime, formatTime } from "./time";
+import { frameToSeconds, secondsToFrame, stepFrameTime, formatTime } from "./time";
 
 describe("formatTime", () => {
   it("formats zero seconds", () => {
@@ -68,10 +68,6 @@ describe("frame helpers", () => {
     expect(frameToSeconds(0)).toBe(0);
     expect(frameToSeconds(30)).toBe(1);
     expect(frameToSeconds(45)).toBe(1.5);
-  });
-
-  it("formats current and total frame display", () => {
-    expect(formatFrameTime(1, 5)).toBe("30f / 150f");
   });
 
   it("steps from a truncated runtime time by integer frame index", () => {

@@ -1,3 +1,4 @@
+import { isAudioTimelineElement } from "../../utils/timelineInspector";
 import type { GsapAnimation } from "@hyperframes/core/gsap-parser";
 import {
   HF_AUDIO_FX_ATTR,
@@ -21,7 +22,7 @@ import { elementFxChain, groupAutomationLanes, isCarveLane } from "./automationL
 import { AUTOMATION_LANE_H } from "./automationLaneHeight";
 import { clipTimingStart } from "../../hooks/gsapShared";
 import { LayerDisclosureRow } from "./LayerDisclosureRow";
-import { LABEL_COL_W, TRACK_H, getTimelineLaneTop } from "./timelineLayout";
+import { LABEL_COL_W, timelineMediaRowCount, getTimelineLaneTop } from "./timelineLayout";
 import type { TimelineTheme } from "./timelineTheme";
 import { trackDisplaySuffix } from "./timelineTrackDisplay";
 import { AutomationLaneHeaderRow, PropertyGroupHeaderRow } from "./trackHeaderLabelRows";
@@ -187,6 +188,7 @@ export function TimelineTrackHeader({
       ),
     [groupAutomationRaw, groupFxChainRaw, groupOwner],
   );
+  const mediaHeight = usePlayerStore((s) => s.timelineTrackHeight);
   const revealAudioFx = usePlayerStore((s) => s.setRevealedAudioFxTarget);
   /**
    * Which element's rack a lane's reveal opens, in the PANEL's id space.
@@ -235,6 +237,13 @@ export function TimelineTrackHeader({
     clipCount > 1
       ? `Track${trackDisplaySuffix(trackDisplayNumber)}`
       : (keyframeClip?.label ?? keyframeClip?.domId ?? keyframeClip?.id ?? trackLabel);
+
+  const audioClips = trackElements.filter(isAudioTimelineElement);
+  const mixedTrackMute = !isAudioTrack && audioClips.length > 0 ? (
+    <VisibilityButton audio hidden={audioClips.every(clip => clip.hidden === true)}
+      trackNumber={trackNumber} trackDisplayNumber={trackDisplayNumber} visible
+      onToggle={(track, muted, display) => onToggleTrackHidden?.(track, muted, display, true)} />
+  ) : null;
 
   // C1: the FX entry point. A single audio clip has one chain to point at; a
   // track holding several ungrouped ones has no single chain — the design
@@ -304,7 +313,7 @@ export function TimelineTrackHeader({
     >
       {!isKeyframeLayer ? (
         <>
-          {/* The two lines own exactly TRACK_H, not the whole header.
+          {/* The two lines own exactly mediaHeight, not the whole header.
               `justify-center` on the header itself centred them in its FULL
               height — which grows by AUTOMATION_LANE_H per open lane — so
               opening one pushed the name and its controls down THROUGH the lane
@@ -315,7 +324,7 @@ export function TimelineTrackHeader({
                 ? "flex flex-col justify-center gap-0.5 px-1.5 text-white/55"
                 : "flex flex-col items-center justify-center gap-0.5"
             }
-            style={{ height: TRACK_H }}
+            style={{ height: mediaHeight }}
           >
             <PlainTrackHeader
               trackNumber={trackNumber}
@@ -330,6 +339,7 @@ export function TimelineTrackHeader({
               // On the control line rather than a third row of its own.
               trailing={
                 <>
+                  {mixedTrackMute}
                   {disclosable && (
                     <button
                       type="button"
@@ -410,10 +420,11 @@ export function TimelineTrackHeader({
               hidden={isTrackHidden}
               trackNumber={trackNumber}
               trackDisplayNumber={trackDisplayNumber}
-              // Audio: only while hidden — see the plain header.
-              visible={!isAudioTrack || isTrackHidden}
+              audio={isAudioTrack}
+              visible={clipCount > 0}
               onToggle={onToggleTrackHidden}
             />
+            {mixedTrackMute}
           </LayerDisclosureRow>
         </>
       )}
@@ -435,6 +446,7 @@ export function TimelineTrackHeader({
             headerState={"headerState" in lane ? lane.headerState : undefined}
             laneIndex={laneIndex}
             effectLaneCount={effectLaneRowCount}
+            mediaRowCount={timelineMediaRowCount(trackElements)}
             isLastLane={laneIndex === lanes.length - 1 && automationRows.length === 0}
             expandedElement={keyframeClip}
             currentTime={currentTime}
@@ -464,7 +476,7 @@ export function TimelineTrackHeader({
               alsoAutomatedBy={
                 groupAutomatedTargets.has(row.key) ? (groupLabelForNote ?? groupOwner) : undefined
               }
-              top={getTimelineLaneTop(reservedPropertyRows, effectLaneRowCount) + index * AUTOMATION_LANE_H}
+              top={getTimelineLaneTop(reservedPropertyRows, effectLaneRowCount, timelineMediaRowCount(trackElements), mediaHeight) + index * AUTOMATION_LANE_H}
               isLastLane={index === automationRows.length - 1}
               gutterBackground={gutterFill(theme.gutterBackground, isGroupMember)}
               columnWidth={showTrackLabel ? LABEL_COL_W : contentOrigin}

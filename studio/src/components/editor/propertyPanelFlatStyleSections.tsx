@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useTrackDesignInput } from "../../contexts/DesignPanelInputContext";
 import { RotateCcw } from "../../icons/SystemIcons";
-import { isTextEditableSelection, type DomEditSelection } from "./domEditing";
+import { type DomEditSelection } from "./domEditing";
 import { buildDefaultGradientModel, serializeGradient } from "./gradientValue";
 import { BorderRadiusEditor } from "./BorderRadiusEditor";
 import { STROKE_STYLE_OPTIONS } from "./propertyPanelFlatStyleHelpers";
@@ -59,7 +59,6 @@ function FlatFillFields({
   const track = useTrackDesignInput();
   const styleEditingDisabled = !element.capabilities.canEditStyles;
   const backgroundImage = styles["background-image"] ?? "none";
-  const hasTextControls = isTextEditableSelection(element);
   const fillMode =
     backgroundImage && backgroundImage !== "none"
       ? backgroundImage.includes("gradient")
@@ -82,7 +81,9 @@ function FlatFillFields({
     if (nextMode === "Gradient" && !backgroundImage.includes("gradient")) {
       onSetStyle(
         "background-image",
-        serializeGradient(buildDefaultGradientModel(styles["background-color"])),
+        serializeGradient(
+          buildDefaultGradientModel(styles["background-color"]),
+        ),
       );
     }
   };
@@ -142,8 +143,10 @@ function FlatFillFields({
           value={styles["background-color"] ?? "transparent"}
           disabled={styleEditingDisabled}
           onReset={
-            resolveValueTier(element.inlineStyles["background-color"], "transparent") ===
-            "explicitCustom"
+            resolveValueTier(
+              element.inlineStyles["background-color"],
+              "transparent",
+            ) === "explicitCustom"
               ? () => void onSetStyle("background-color", "transparent")
               : undefined
           }
@@ -155,7 +158,9 @@ function FlatFillFields({
           value={
             backgroundImage !== "none"
               ? backgroundImage
-              : serializeGradient(buildDefaultGradientModel(styles["background-color"]))
+              : serializeGradient(
+                  buildDefaultGradientModel(styles["background-color"]),
+                )
           }
           fallbackColor={styles["background-color"]}
           disabled={styleEditingDisabled}
@@ -170,20 +175,6 @@ function FlatFillFields({
           disabled={styleEditingDisabled}
           onCommit={(next) => onSetStyle("background-image", next)}
           onImportAssets={onImportAssets}
-        />
-      )}
-      {!hasTextControls && (
-        <ColorField
-          flat
-          label="Text color"
-          value={styles.color ?? "rgb(0, 0, 0)"}
-          disabled={styleEditingDisabled}
-          onReset={
-            resolveValueTier(element.inlineStyles.color, "rgb(0, 0, 0)") === "explicitCustom"
-              ? () => void onSetStyle("color", "rgb(0, 0, 0)")
-              : undefined
-          }
-          onCommit={(next) => onSetStyle("color", next)}
         />
       )}
     </>
@@ -209,36 +200,42 @@ function FlatStrokeRow({
     parsePxMetricValue(styles["border-width"] ?? "") ??
     parsePxMetricValue(styles["border-top-width"] ?? "") ??
     0;
-  const borderStyleValue = styles["border-style"] || styles["border-top-style"] || "none";
+  const borderStyleValue =
+    styles["border-style"] || styles["border-top-style"] || "none";
   const borderColorValue =
-    styles["border-color"] || styles["border-top-color"] || "rgba(255, 255, 255, 0.18)";
+    styles["border-color"] ||
+    styles["border-top-color"] ||
+    "rgba(255, 255, 255, 0.18)";
   const widthDisplay = formatPxMetricValue(borderWidthValue);
+
+  const commitWidth = async (next: string) => {
+    const normalizedWidth = normalizePanelPxValue(next, {
+      min: 0,
+      max: 200,
+      fallback: borderWidthValue,
+    });
+    if (!normalizedWidth) return;
+    // A nonzero width needs a visible style, but preserve an existing choice.
+    for (const [property, value] of buildStrokeWidthStyleUpdates(
+      normalizedWidth,
+      borderStyleValue,
+    )) {
+      await onSetStyle(property, value);
+    }
+  };
 
   return (
     <>
-      <FlatRow
+      <FlatSlider
         label="Stroke width"
-        value={widthDisplay}
-        tier={resolveValueTier(styles["border-width"], "0px")}
+        value={borderWidthValue}
+        min={0}
+        max={200}
+        displayValue={widthDisplay}
+        tier={borderWidthValue !== 0 ? "explicitCustom" : "default"}
         disabled={disabled}
-        onCommit={async (next) => {
-          const normalizedWidth = normalizePanelPxValue(next, {
-            min: 0,
-            max: 200,
-            fallback: borderWidthValue,
-          });
-          if (!normalizedWidth) return;
-          // buildStrokeWidthStyleUpdates already covers "a width typed in
-          // from 0 needs a style to actually render a visible border" —
-          // it only defaults to solid when the current style is none/hidden,
-          // never clobbering an already-chosen style (dashed, dotted, …).
-          for (const [property, value] of buildStrokeWidthStyleUpdates(
-            normalizedWidth,
-            borderStyleValue,
-          )) {
-            await onSetStyle(property, value);
-          }
-        }}
+        onCommit={(next) => void commitWidth(`${next}px`)}
+        onCommitText={commitWidth}
         onReset={() => void onSetStyle("border-width", "0px")}
       />
       <FlatSelectRow
@@ -266,8 +263,10 @@ function FlatStrokeRow({
         value={borderColorValue}
         disabled={disabled}
         onReset={
-          resolveValueTier(inlineStyles["border-color"], "rgba(255, 255, 255, 0.18)") ===
-          "explicitCustom"
+          resolveValueTier(
+            inlineStyles["border-color"],
+            "rgba(255, 255, 255, 0.18)",
+          ) === "explicitCustom"
             ? () => void onSetStyle("border-color", "rgba(255, 255, 255, 0.18)")
             : undefined
         }
@@ -295,13 +294,21 @@ function FlatRadiusRow({
 }) {
   const radiusValue = parseNumericValue(styles["border-radius"]) ?? 0;
   const radiusTL =
-    gsapBorderRadius?.tl ?? parseNumericValue(styles["border-top-left-radius"]) ?? radiusValue;
+    gsapBorderRadius?.tl ??
+    parseNumericValue(styles["border-top-left-radius"]) ??
+    radiusValue;
   const radiusTR =
-    gsapBorderRadius?.tr ?? parseNumericValue(styles["border-top-right-radius"]) ?? radiusValue;
+    gsapBorderRadius?.tr ??
+    parseNumericValue(styles["border-top-right-radius"]) ??
+    radiusValue;
   const radiusBR =
-    gsapBorderRadius?.br ?? parseNumericValue(styles["border-bottom-right-radius"]) ?? radiusValue;
+    gsapBorderRadius?.br ??
+    parseNumericValue(styles["border-bottom-right-radius"]) ??
+    radiusValue;
   const radiusBL =
-    gsapBorderRadius?.bl ?? parseNumericValue(styles["border-bottom-left-radius"]) ?? radiusValue;
+    gsapBorderRadius?.bl ??
+    parseNumericValue(styles["border-bottom-left-radius"]) ??
+    radiusValue;
 
   const commit = (corner: "all" | "tl" | "tr" | "br" | "bl", value: number) => {
     const px = `${formatNumericValue(value)}px`;
@@ -320,6 +327,7 @@ function FlatRadiusRow({
 
   return (
     <BorderRadiusEditor
+      compact
       tl={radiusTL}
       tr={radiusTR}
       br={radiusBR}
@@ -352,13 +360,19 @@ function FlatShadowBlendRows({
         label="Shadow"
         value={boxShadowPreset}
         options={["none", "soft", "lift", "glow", "custom"]}
-        tier={resolveValueTier(boxShadowPreset === "none" ? undefined : boxShadowPreset, "none")}
+        tier={resolveValueTier(
+          boxShadowPreset === "none" ? undefined : boxShadowPreset,
+          "none",
+        )}
         disabled={disabled}
         onChange={(next) => {
           if (next === "custom") return;
           void onSetStyle(
             "box-shadow",
-            buildBoxShadowPresetValue(next as BoxShadowPreset, styles["box-shadow"]),
+            buildBoxShadowPresetValue(
+              next as BoxShadowPreset,
+              styles["box-shadow"],
+            ),
           );
         }}
         onReset={() => void onSetStyle("box-shadow", "none")}
@@ -366,7 +380,14 @@ function FlatShadowBlendRows({
       <FlatSelectRow
         label="Blend"
         value={blendValue}
-        options={["normal", "multiply", "screen", "overlay", "darken", "lighten"]}
+        options={[
+          "normal",
+          "multiply",
+          "screen",
+          "overlay",
+          "darken",
+          "lighten",
+        ]}
         tier={resolveValueTier(styles["mix-blend-mode"], "normal")}
         disabled={disabled}
         onChange={(next) => void onSetStyle("mix-blend-mode", next)}
@@ -392,7 +413,10 @@ function FlatBlurSliders({
   onPreviewStyle?: (prop: string, value: string) => void;
 }) {
   const filterBlurValue = getCssFilterFunctionPx(styles.filter, "blur");
-  const backdropBlurValue = getCssFilterFunctionPx(styles["backdrop-filter"], "blur");
+  const backdropBlurValue = getCssFilterFunctionPx(
+    styles["backdrop-filter"],
+    "blur",
+  );
 
   return (
     <>
@@ -405,13 +429,22 @@ function FlatBlurSliders({
         displayValue={`${formatNumericValue(filterBlurValue)}px`}
         disabled={disabled}
         onPreview={(next) =>
-          onPreviewStyle?.("filter", setCssFilterFunctionPx(styles.filter, "blur", next))
+          onPreviewStyle?.(
+            "filter",
+            setCssFilterFunctionPx(styles.filter, "blur", next),
+          )
         }
         onCommit={(next) =>
-          void onSetStyle("filter", setCssFilterFunctionPx(styles.filter, "blur", next))
+          void onSetStyle(
+            "filter",
+            setCssFilterFunctionPx(styles.filter, "blur", next),
+          )
         }
         onReset={() =>
-          void onSetStyle("filter", setCssFilterFunctionPx(styles.filter, "blur", 0))
+          void onSetStyle(
+            "filter",
+            setCssFilterFunctionPx(styles.filter, "blur", 0),
+          )
         }
       />
       <FlatSlider
@@ -486,7 +519,10 @@ function FlatOverflowMaskRows({
               "inset",
               "circle",
             ]}
-            tier={resolveValueTier(clipPathPreset === "none" ? undefined : clipPathPreset, "none")}
+            tier={resolveValueTier(
+              clipPathPreset === "none" ? undefined : clipPathPreset,
+              "none",
+            )}
             disabled={disabled}
             onChange={(next) => {
               if (next === "custom") return;
@@ -529,7 +565,9 @@ function FlatOpacitySlider({
   onSetStyle: (prop: string, value: string) => void | Promise<unknown>;
   onPreviewStyle?: (prop: string, value: string) => void;
 }) {
-  const opacityValue = Math.round((parseNumericValue(styles.opacity) ?? 1) * 100);
+  const opacityValue = Math.round(
+    (parseNumericValue(styles.opacity) ?? 1) * 100,
+  );
 
   return (
     <FlatSlider
@@ -540,8 +578,12 @@ function FlatOpacitySlider({
       tier={opacityValue === 100 ? "default" : "explicitCustom"}
       displayValue={`${opacityValue}%`}
       disabled={disabled}
-      onPreview={(next) => onPreviewStyle?.("opacity", formatNumericValue(next / 100))}
-      onCommit={(next) => void onSetStyle("opacity", formatNumericValue(next / 100))}
+      onPreview={(next) =>
+        onPreviewStyle?.("opacity", formatNumericValue(next / 100))
+      }
+      onCommit={(next) =>
+        void onSetStyle("opacity", formatNumericValue(next / 100))
+      }
       onReset={() => void onSetStyle("opacity", "1")}
     />
   );
@@ -578,12 +620,17 @@ export function FlatStyleSection({
         onPreviewStyle={onPreviewStyle}
         onImportAssets={onImportAssets}
       />
-      <FlatStrokeRow
-        styles={styles}
-        inlineStyles={element.inlineStyles}
-        disabled={styleEditingDisabled}
-        onSetStyle={onSetStyle}
-      />
+      <details className="border-t border-panel-hairline pt-2">
+        <summary className="cursor-pointer text-[11px] text-panel-text-3">
+          Stroke
+        </summary>
+        <FlatStrokeRow
+          styles={styles}
+          inlineStyles={element.inlineStyles}
+          disabled={styleEditingDisabled}
+          onSetStyle={onSetStyle}
+        />
+      </details>
       <FlatRadiusRow
         styles={styles}
         gsapBorderRadius={gsapBorderRadius}
@@ -595,19 +642,24 @@ export function FlatStyleSection({
         disabled={styleEditingDisabled}
         onSetStyle={onSetStyle}
       />
-      <FlatBlurSliders
-        styles={styles}
-        disabled={styleEditingDisabled}
-        onSetStyle={onSetStyle}
-        onPreviewStyle={onPreviewStyle}
-      />
-      <FlatOverflowMaskRows
-        styles={styles}
-        disabled={styleEditingDisabled}
-        showMask={!["video", "img"].includes(element.tagName.toLowerCase())}
-        onSetStyle={onSetStyle}
-        onPreviewStyle={onPreviewStyle}
-      />
+      <details className="border-t border-panel-hairline pt-2">
+        <summary className="cursor-pointer text-[11px] text-panel-text-3">
+          Blur &amp; clipping
+        </summary>
+        <FlatBlurSliders
+          styles={styles}
+          disabled={styleEditingDisabled}
+          onSetStyle={onSetStyle}
+          onPreviewStyle={onPreviewStyle}
+        />
+        <FlatOverflowMaskRows
+          styles={styles}
+          disabled={styleEditingDisabled}
+          showMask={!["video", "img"].includes(element.tagName.toLowerCase())}
+          onSetStyle={onSetStyle}
+          onPreviewStyle={onPreviewStyle}
+        />
+      </details>
       <FlatOpacitySlider
         styles={styles}
         disabled={styleEditingDisabled}

@@ -8,7 +8,10 @@ import type { NativeTimelinePropertyLane } from "./TimelinePropertyLanes";
 import type { NativeTrackHeaderSource } from "./trackHeaderLaneState";
 
 const TIMELINE_GROUP: Readonly<
-  Record<NativeTimelinePropertyGroupId, NativeTimelinePropertyLane["propertyGroup"]>
+  Record<
+    NativeTimelinePropertyGroupId,
+    NativeTimelinePropertyLane["propertyGroup"]
+  >
 > = {
   position: "position",
   rotation: "rotation",
@@ -57,31 +60,63 @@ export function nativeTimelinePropertyLanesForElement(
       clipDurationFrames: result.clipDurationFrames,
       parameterTracks: clip.parameterTracks,
     },
-    lanes: result.groups.flatMap((group) =>
-      group.lanes.map((lane) => ({
-        id: lane.animationId,
-        propertyGroup: TIMELINE_GROUP[group.id],
-        keyframes: lane.diamonds.map((diamond) => ({
-          id: diamond.keyframeId,
-          percentage: diamond.percentage,
-          properties: { [lane.property]: diamond.value },
-          native: {
-            sequenceId: result.sequenceId,
-            trackId: result.trackId,
-            clipId: result.clipId,
-            parameterId: diamond.parameterId,
-            keyframeId: diamond.keyframeId,
-            frame: diamond.frame,
-            clipDurationFrames: result.clipDurationFrames,
-            hasFollowingKeyframe:
-              diamond.frame <
-              lane.diamonds[lane.diamonds.length - 1]!.frame,
+    lanes: [
+      ...result.groups.flatMap((group) =>
+        group.lanes.map((lane) => ({
+          id: lane.animationId,
+          propertyGroup: TIMELINE_GROUP[group.id],
+          keyframes: lane.diamonds.map((diamond) => ({
+            id: diamond.keyframeId,
+            percentage: diamond.percentage,
             properties: { [lane.property]: diamond.value },
-            outgoing: diamond.interpolation,
-          },
+            native: {
+              sequenceId: result.sequenceId,
+              trackId: result.trackId,
+              clipId: result.clipId,
+              parameterId: diamond.parameterId,
+              keyframeId: diamond.keyframeId,
+              frame: diamond.frame,
+              clipDurationFrames: result.clipDurationFrames,
+              hasFollowingKeyframe:
+                diamond.frame < lane.diamonds[lane.diamonds.length - 1]!.frame,
+              properties: { [lane.property]: diamond.value },
+              outgoing: diamond.interpolation,
+            },
+          })),
         })),
-      })),
-    ),
+      ),
+      ...Object.keys(clip.staticParameters ?? {}).flatMap((parameterId) => {
+        const group = parameterId.startsWith("transform.position")
+          ? "position"
+          : parameterId.startsWith("transform.rotation") ||
+              parameterId === "transform.perspective"
+            ? "rotation"
+            : parameterId.startsWith("transform.scale")
+              ? "scale"
+              : parameterId.includes("opacity") ||
+                  parameterId === "visual.autoAlpha"
+                ? "visual"
+                : parameterId.startsWith("layout.")
+                  ? "size"
+                  : null;
+        if (
+          !group ||
+          result.groups.some(
+            (candidate) => TIMELINE_GROUP[candidate.id] === group,
+          )
+        )
+          return [];
+        // An authored static value also owns the property. Empty ownership lanes
+        // suppress obsolete script diamonds without inventing animated keyframes.
+        return [
+          {
+            id: `native-static:${clip.id}:${parameterId}`,
+            propertyGroup: group as NativeTimelinePropertyLane["propertyGroup"],
+            keyframes: [],
+          },
+        ];
+      }),
+    ],
   };
 }
 
@@ -109,7 +144,11 @@ export function nativeTimelineLaneCounts(
   return new Map(
     [...projections].map(([elementId, projection]) => [
       elementId,
-      new Set(projection.lanes.map((lane) => lane.propertyGroup)).size,
+      new Set(
+        projection.lanes
+          .filter((lane) => lane.keyframes.length > 0)
+          .map((lane) => lane.propertyGroup),
+      ).size,
     ]),
   );
 }

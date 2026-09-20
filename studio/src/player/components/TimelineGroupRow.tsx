@@ -13,7 +13,6 @@ import { groupAutomationLanes } from "./automationLaneData";
 import { groupAutomationElement } from "./groupAutomationElement";
 import { TimelineAutomationLaneSlot } from "./TimelineAutomationLaneSlot";
 import { TimelineGroupLaneLabels } from "./TimelineGroupLaneLabels";
-import { TRACK_H } from "./timelineLayout";
 import type { UseAutomationLanesResult } from "./useAutomationLanes";
 import { useDomEditSelectionContextOptional } from "../../contexts/DomEditContext";
 import { useTimelineEditContextOptional } from "../../contexts/TimelineEditContext";
@@ -73,6 +72,7 @@ export function TimelineGroupRow({
   contentGutter,
   trackContentWidth,
 }: TimelineGroupRowProps) {
+  const mediaHeight = usePlayerStore((s) => s.timelineTrackHeight);
   const headerColumnWidth = Math.max(0, contentOrigin - contentGutter);
   // From the group, NOT from `tracks`: a collapsed group emits no member rows
   // into the display list, and every one of these reads silently degraded to
@@ -179,7 +179,7 @@ export function TimelineGroupRow({
           <TimelineGroupLaneLabels
             groupElement={groupElement}
             groupLabel={group.label}
-            top={TRACK_H}
+            top={mediaHeight}
             columnWidth={headerColumnWidth}
             gutterBackground={theme.gutterBackground}
             accentColor={GROUP_LANE_ACCENT}
@@ -206,7 +206,7 @@ export function TimelineGroupRow({
             pps={pps}
             // Below the strip, which sits directly under the header row.
             laneCount={0}
-            topOffset={TRACK_H}
+            topOffset={mediaHeight}
             accentColor={GROUP_LANE_ACCENT}
             currentTime={currentTime}
             beatTimes={beatTimes}

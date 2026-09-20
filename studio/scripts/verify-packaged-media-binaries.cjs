@@ -186,15 +186,10 @@ function assertPreparedMediaBinaries(buildPath, platform, arch) {
   assertPinnedFfprobeFile(ffprobe, platform, arch);
 }
 
-function assertPreparedFfmpeg(buildPath, platform, arch) {
-  assertPreparedMediaBinaries(buildPath, platform, arch);
-}
-
 module.exports = {
   assertExecutableBufferMatchesTarget,
   assertPackagedMediaBinaries,
   assertPreparedMediaBinaries,
-  assertPreparedFfmpeg,
   inspectExecutableBuffer,
   packagedMediaBinaryPaths,
 };

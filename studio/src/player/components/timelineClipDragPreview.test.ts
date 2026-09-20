@@ -167,7 +167,7 @@ describe("computeDragPreview — plain horizontal drag never arms a phantom inse
     expect(next.previewTrack).toBe(0);
   });
 
-  it("uses the expanded row midpoint when choosing the side for an automatic insert", () => {
+  it("creates a track instead of allowing an overlapping drop on the aimed row", () => {
     const rowHeights = [TRACK_H + 2 * LANE_H, TRACK_H];
     const dragged = clip("dragged", 0, 0, 1, 3);
     const occupied = [dragged, clip("block-0", 0, 0, 1, 2), clip("block-1", 1, 0, 1, 1)];

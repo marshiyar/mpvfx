@@ -115,7 +115,12 @@ export function collectSnapContext(input: {
   const gridSpacing = prefs.gridSpacing ?? 50;
   const snapToGrid = prefs.snapToGrid ?? false;
   if (snapToGrid && gridSpacing > 0) {
-    gridEdges = buildGridSnapEdges(compositionOverlayRect, gridSpacing, rootScaleX);
+    const divisions = [2, 3, 4].includes(gridSpacing) ? gridSpacing : 3;
+    gridEdges = { x: [], y: [] };
+    for (let index = 1; index < divisions; index++) {
+      gridEdges.x.push({ position: compositionOverlayRect.left + compositionOverlayRect.width * index / divisions, source: "grid", id: `grid-${index}` });
+      gridEdges.y.push({ position: compositionOverlayRect.top + compositionOverlayRect.height * index / divisions, source: "grid", id: `grid-${index}` });
+    }
   }
 
   return { targets, compositionTarget, gridEdges, snapEnabled };

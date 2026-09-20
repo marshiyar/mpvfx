@@ -1,3 +1,5 @@
+import { isAudioTimelineElement } from "../../utils/timelineInspector";
+import type { TimelineElement } from "../store/playerStore";
 import { AUTOMATION_LANE_H } from "./automationLaneHeight";
 import type { ZoomMode } from "../store/playerStore";
 import type { TimelineTimeRange } from "../lib/timelineClipIndex";
@@ -53,9 +55,14 @@ export function getTimelineBeatEntries(
     .map((index) => ({ index, time: beatTimes[index]!, strength: beatStrengths?.[index] }));
 }
 
-export function getTimelineLaneTop(laneIndex: number, effectLaneCount = 0): number {
+/** Audio and pictures share a track, with separate bars so neither hides the other. */
+export function timelineMediaRowCount(elements: readonly TimelineElement[]): number {
+  return elements.some(isAudioTimelineElement) && elements.some(element => !isAudioTimelineElement(element)) ? 2 : 1;
+}
+
+export function getTimelineLaneTop(laneIndex: number, effectLaneCount = 0, mediaRowCount = 1, mediaHeight = TRACK_H): number {
   return (
-    TRACK_H +
+    mediaHeight * mediaRowCount +
     Math.max(0, Math.trunc(effectLaneCount)) * EFFECT_STRIP_H +
     Math.max(0, Math.trunc(laneIndex)) * LANE_H
   );
@@ -96,6 +103,7 @@ export interface TimelineTrackHeightClip {
   automationLaneCount?: number;
   /** Thin, permanently visible effect/color rows nested below the media bar. */
   effectLaneCount?: number;
+  mediaRowCount?: number;
 }
 
 type TimelineTrackHeightInput = readonly (readonly TimelineTrackHeightClip[])[];
@@ -108,19 +116,22 @@ type TimelineTrackHeightInput = readonly (readonly TimelineTrackHeightClip[])[];
 export function trackHeights(
   tracks: TimelineTrackHeightInput,
   expandedClipIds?: ReadonlySet<string>,
+  mediaHeight = TRACK_H,
 ): number[] {
   return tracks.map((clips) => {
     let laneCount = 0;
     let automationLanes = 0;
     let effectLanes = 0;
+    let mediaRows = 1;
     for (const clip of clips) {
+      mediaRows = Math.max(mediaRows, clip.mediaRowCount ?? 1);
       effectLanes = Math.max(effectLanes, clip.effectLaneCount ?? 0);
       if (!expandedClipIds?.has(clip.clipId)) continue;
       laneCount = Math.max(laneCount, clip.laneCount);
       automationLanes = Math.max(automationLanes, clip.automationLaneCount ?? 0);
     }
     return (
-      TRACK_H +
+      mediaHeight * mediaRows +
       effectLanes * EFFECT_STRIP_H +
       Math.max(0, Math.trunc(laneCount)) * LANE_H +
       automationLanes * AUTOMATION_LANE_H

@@ -543,7 +543,7 @@ export function useTimelineEditing({
             result = await commitAgainst(latest.revision);
           }
           if (!result.committed) {
-            throw new Error(`Native timeline resize was not committed: ${result.reason}`);
+            throw new Error(`Native timeline resize was not committed: ${result.message ?? result.reason}`);
           }
           const resizedClip = result.document.sequence.tracks
             .flatMap((track) => track.clips)

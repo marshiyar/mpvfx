@@ -4,14 +4,24 @@
  * - Element has a flat tween → convert + add at seeked time + propagate to end
  * - Element has no animation (deleted) → create new tween with correct position + keyframes
  *
- * Always fetches fresh animation data to avoid stale session state.
- * Reads GSAP runtime values only (no CSS offset — it applies separately via translate).
+ * Native-owned selections use paired Position commands and native frame values.
+ * Legacy selections fetch fresh animation data and read GSAP runtime values
+ * (no CSS offset — it applies separately via translate).
  */
+import type { NativeProjectDocument } from "../project/nativeProjectDocument";
+import { projectNativeKeyframeUi } from "../project/nativeKeyframeUiProjection";
+import type { NativeProjectKeyframeTarget } from "./useNativeProjectKeyframeCommands";
 import { useCallback } from "react";
-import type { GsapAnimation, GsapPercentageKeyframe } from "@hyperframes/core/gsap-parser";
+import type {
+  GsapAnimation,
+  GsapPercentageKeyframe,
+} from "@hyperframes/core/gsap-parser";
 import type { DomEditSelection } from "../components/editor/domEditingTypes";
 import { usePlayerStore } from "../player/store/playerStore";
-import { fetchParsedAnimations, getAnimationsForElement } from "./useGsapTweenCache";
+import {
+  fetchParsedAnimations,
+  getAnimationsForElement,
+} from "./useGsapTweenCache";
 import {
   existingTweenTargetSelector,
   computeElementPercentage,
@@ -31,7 +41,6 @@ import { roundTo3 } from "../utils/rounding";
 import type { CommitMutationOptions } from "./gsapScriptCommitTypes";
 import { buildTemporalArcKeyframes } from "./gsapDragPositionCommit";
 
-
 // A 120s tween advances only 0.027777… percentage points per Studio output
 // frame. Tenths (and even three decimals) collapse distinct authored frames;
 // retain ten decimal places, which is comfortably finer than the 30fps clock
@@ -42,11 +51,23 @@ function canonicalKeyframePercentage(percentage: number): number {
   if (!Number.isFinite(percentage)) return 0;
   return Math.max(
     0,
-    Math.min(100, Math.round(percentage * KEYFRAME_PERCENTAGE_SCALE) / KEYFRAME_PERCENTAGE_SCALE),
+    Math.min(
+      100,
+      Math.round(percentage * KEYFRAME_PERCENTAGE_SCALE) /
+        KEYFRAME_PERCENTAGE_SCALE,
+    ),
   );
 }
 
 export interface EnableKeyframesSession {
+  nativeProjectDocument?: NativeProjectDocument | null;
+  commitKeyframeProperties?: (
+    selection: DomEditSelection,
+    properties: Record<string, number | string>,
+  ) => Promise<void>;
+  deleteNativeKeyframes?: (
+    targets: readonly NativeProjectKeyframeTarget[],
+  ) => Promise<void>;
   domEditSelection: DomEditSelection | null;
   selectedGsapAnimations: GsapAnimation[];
   previewIframeRef?: React.RefObject<HTMLIFrameElement | null>;
@@ -82,7 +103,8 @@ export function animatedProps(anim: GsapAnimation | null): string[] {
   const stops = anim.keyframes?.keyframes;
   if (stops?.length) {
     const keys = new Set<string>();
-    for (const stop of stops) for (const k of Object.keys(stop.properties ?? {})) keys.add(k);
+    for (const stop of stops)
+      for (const k of Object.keys(stop.properties ?? {})) keys.add(k);
     if (keys.size > 0) return [...keys];
   }
   return ["x", "y"];
@@ -130,7 +152,9 @@ export function buildExtendedKeyframes(
   const newDuration = roundTo3(newEnd - newStart);
   const toPct = (absoluteTime: number) =>
     newDuration > 0
-      ? canonicalKeyframePercentage(((absoluteTime - newStart) / newDuration) * 100)
+      ? canonicalKeyframePercentage(
+          ((absoluteTime - newStart) / newDuration) * 100,
+        )
       : 0;
   const stops = anim.keyframes?.keyframes ?? [];
   const rescaled: GsapPercentageKeyframe[] = stops.map((stop) => ({
@@ -138,8 +162,13 @@ export function buildExtendedKeyframes(
     properties: stop.properties,
     ...(stop.ease ? { ease: stop.ease } : {}),
   }));
-  const added: GsapPercentageKeyframe = { percentage: toPct(currentTime), properties: position };
-  const keyframes = [...rescaled, added].sort((a, b) => a.percentage - b.percentage);
+  const added: GsapPercentageKeyframe = {
+    percentage: toPct(currentTime),
+    properties: position,
+  };
+  const keyframes = [...rescaled, added].sort(
+    (a, b) => a.percentage - b.percentage,
+  );
   return { position: roundTo3(newStart), duration: newDuration, keyframes };
 }
 
@@ -158,7 +187,11 @@ async function replaceAnimationWithSingleKeyframe(
     }
   }
   if (Object.keys(position).length === 0 || !session.commitMutation) return;
-  const range = resolveNewTweenRange(sel.dataAttributes?.start, sel.dataAttributes?.duration, t);
+  const range = resolveNewTweenRange(
+    sel.dataAttributes?.start,
+    sel.dataAttributes?.duration,
+    t,
+  );
   await session.commitMutation(
     {
       type: "replace-with-keyframes",
@@ -220,14 +253,19 @@ export function resolveNewTweenRange(
   currentTime: number,
 ): { start: number; duration: number } {
   const t = Math.max(0, roundTo3(currentTime));
-  const start = authoredStart != null ? Number.parseFloat(authoredStart) : Number.NaN;
-  const duration = authoredDuration != null ? Number.parseFloat(authoredDuration) : Number.NaN;
+  const start =
+    authoredStart != null ? Number.parseFloat(authoredStart) : Number.NaN;
+  const duration =
+    authoredDuration != null ? Number.parseFloat(authoredDuration) : Number.NaN;
   if (!Number.isFinite(start) || !Number.isFinite(duration) || duration <= 0) {
     return { start: t, duration: 1 };
   }
   const end = start + duration;
   const clampedStart = Math.min(Math.max(t, start), end);
-  return { start: clampedStart, duration: Math.max(0.5, roundTo3(end - clampedStart)) };
+  return {
+    start: clampedStart,
+    duration: Math.max(0.5, roundTo3(end - clampedStart)),
+  };
 }
 
 // Authoritative parse of the current source for `sel`. Returns `null` when the
@@ -248,7 +286,9 @@ async function tryFetchAnimationsForElement(
   });
 }
 
-async function fetchAnimationsForElement(sel: DomEditSelection): Promise<GsapAnimation[]> {
+async function fetchAnimationsForElement(
+  sel: DomEditSelection,
+): Promise<GsapAnimation[]> {
   return (await tryFetchAnimationsForElement(sel)) ?? [];
 }
 
@@ -266,8 +306,18 @@ async function extendKeyframedTweenToPlayhead(
   // narrowed to one element back onto its class siblings (existingTweenTargetSelector).
   const selector = existingTweenTargetSelector(anim, sel);
   const position = readElementPosition(iframe, sel, anim);
-  if (!selector || Object.keys(position).length === 0 || !session.commitMutation) return;
-  const extended = buildExtendedKeyframes(anim, currentTime, position, duration);
+  if (
+    !selector ||
+    Object.keys(position).length === 0 ||
+    !session.commitMutation
+  )
+    return;
+  const extended = buildExtendedKeyframes(
+    anim,
+    currentTime,
+    position,
+    duration,
+  );
   await session.commitMutation(
     {
       type: "replace-with-keyframes",
@@ -277,7 +327,9 @@ async function extendKeyframedTweenToPlayhead(
       duration: extended.duration,
       keyframes: extended.keyframes,
       ease: anim.ease,
-      ...(anim.keyframes?.easeEach ? { easeEach: anim.keyframes.easeEach } : {}),
+      ...(anim.keyframes?.easeEach
+        ? { easeEach: anim.keyframes.easeEach }
+        : {}),
     },
     {
       label: "Add keyframe",
@@ -317,7 +369,9 @@ async function applyKeyframeAtPlayhead(
     return;
   }
   const pct =
-    start === null ? computeElementPercentage(t, sel) : absoluteToPercentage(t, start, duration);
+    start === null
+      ? computeElementPercentage(t, sel)
+      : absoluteToPercentage(t, start, duration);
   const existing = kfAnim.keyframes?.keyframes.find((k) =>
     keyframeIsAtOutputTime(k.percentage, t, { start: start ?? 0, duration }),
   );
@@ -328,7 +382,12 @@ async function applyKeyframeAtPlayhead(
   if (session.handleGsapAddKeyframeBatch) {
     const position = readElementPosition(iframe, sel, kfAnim);
     if (Object.keys(position).length > 0) {
-      await session.handleGsapAddKeyframeBatch(kfAnim.id, pct, position, commitOverrides);
+      await session.handleGsapAddKeyframeBatch(
+        kfAnim.id,
+        pct,
+        position,
+        commitOverrides,
+      );
     }
   }
 }
@@ -346,7 +405,14 @@ export async function promoteSetToKeyframes(
   // narrowed to one element back onto its class siblings (existingTweenTargetSelector).
   const selector = existingTweenTargetSelector(setAnim, sel);
   if (!selector || !session.commitMutation) return;
-  await replaceAnimationWithSingleKeyframe(session, sel, setAnim, t, iframe, selector);
+  await replaceAnimationWithSingleKeyframe(
+    session,
+    sel,
+    setAnim,
+    t,
+    iframe,
+    selector,
+  );
 }
 
 /**
@@ -426,6 +492,50 @@ export async function applyArcKeyframeAtPlayhead(
   );
 }
 
+/** Shared by the toolbar indicator and its command; never consult legacy tweens
+ * for a clip whose position is edited by the native project. */
+export function nativeToolbarPosition(
+  session: EnableKeyframesSession | undefined,
+  time: number,
+) {
+  const selection = session?.domEditSelection;
+  if (!session?.nativeProjectDocument || !selection) return null;
+  const result = projectNativeKeyframeUi(session.nativeProjectDocument, {
+    selectedElement: {
+      id: selection.id,
+      hfId: selection.hfId,
+      sourceFile: selection.sourceFile,
+      selector: selection.selector,
+      selectorIndex: selection.selectorIndex,
+      attributes: {
+        "data-studio-clip-id": selection.element.getAttribute(
+          "data-studio-clip-id",
+        ),
+      },
+    },
+    playheadSeconds: time,
+  });
+  if (!result.ok) return null;
+  const keys = result.keyframeRows.filter(
+    (row) =>
+      ("x" in row.properties || "y" in row.properties) &&
+      row.nativeFrame === result.clipLocalFrame,
+  );
+  return {
+    projection: result,
+    active:
+      keys.some((row) => "x" in row.properties) &&
+      keys.some((row) => "y" in row.properties),
+    targets: keys.map((row) => ({
+      sequenceId: result.sequenceId,
+      trackId: result.trackId,
+      clipId: result.clipId,
+      parameterId: row.parameterId,
+      frame: row.nativeFrame,
+    })),
+  };
+}
+
 export function useEnableKeyframes(
   sessionRef: React.RefObject<EnableKeyframesSession | undefined>,
 ) {
@@ -437,6 +547,22 @@ export function useEnableKeyframes(
     if (!sel) return;
 
     const t = usePlayerStore.getState().currentTime;
+    const native = nativeToolbarPosition(session, t);
+    if (native) {
+      if (native.active) {
+        if (!session.deleteNativeKeyframes)
+          throw new Error("Position keyframe removal is unavailable");
+        await session.deleteNativeKeyframes(native.targets);
+      } else {
+        if (!session.commitKeyframeProperties)
+          throw new Error("Position keyframe saving is unavailable");
+        await session.commitKeyframeProperties(sel, {
+          x: native.projection.currentValues.x ?? 0,
+          y: native.projection.currentValues.y ?? 0,
+        });
+      }
+      return;
+    }
     const iframe = session.previewIframeRef?.current ?? null;
 
     // `selectedGsapAnimations` is a studio-side selection cache that can lag a
@@ -454,8 +580,12 @@ export function useEnableKeyframes(
     // the curve.
     const arcAnim = anims.find((a) => a.arcPath);
     const kfAnim = anims.find((a) => a.keyframes && !a.arcPath);
-    const setAnim = anims.find((a) => isInstantHold(a) && !a.keyframes && !a.arcPath);
-    const flatAnim = anims.find((a) => !a.keyframes && !a.arcPath && !isInstantHold(a));
+    const setAnim = anims.find(
+      (a) => isInstantHold(a) && !a.keyframes && !a.arcPath,
+    );
+    const flatAnim = anims.find(
+      (a) => !a.keyframes && !a.arcPath && !isInstantHold(a),
+    );
 
     if (arcAnim) {
       await applyArcKeyframeAtPlayhead(session, sel, arcAnim, t, iframe);
@@ -500,8 +630,10 @@ export function useEnableKeyframes(
       // One keyframe at the playhead — a single diamond capturing the current
       // value. Motion comes from the user adding/dragging more keyframes later;
       // creating 0%+100% up front showed two diamonds for a single "add keyframe".
-      const keyframes: Array<{ percentage: number; properties: Record<string, number | string> }> =
-        [{ percentage: 0, properties: { ...position } }];
+      const keyframes: Array<{
+        percentage: number;
+        properties: Record<string, number | string>;
+      }> = [{ percentage: 0, properties: { ...position } }];
 
       if (session.commitMutation) {
         await session.commitMutation(

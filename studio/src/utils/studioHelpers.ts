@@ -45,26 +45,6 @@ export function toRelativeProjectAssetPath(sourceFile: string, assetPath: string
   return [...fromParts.map(() => ".."), ...targetParts].join("/") || assetPath;
 }
 
-function isAbsoluteFilePath(value: string): boolean {
-  return /^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(value);
-}
-
-export function toProjectAbsolutePath(
-  projectDir: string | null,
-  sourceFile: string,
-): string | undefined {
-  const trimmedSource = sourceFile.trim();
-  if (!trimmedSource) return undefined;
-
-  const normalizedSource = trimmedSource.replace(/\\/g, "/");
-  if (isAbsoluteFilePath(normalizedSource)) return normalizedSource;
-
-  const normalizedRoot = projectDir?.trim().replace(/\\/g, "/").replace(/\/+$/, "");
-  if (!normalizedRoot) return undefined;
-
-  return `${normalizedRoot}/${normalizedSource.replace(/^\.?\//, "")}`;
-}
-
 export function normalizeDomEditStyleValue(property: string, value: string): string {
   const trimmed = value.trim();
   if (!trimmed) return trimmed;

@@ -67,8 +67,6 @@ describe("standalone project infrastructure", () => {
     );
     const ownedCopy = [
       "README.md",
-      "src/webmcp/tools/lookTools.ts",
-      "src/webmcp/tools/selectionTools.ts",
       "src/telemetry/client.ts",
       "src/components/ui/index.ts",
     ]
@@ -111,6 +109,9 @@ describe("standalone project infrastructure", () => {
 
   it("ships no agent-only controls or instructions in the editor UI", () => {
     const agentOnlyComponents = [
+      "src/webmcp",
+      "src/hooks/useStudioSelectionPublisher.ts",
+      "src/utils/studioSelectionSnapshot.ts",
       "src/components/AskAgentModal.tsx",
       "src/components/sidebar/PromptPreviewModal.tsx",
       "src/components/storyboard/AgentChatMessageButton.tsx",
@@ -120,8 +121,10 @@ describe("standalone project infrastructure", () => {
       expect(existsSync(join(studioRoot, relativePath))).toBe(false);
     }
 
+    const packageJson = JSON.parse(readFileSync(join(studioRoot, "package.json"), "utf-8"));
+    expect(packageJson.dependencies).not.toHaveProperty("@mcp-b/global");
+
     const userFacingSources = [
-      "src/components/editor/PropertyPanelFlatFooter.tsx",
       "src/components/editor/PropertyPanelFlatHeader.tsx",
       "src/components/sidebar/BlocksTab.tsx",
     ]
@@ -135,7 +138,6 @@ describe("standalone project infrastructure", () => {
 
   it("keeps framework branding and CLI handoffs out of the standalone UI", () => {
     const standaloneUiSources = [
-      "src/components/StudioHeader.tsx",
       "src/components/editor/PropertyPanel.tsx",
       "src/components/feedback/StudioFeedbackCard.tsx",
       "src/components/renders/useRenderQueue.ts",
@@ -193,7 +195,6 @@ describe("standalone project infrastructure", () => {
 
     const editorShellSources = [
       "src/App.tsx",
-      "src/components/StudioHeader.tsx",
       "src/components/StudioLeftSidebar.tsx",
       "src/components/StudioRightPanel.tsx",
       "src/components/sidebar/LeftSidebar.tsx",

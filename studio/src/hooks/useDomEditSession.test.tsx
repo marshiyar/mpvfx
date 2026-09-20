@@ -146,8 +146,8 @@ vi.mock("./useDomSelection", () => ({
     applyMarqueeSelection: vi.fn(),
   }),
 }));
-vi.mock("./useStudioSelectionPublisher", () => ({
-  useStudioSelectionPublisher: () => {},
+vi.mock("./usePreviewSelectionRefresh", () => ({
+  usePreviewSelectionRefresh: () => {},
 }));
 vi.mock("./useGsapTweenCache", () => ({
   useGsapCacheVersion: () => ({ version: 0, bump: vi.fn() }),
@@ -449,5 +449,39 @@ describe("handleGroupSelection with audio in the selection", () => {
   it("still groups a selection of layout elements", async () => {
     await group([sel("div"), sel("span")]);
     expect(groupSelectionSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("native canvas motion bootstrap", () => {
+  it("persists the first native path with a missing-sidecar revision guard", async () => {
+    const { useDomEditSession } = await import("./useDomEditSession");
+    const { parseNativeProjectDocument } = await import("../project/nativeProjectDocument");
+    const candidate = parseNativeProjectDocument({
+      schemaVersion: 1, id: "bootstrap", revision: 0,
+      frameRate: { numerator: 30, denominator: 1 },
+      canvas: { width: 1920, height: 1080, background: "#000" }, assets: [],
+      sequence: { id: "s", name: "Main", tracks: [] },
+    });
+    const write = vi.fn(async () => {});
+    const onCommitted = vi.fn();
+    let commit: ReturnType<typeof useDomEditSession>["commitNativeProject"];
+    function Probe() {
+      commit = useDomEditSession(createSessionParams({ nativeProjectEditing: {
+        nativeDocument: null, nativeBootstrapDocument: candidate, getPlayheadSeconds: () => 0,
+        readOptionalProjectFile: async () => null, writeProjectFile: write,
+        onNativeDocumentCommitted: onCommitted,
+      } })).commitNativeProject;
+      return null;
+    }
+    const host = document.createElement("div"); document.body.append(host);
+    const root = createRoot(host);
+    act(() => root.render(<Probe />));
+    let saved = false;
+    await act(async () => { saved = await commit!({ document: candidate,
+      inverse: { type: "restore-document", document: candidate }, label: "Create motion path" }); });
+    expect(saved).toBe(true);
+    expect(write).toHaveBeenCalledOnce();
+    expect(onCommitted).toHaveBeenCalledOnce();
+    act(() => root.unmount()); host.remove();
   });
 });

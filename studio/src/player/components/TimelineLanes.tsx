@@ -20,7 +20,7 @@ import {
 import { trackDisplayNumber, trackDisplaySuffix } from "./timelineTrackDisplay";
 import { clipTimingStart } from "../../hooks/gsapShared";
 import { getTimelineEditCapabilities } from "./timelineEditing";
-import { CLIP_Y, EFFECT_STRIP_H, TRACK_H, getTimelineLaneTop } from "./timelineLayout";
+import { CLIP_Y, EFFECT_STRIP_H, timelineMediaRowCount, getTimelineLaneTop } from "./timelineLayout";
 import { usePlayerStore } from "../store/playerStore";
 import { isMultiDragPassenger, multiDragPassengerOffsetPx } from "./timelineMultiDragPreview";
 import { useTimelineMultiDragActorWindows } from "./useTimelineMultiDragActorWindows";
@@ -111,6 +111,7 @@ export function TimelineLanes({
     useTimelineGroupDisclosure();
   const automationLanes = useAutomationLanes();
   const expandedClipIds = usePlayerStore((s) => s.expandedClipIds);
+  const mediaHeight = usePlayerStore((s) => s.timelineTrackHeight);
   const { toggleRowExpanded, toggleClipExpanded } = useTimelineClipDisclosure();
   // A group's automation clock is COMPOSITION time (groups doc §1.3), so its
   // synthetic lane element spans the whole composition rather than a clip.
@@ -211,7 +212,8 @@ export function TimelineLanes({
             isMusicTrack,
           });
           const isTrackHidden = els.length > 0 && els.every((element) => element.hidden === true);
-          const isAudioTrack = els.length > 0 && els.some(isAudioTimelineElement);
+          const isAudioTrack = els.length > 0 && els.every(isAudioTimelineElement);
+          const mediaRowCount = timelineMediaRowCount(els);
           const effectLaneRowCount = timelineAttachedEffectLaneCount(els, nativeEffectMap);
           // Only the selected/most-keyframed clip owns expanded lanes on a shared track.
           const keyframeClip = resolveTrackKeyframeClip(
@@ -231,7 +233,7 @@ export function TimelineLanes({
           // property lanes are showing. Undefined means "fill the row", which is
           // right only while it is collapsed and the row is nothing but bar.
           const clipBarHeight =
-            rowExpanded || effectLaneRowCount > 0 ? TRACK_H - 2 * CLIP_Y : undefined;
+            mediaRowCount > 1 || rowExpanded || effectLaneRowCount > 0 ? mediaHeight - 2 * CLIP_Y : undefined;
           // The clips whose envelopes this row draws, at their dragged positions.
           // Once per row, not once per clip in the map below.
           const automationElements = els.map(getPreviewElement);
@@ -319,7 +321,7 @@ export function TimelineLanes({
               />
               <TimelineOriginGap
                 width={contentGutter}
-                height={TRACK_H + effectLaneRowCount * EFFECT_STRIP_H}
+                height={mediaHeight * mediaRowCount + effectLaneRowCount * EFFECT_STRIP_H}
                 backgroundColor={timelineTrackOriginGapColor(els, theme)}
               />
               <div
@@ -445,7 +447,7 @@ export function TimelineLanes({
                         }}
                         el={previewElement}
                         pps={pps}
-                        clipY={CLIP_Y}
+                        clipY={CLIP_Y + (mediaRowCount > 1 && isAudioTimelineElement(el) ? mediaHeight : 0)}
                         clipHeight={clipBarHeight}
                         isSelected={isSelected}
                         isHovered={hoveredClip === clipKey}
@@ -497,6 +499,7 @@ export function TimelineLanes({
                         key={`${clipKey}-effects`}
                         element={previewElement}
                         nativeEffects={nativeEffectMap.get(elementKey)}
+                        mediaRowCount={mediaRowCount}
                         pps={pps}
                       />
                     );
@@ -516,7 +519,7 @@ export function TimelineLanes({
                         elementId={elementKey}
                         keyframesData={mergedCompactKeyframes}
                         pixelsPerSecond={pps}
-                        rowHeight={TRACK_H}
+                        rowHeight={mediaHeight}
                         beatsActive={beatStripOnTrack}
                         accentColor={clipStyle.accent}
                         isSelected={isSelected}
@@ -553,6 +556,7 @@ export function TimelineLanes({
                         clipLeftPx={previewElement.start * pps}
                         clipWidthPx={Math.max(previewElement.duration * pps, 4)}
                         effectLaneCount={effectLaneRowCount}
+                        mediaRowCount={mediaRowCount}
                         accentColor={clipStyle.accent}
                         isSelected={isSelected}
                         currentPercentage={
@@ -636,7 +640,7 @@ export function TimelineLanes({
                       lanes={automationLanes}
                       pps={pps}
                       laneCount={propertyStripRowCount}
-                      topOffset={getTimelineLaneTop(propertyStripRowCount, effectLaneRowCount)}
+                      topOffset={getTimelineLaneTop(propertyStripRowCount, effectLaneRowCount, mediaRowCount, mediaHeight)}
                       accentColor={getTrackStyle(keyframeClip?.tag ?? "").accent}
                       currentTime={currentTime}
                       beatTimes={beatAnalysis?.beatTimes}

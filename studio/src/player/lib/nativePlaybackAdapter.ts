@@ -38,6 +38,8 @@ export interface NativePlaybackWindowLike {
 
 /** Runtime wrapper with an ownership-only teardown separate from user pause. */
 export interface NativePlaybackAdapter extends RuntimePlaybackAdapter {
+  /** Finish a retained renderer pass without advancing or recursively seeking. */
+  reapplyFrame(): void;
   /** Stop only the native animation clock; never pause the shared base media. */
   dispose(): void;
 }
@@ -106,7 +108,7 @@ function applyNativeMediaTransport(
     media.playbackRate = playbackRate;
     // Inactive audio must never leak from a hidden clip. Authored unmute is
     // restored on the exact first active frame.
-    media.muted = !active || clip.muted;
+    media.muted = !active || clip.muted || media.hasAttribute("data-hidden");
     if ((!synchronizeCurrentTime && !entering) || !active) continue;
     const sourceFrame = clip.sourceInFrame + localFrame * playbackRate;
     media.currentTime = (sourceFrame * frameRate.denominator) / frameRate.numerator;
@@ -196,6 +198,10 @@ export function createNativePlaybackAdapter(
   };
 
   return {
+    reapplyFrame: () => {
+      applyNativeFrameToDocument(options.document, options.clips,
+        projectFrameAtSeconds(transport.getTime(), frameRate, durationFrames));
+    },
     play: () => {
       if (transport.getTime() >= durationSeconds) seekBoth(0);
       baseAdapter?.play();

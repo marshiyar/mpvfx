@@ -16,7 +16,7 @@ import {
   type StandaloneViteAdapter,
 } from "./vite.adapter";
 import { deleteStandaloneCompositionResponse } from "./vite.composition-delete";
-import { createDurableWriteReceiptRegistry } from "./vite.durable-write-receipts";
+import { projectFileChangeScope, createFileChangeVersionFilter, createDurableWriteReceiptRegistry } from "./vite.durable-write-receipts";
 import { injectStandaloneExportDimensions } from "./vite.export-dimensions";
 import { validateStandaloneExportHttpRequest } from "./vite.export-request-policy";
 import { ffmpegEnvironmentResponse } from "./vite.ffmpeg-status";
@@ -26,6 +26,7 @@ import { resolvePreviewResponseContentType } from "./vite.media-import-mime";
 import { previewConfigPayload } from "./vite.preview-config";
 import { readNodeRequestBody } from "./vite.request-body";
 import { matchRenderHeartbeatRequest } from "./vite.render-heartbeat";
+import { coordinateNativePreviewRuntime } from "./vite.runtime-native-picture";
 import { stabilizeStandalonePreviewRuntime } from "./vite.runtime-audio-stability";
 import { ensureStandaloneProject } from "./vite.standalone-project";
 
@@ -46,7 +47,7 @@ export interface StudioHttpServiceOptions {
   adapterHost: StandaloneAdapterHost;
   environment?: NodeJS.ProcessEnv;
   processId?: number;
-  onFileChange?(data: { path: string; version?: string; writeToken?: string }): void;
+  onFileChange?(data: { projectId?: string; path: string; version?: string; writeToken?: string }): void;
   loadRuntimeSource?: () => string | null;
 }
 
@@ -58,9 +59,9 @@ export interface StudioHttpService {
 function installedRuntimeSource(): string | null {
   try {
     const require = createRequire(import.meta.url);
-    return stabilizeStandalonePreviewRuntime(
+    return coordinateNativePreviewRuntime(stabilizeStandalonePreviewRuntime(
       readFileSync(require.resolve("@hyperframes/core/runtime"), "utf8"),
-    );
+    ));
   } catch (error) {
     console.warn("[Studio] Failed to load the installed preview runtime:", error);
     return null;
@@ -125,11 +126,6 @@ function projectDirectories(projectsDir: string): string[] {
   }
 }
 
-function shouldPublishFileChange(filePath: string): boolean {
-  if (filePath.includes(`${sep}.hyperframes${sep}studio-transactions${sep}`)) return false;
-  return /\.(?:html|css|js|json)$/i.test(filePath);
-}
-
 export function createStudioHttpService(options: StudioHttpServiceOptions): StudioHttpService {
   ensureStandaloneProject(options.projectsDir);
   const closeListeners = new Set<() => void>();
@@ -176,8 +172,10 @@ export function createStudioHttpService(options: StudioHttpServiceOptions): Stud
   const eventClients = new Set<ServerResponse>();
   let closed = false;
 
+  const isNewFileVersion = createFileChangeVersionFilter();
   const publishFileChange = (filePath: string) => {
-    if (!shouldPublishFileChange(filePath)) return;
+    const scope = projectFileChangeScope(options.projectsDir, filePath);
+    if (!scope) return;
     let version: string | null = null;
     let content: string | null = null;
     try {
@@ -186,12 +184,13 @@ export function createStudioHttpService(options: StudioHttpServiceOptions): Stud
     } catch {
       // Deleted files have no bytes to match against a write receipt.
     }
+    if (!isNewFileVersion(filePath, version)) return;
     const receipt =
       version && content !== null
         ? durableWriteReceipts.consume(filePath, content, version) ??
           (studioModule?.consumeFileWriteReceipt?.(filePath, version) ?? null)
         : null;
-    const data = receipt ?? { path: filePath };
+    const data = { ...receipt, ...scope, ...(version ? { version } : {}) };
     options.onFileChange?.(data);
     const event = `event: file-change\ndata: ${JSON.stringify(data)}\n\n`;
     for (const client of eventClients) client.write(event);
@@ -214,6 +213,16 @@ export function createStudioHttpService(options: StudioHttpServiceOptions): Stud
 
   const handleApi = async (request: IncomingMessage, response: ServerResponse, url: URL) => {
     url.pathname = url.pathname.slice(4);
+    // The upstream API includes agent context storage. It is not part of the
+    // standalone editor; keep it out of both development and desktop servers.
+    if (/^\/projects\/[^/]+\/selection\/?$/.test(url.pathname)) {
+      await bridgeFetchResponse(
+        Response.json({ error: "Not found" }, { status: 404 }),
+        response,
+        url.pathname,
+      );
+      return;
+    }
     const recoveryFailure = await durableTransactions.ensureRecoveredForProjectPath(url.pathname);
     if (recoveryFailure) {
       await bridgeFetchResponse(recoveryFailure, response, url.pathname);

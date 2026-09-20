@@ -130,6 +130,31 @@ afterEach(() => {
 });
 
 describe("useTimelineRangeSelection", () => {
+  it("selects enclosed keyframe diamonds and restores them on Escape", () => {
+    const view = renderHarness();
+    const diamond = document.createElement("button");
+    diamond.dataset.keyframeSelectionKey = "first|position|native|50";
+    diamond.getBoundingClientRect = () => ({ left: 180, top: 98, width: 12, height: 12, right: 192, bottom: 110 } as DOMRect);
+    view.scroll.append(diamond);
+    usePlayerStore.setState({ selectedElementId: "first", selectedKeyframes: new Set(["prior"]) });
+    act(() => {
+      view.api.handlePointerDown(pointer(view.scroll, 7, 160, 95));
+      view.api.handlePointerMove(pointer(view.scroll, 7, 165, 96));
+      expect(usePlayerStore.getState().selectedElementId).toBe("first");
+      view.api.handlePointerMove(pointer(view.scroll, 7, 210, 120));
+    });
+    expect(usePlayerStore.getState().selectedKeyframes).toEqual(new Set(["first|position|native|50"]));
+    act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+    expect(usePlayerStore.getState().selectedKeyframes).toEqual(new Set(["prior"]));
+    act(() => {
+      view.api.handlePointerDown(pointer(view.scroll, 7, 160, 95, { shiftKey: true }));
+      view.api.handlePointerMove(pointer(view.scroll, 7, 210, 120, { shiftKey: true }));
+      view.api.handlePointerUp(pointer(view.scroll, 7, 210, 120, { shiftKey: true }));
+    });
+    expect(usePlayerStore.getState().selectedKeyframes).toEqual(new Set(["prior", "first|position|native|50"]));
+    unmountHarness(view);
+  });
+
   it("marquee-selects model clips across unmounted virtual rows", () => {
     const view = renderHarness();
     dragMarquee(view);

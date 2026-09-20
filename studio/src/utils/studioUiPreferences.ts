@@ -12,6 +12,7 @@ export interface StudioUiPreferences {
   rightWidth?: number;
   timelineVisible?: boolean;
   timelineHeight?: number;
+  timelineTrackHeight?: number;
   playbackRate?: number;
   audioMuted?: boolean;
   audioVolume?: number;
@@ -34,14 +35,6 @@ export interface StudioUiPreferences {
   timelineZoomMode?: "fit" | "manual";
   /** Manual timeline zoom percent, paired with `timelineZoomMode: "manual"`. */
   timelineManualZoomPercent?: number;
-  /**
-   * Expose Studio's editing capabilities to an agentic browser as WebMCP tools.
-   * Absent means on: the browser still gates every actual call behind its own
-   * permission prompt, so "registered" is not "reachable without consent".
-   * Changes take effect on the next Studio reload because registration is
-   * intentionally scoped to one mount.
-   */
-  agentToolsEnabled?: boolean;
 }
 
 const STUDIO_UI_PREFERENCES_KEY = "hf-studio-ui-preferences";
@@ -83,6 +76,9 @@ function readStorage(storage: Storage | null): StudioUiPreferences {
     }
     if (typeof parsed.timelineHeight === "number" && Number.isFinite(parsed.timelineHeight)) {
       preferences.timelineHeight = parsed.timelineHeight;
+    }
+    if (typeof parsed.timelineTrackHeight === "number" && Number.isFinite(parsed.timelineTrackHeight)) {
+      preferences.timelineTrackHeight = Math.max(32, Math.min(96, Math.round(parsed.timelineTrackHeight)));
     }
     if (typeof parsed.playbackRate === "number" && Number.isFinite(parsed.playbackRate)) {
       preferences.playbackRate = parsed.playbackRate;
@@ -147,9 +143,6 @@ function readStorage(storage: Storage | null): StudioUiPreferences {
       Number.isFinite(parsed.timelineManualZoomPercent)
     ) {
       preferences.timelineManualZoomPercent = parsed.timelineManualZoomPercent;
-    }
-    if (typeof parsed.agentToolsEnabled === "boolean") {
-      preferences.agentToolsEnabled = parsed.agentToolsEnabled;
     }
     return preferences;
   } catch {

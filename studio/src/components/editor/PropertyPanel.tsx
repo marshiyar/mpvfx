@@ -10,7 +10,7 @@ import { readStudioBoxSize, readStudioPathOffset, readStudioRotation } from "./m
 import {
   buildElementInfoText,
   EMPTY_STYLES,
-  formatPxMetricValue,
+  formatTransformValue,
   parsePxMetricValue,
   RESPONSIVE_GRID,
   readGsapRuntimeValuesForPanel,
@@ -75,7 +75,6 @@ export const PropertyPanel = memo(function PropertyPanel(props: PropertyPanelPro
     onSetAttributeLive,
     onApplyColorGradingScope,
     onSetHtmlAttribute,
-    onRemoveBackground,
     onSetManualOffset,
     onSetManualSize,
     onSetManualRotation,
@@ -116,6 +115,7 @@ export const PropertyPanel = memo(function PropertyPanel(props: PropertyPanelPro
     onCommitKeyframeProperty,
     onCommitKeyframeProperties,
     onRemoveNativeKeyframe,
+    onRemoveNativeKeyframes,
     onSeekToTime,
     recordingState,
     recordingDuration,
@@ -198,13 +198,10 @@ export const PropertyPanel = memo(function PropertyPanel(props: PropertyPanelPro
   // element (the panel never appears, the classic chicken-and-egg). Default to
   // identity when there are no runtime values yet; the first edit creates the
   // gsap.set via commitStaticSet, after which real runtime values flow in.
-  const gsap3dValues: Record<string, number> = gsapRuntimeValues ?? {
-    rotationX: 0,
-    rotationY: 0,
-    rotationZ: 0,
-    z: 0,
-    scale: 1,
-    transformPerspective: 0,
+  const gsap3dValues: Record<string, number> = {
+    rotationX: 0, rotationY: 0, rotationZ: 0, z: 0, scale: 1, transformPerspective: 0,
+    ...gsapRuntimeValues,
+    ...nativeProjection?.currentValues,
   };
 
   if (!element) {
@@ -391,6 +388,14 @@ export const PropertyPanel = memo(function PropertyPanel(props: PropertyPanelPro
         elStart={elStart}
         elDuration={elDuration}
         onRemoveKeyframe={handleRemoveKeyframe}
+        onRemoveKeyframeGroup={nativeProjection && onRemoveNativeKeyframes ? (properties, percentage) => {
+          const rows = nativeProjection.keyframeRows.filter(row =>
+            row.percentage === percentage && properties.some(property => property in row.properties));
+          if (rows.length) void onRemoveNativeKeyframes(rows.map(row => ({
+            sequenceId: nativeProjection.sequenceId, trackId: nativeProjection.trackId,
+            clipId: nativeProjection.clipId, parameterId: row.parameterId, frame: row.nativeFrame,
+          })));
+        } : undefined}
       />
     );
   }
@@ -473,7 +478,6 @@ export const PropertyPanel = memo(function PropertyPanel(props: PropertyPanelPro
             onSetStyle={onSetStyle}
             onSetAttribute={onSetAttribute}
             onSetHtmlAttribute={onSetHtmlAttribute}
-            onRemoveBackground={onRemoveBackground}
           />
         )}
 
@@ -484,7 +488,7 @@ export const PropertyPanel = memo(function PropertyPanel(props: PropertyPanelPro
                 <div className="flex-1">
                   <MetricField
                     label="X"
-                    value={formatPxMetricValue(displayX)}
+                    value={formatTransformValue(displayX)}
                     disabled={manualOffsetEditingDisabled}
                     scrub
                     onCommit={(next) => commitManualOffset("x", next)}
@@ -513,7 +517,7 @@ export const PropertyPanel = memo(function PropertyPanel(props: PropertyPanelPro
                 <div className="flex-1">
                   <MetricField
                     label="Y"
-                    value={formatPxMetricValue(displayY)}
+                    value={formatTransformValue(displayY)}
                     disabled={manualOffsetEditingDisabled}
                     scrub
                     onCommit={(next) => commitManualOffset("y", next)}
@@ -542,7 +546,7 @@ export const PropertyPanel = memo(function PropertyPanel(props: PropertyPanelPro
                 <div className="flex-1">
                   <MetricField
                     label="W"
-                    value={formatPxMetricValue(displayW)}
+                    value={formatTransformValue(displayW)}
                     disabled={manualSizeEditingDisabled}
                     scrub
                     onCommit={(next) => commitManualSize("width", next)}
@@ -571,7 +575,7 @@ export const PropertyPanel = memo(function PropertyPanel(props: PropertyPanelPro
                 <div className="flex-1">
                   <MetricField
                     label="H"
-                    value={formatPxMetricValue(displayH)}
+                    value={formatTransformValue(displayH)}
                     disabled={manualSizeEditingDisabled}
                     scrub
                     onCommit={(next) => commitManualSize("height", next)}
@@ -600,7 +604,7 @@ export const PropertyPanel = memo(function PropertyPanel(props: PropertyPanelPro
                 <div className="flex-1">
                   <MetricField
                     label="R"
-                    value={`${displayR}°`}
+                    value={formatTransformValue(displayR, "°")}
                     disabled={manualRotationEditingDisabled}
                     onCommit={(next) => commitManualRotation(next.replace("°", ""))}
                   />

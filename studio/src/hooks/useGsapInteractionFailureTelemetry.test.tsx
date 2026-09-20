@@ -68,6 +68,7 @@ describe("useGsapInteractionFailureTelemetry", () => {
     expect(trackStudioSaveFailure).toHaveBeenCalledWith(
       expect.objectContaining({ source: "gsap_commit", error, mutationType: "drag" }),
     );
+    expect(showToast).toHaveBeenCalledWith("Couldn’t save Move: network dropped", "error");
     expect(trackStudioEditBlocked).not.toHaveBeenCalled();
     act(() => root.unmount());
   });

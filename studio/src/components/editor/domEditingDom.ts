@@ -61,6 +61,14 @@ export function getCuratedComputedStyles(el: HTMLElement): Record<string, string
     if (value) styles[prop] = value;
   }
 
+  if (el.hasAttribute(COLOR_GRADING_SOURCE_HIDDEN_ATTR)) {
+    const picture = el.id ? el.ownerDocument.getElementById(`__hf_color_grading_${el.id}`) : null;
+    styles.opacity = el.getAttribute("data-studio-native-opacity") ??
+      (picture?.hasAttribute("data-hf-color-grading-canvas")
+        ? el.ownerDocument.defaultView?.getComputedStyle(picture).opacity : undefined) ??
+      (el.getAttribute("data-hf-authored-opacity") || "1");
+  }
+
   return styles;
 }
 
@@ -69,6 +77,11 @@ export function getInlineStyles(el: HTMLElement): Record<string, string> {
   for (const property of CURATED_STYLE_PROPERTIES) {
     const value = el.style.getPropertyValue(property);
     if (value) styles[property] = value;
+  }
+  if (el.hasAttribute(COLOR_GRADING_SOURCE_HIDDEN_ATTR)) {
+    const authored = el.getAttribute("data-hf-authored-opacity");
+    if (authored) styles.opacity = authored;
+    else delete styles.opacity;
   }
   return styles;
 }

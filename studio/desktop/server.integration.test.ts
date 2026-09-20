@@ -42,6 +42,19 @@ describe("packaged editor server", () => {
       projects: [expect.objectContaining({ id: "MpVFX" })],
     });
 
+    // The shared upstream API includes agent selection context, but the
+    // standalone editor must neither accept nor expose those snapshots.
+    for (const method of ["GET", "PUT"]) {
+      const agentSelection = await fetch(`${server.origin}/api/projects/MpVFX/selection`, {
+        method,
+        ...(method === "PUT" ? {
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ selection: null }),
+        } : {}),
+      });
+      expect(agentSelection.status).toBe(404);
+    }
+
     const uploadBody = new FormData();
     uploadBody.append(
       "files",
@@ -70,6 +83,7 @@ describe("packaged editor server", () => {
     const runtime = await fetch(`${server.origin}/api/runtime.js`);
     expect(runtime.status).toBe(200);
     expect(runtime.headers.get("content-type")).toContain("text/javascript");
+    expect(await runtime.text()).toContain("__studioNativePlayer?.reapplyFrame?.()");
     const motionPathPlugin = await fetch(`${server.origin}/api/motion-path-plugin.js`);
     expect(motionPathPlugin.status).toBe(200);
     expect(await motionPathPlugin.text()).toContain("MotionPathPlugin");

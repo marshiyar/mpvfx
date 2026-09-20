@@ -49,11 +49,7 @@ export const ClipContextMenu = memo(function ClipContextMenu({
   const canSplit =
     isSplittable && currentTime > element.start && currentTime < element.start + element.duration;
 
-  const splitLabel = !isSplittable
-    ? null
-    : canSplit
-      ? `Split at ${currentTime.toFixed(2)}s`
-      : "Split (move playhead inside clip)";
+  const splitLabel = isSplittable ? "Split" : null;
 
   return createPortal(
     <div

@@ -69,12 +69,3 @@ export function MpVfxLoader({
     </div>
   );
 }
-
-// fallow-ignore-next-line unused-export
-export function StatusFrame(props: MpVfxLoaderProps) {
-  return (
-    <div className="hf-frame">
-      <MpVfxLoader {...props} />
-    </div>
-  );
-}

@@ -272,7 +272,7 @@ describe("native timeline asset drop integration", () => {
     await act(async () => harness.root.unmount());
   });
 
-  it("rejects an audio drop onto a video lane before any durable or published change", async () => {
+  it("durably inserts audio on the requested video lane and publishes the mixed track", async () => {
     const native = parseNativeProjectDocument({
       ...emptyNativeProject(),
       sequence: {
@@ -296,20 +296,15 @@ describe("native timeline asset drop integration", () => {
       });
     });
 
-    expect(harness.files.get("index.html")).toBe(compatibilityBefore);
-    expect(harness.files.get(NATIVE_PROJECT_DOCUMENT_PATH)).toBe(
-      serializeNativeProjectDocument(native),
-    );
-    expect(harness.commitFileTransaction).not.toHaveBeenCalled();
-    expect(harness.writeProjectFile).not.toHaveBeenCalled();
-    expect(harness.recordEdit).not.toHaveBeenCalled();
-    expect(harness.onNativeDocumentCommitted).not.toHaveBeenCalled();
-    expect(harness.forceReloadSdkSession).not.toHaveBeenCalled();
-    expect(harness.reloadPreview).not.toHaveBeenCalled();
-    expect(harness.showToast).toHaveBeenCalledWith(
-      "Cannot add media to track 0 because that track contains a different media type.",
-      "error",
-    );
+    expect(harness.files.get("index.html")).not.toBe(compatibilityBefore);
+    const saved = parseNativeProjectDocument(JSON.parse(harness.files.get(NATIVE_PROJECT_DOCUMENT_PATH)!));
+    expect(saved.sequence.tracks).toHaveLength(1);
+    expect(saved.sequence.tracks[0]).toMatchObject({ id: "track:video:zero", kind: "mixed", lane: { authoredTrack: 0, displayTrack: 0 } });
+    expect(saved.sequence.tracks[0]!.clips).toHaveLength(1);
+    expect(harness.commitFileTransaction).toHaveBeenCalledOnce();
+    expect(harness.commitFileTransaction.mock.calls[0]?.[0].history).toEqual({ label: "Add timeline asset", kind: "timeline" });
+    expect(harness.onNativeDocumentCommitted).toHaveBeenCalledOnce();
+    expect(harness.showToast).not.toHaveBeenCalledWith(expect.any(String), "error");
     await act(async () => harness.root.unmount());
   });
 

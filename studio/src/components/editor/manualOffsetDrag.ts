@@ -1,3 +1,4 @@
+import { captureNativeGestureDraft } from "../../project/nativeGestureDraft";
 import type { DomEditSelection } from "./domEditing";
 import {
   applyStudioPathOffset,
@@ -14,7 +15,7 @@ import { computeDraggedGsapPosition } from "../../hooks/draggedGsapPosition";
 
 interface OffsetDragGsap {
   set: (el: Element, vars: Record<string, number | string>) => void;
-  getProperty: (el: Element, prop: string) => number;
+  getProperty: (el: Element, prop: string, unit?: string, uncache?: boolean) => number;
 }
 
 function getOffsetDragGsap(element: HTMLElement): OffsetDragGsap | null {
@@ -48,6 +49,7 @@ function applyOffsetDragDraftViaGsap(
   // so `base + delta` would integrate frame-over-frame and fling the element.
   const { newX, newY } = computeDraggedGsapPosition(element, offset, baseGsap);
   gsap.set(element, { x: newX, y: newY });
+  captureNativeGestureDraft(element);
   return true;
 }
 
@@ -63,13 +65,17 @@ export function applyRotationDraftViaGsap(element: HTMLElement, angle: number): 
   if (!gsap) return false;
   element.style.setProperty("rotate", "none");
   gsap.set(element, { rotation: angle });
+  captureNativeGestureDraft(element);
   return true;
 }
 
 /** Current GSAP transform rotation — the single-source rotation base. 0 if gsap is unavailable. */
 export function readGsapRotation(element: HTMLElement): number {
   const gsap = getOffsetDragGsap(element);
-  return gsap ? Number(gsap.getProperty(element, "rotation")) || 0 : 0;
+  // Native frame application writes CSS directly, outside GSAP's cache. Parse
+  // the displayed transform before starting a gesture (also refreshes x/y/scale).
+  return gsap ? Number(gsap.getProperty(element, "rotation", undefined,
+    element.hasAttribute("data-studio-native-owned"))) || 0 : 0;
 }
 
 const DEFAULT_OFFSET_PROBE_PX = 100;
@@ -342,12 +348,13 @@ export function createManualOffsetDragMember(input: {
 
   const win = input.element.ownerDocument.defaultView as
     | (Window & {
-        gsap?: { getProperty?: (el: Element, prop: string) => number };
+        gsap?: { getProperty?: (el: Element, prop: string, unit?: string, uncache?: boolean) => number };
         __timelines?: Record<string, { pause?: () => void; paused?: () => boolean }>;
       })
     | null;
-  const gsapX = win?.gsap?.getProperty?.(input.element, "x") || 0;
-  const gsapY = win?.gsap?.getProperty?.(input.element, "y") || 0;
+  const nativeOwned = input.element.hasAttribute("data-studio-native-owned");
+  const gsapX = win?.gsap?.getProperty?.(input.element, "x", undefined, nativeOwned) || 0;
+  const gsapY = win?.gsap?.getProperty?.(input.element, "y", undefined, nativeOwned) || 0;
   input.element.setAttribute("data-hf-drag-gsap-base-x", String(gsapX));
   input.element.setAttribute("data-hf-drag-gsap-base-y", String(gsapY));
 

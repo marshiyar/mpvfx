@@ -12,6 +12,9 @@ import {
   nativeTimelinePropertyLanesForElement,
 } from "./nativeTimelinePropertyLaneBridge";
 
+import { mergeTimelinePropertyLanes } from "./TimelinePropertyLanes";
+import { mergeTimelineCompactKeyframes } from "./TimelineCompactDiamonds";
+
 const documentFixture = () =>
   parseNativeProjectDocument({
     schemaVersion: NATIVE_PROJECT_DOCUMENT_SCHEMA_VERSION,
@@ -19,7 +22,14 @@ const documentFixture = () =>
     revision: 2,
     frameRate: { numerator: 30, denominator: 1 },
     canvas: { width: 1920, height: 1080, background: "#111111" },
-    assets: [{ id: "asset:video", kind: "video", name: "hero.mp4", durationFrames: 300 }],
+    assets: [
+      {
+        id: "asset:video",
+        kind: "video",
+        name: "hero.mp4",
+        durationFrames: 300,
+      },
+    ],
     sequence: {
       id: "sequence:main",
       name: "Main",
@@ -50,8 +60,18 @@ const documentFixture = () =>
                   valueType: "number",
                   frameRate: { numerator: 30, denominator: 1 },
                   keyframes: [
-                    { id: "rotation:0", frame: 0, value: 0, outgoing: { type: "linear" } },
-                    { id: "rotation:60", frame: 60, value: -180, outgoing: { type: "hold" } },
+                    {
+                      id: "rotation:0",
+                      frame: 0,
+                      value: 0,
+                      outgoing: { type: "linear" },
+                    },
+                    {
+                      id: "rotation:60",
+                      frame: 60,
+                      value: -180,
+                      outgoing: { type: "hold" },
+                    },
                   ],
                 }),
                 createNativeParameterTrack({
@@ -60,7 +80,12 @@ const documentFixture = () =>
                   valueType: "number",
                   frameRate: { numerator: 30, denominator: 1 },
                   keyframes: [
-                    { id: "opacity:0", frame: 0, value: 1, outgoing: { type: "linear" } },
+                    {
+                      id: "opacity:0",
+                      frame: 0,
+                      value: 1,
+                      outgoing: { type: "linear" },
+                    },
                   ],
                 }),
               ],
@@ -86,10 +111,15 @@ const timelineElement: TimelineElement = {
 
 describe("native timeline property lane bridge", () => {
   it("maps native project groups to timeline chrome without fabricating GSAP animations", () => {
-    const projection = nativeTimelinePropertyLanesForElement(documentFixture(), timelineElement);
+    const projection = nativeTimelinePropertyLanesForElement(
+      documentFixture(),
+      timelineElement,
+    );
 
     expect(projection?.clipId).toBe("clip:hero");
-    expect(projection?.lanes.map(({ id, propertyGroup }) => [id, propertyGroup])).toEqual([
+    expect(
+      projection?.lanes.map(({ id, propertyGroup }) => [id, propertyGroup]),
+    ).toEqual([
       ["parameter:rotation", "rotation"],
       ["parameter:opacity", "visual"],
     ]);
@@ -113,12 +143,15 @@ describe("native timeline property lane bridge", () => {
   });
 
   it("marks only diamonds with a following key as eligible for outgoing interpolation", () => {
-    const rotation = nativeTimelinePropertyLanesForElement(documentFixture(), timelineElement)
-      ?.lanes.find((lane) => lane.id === "parameter:rotation");
-    expect(rotation?.keyframes.map((keyframe) => keyframe.native?.hasFollowingKeyframe)).toEqual([
-      true,
-      false,
-    ]);
+    const rotation = nativeTimelinePropertyLanesForElement(
+      documentFixture(),
+      timelineElement,
+    )?.lanes.find((lane) => lane.id === "parameter:rotation");
+    expect(
+      rotation?.keyframes.map(
+        (keyframe) => keyframe.native?.hasFollowingKeyframe,
+      ),
+    ).toEqual([true, false]);
   });
 
   it("returns null when exact scoped identity cannot resolve a native clip", () => {
@@ -140,14 +173,50 @@ describe("native timeline property lane bridge", () => {
       hfId: undefined,
       selector: undefined,
     };
-    const projections = buildNativeTimelineLaneProjectionMap(documentFixture(), [
-      timelineElement,
-      unknown,
-    ]);
+    const projections = buildNativeTimelineLaneProjectionMap(
+      documentFixture(),
+      [timelineElement, unknown],
+    );
 
     expect([...projections.keys()]).toEqual(["index.html#hero-preview"]);
     expect(nativeTimelineLaneCounts(projections)).toEqual(
       new Map([["index.html#hero-preview", 2]]),
     );
   });
+});
+
+it("suppresses legacy position diamonds owned by static native position without reserving an empty row", () => {
+  const document = documentFixture();
+  document.sequence.tracks[0]!.clips[0]!.staticParameters = {
+    "transform.position.x": -640,
+    "transform.position.y": 0,
+  };
+  const projections = buildNativeTimelineLaneProjectionMap(document, [
+    timelineElement,
+  ]);
+  const lanes = projections.get(timelineElement.key!)!.lanes;
+  const legacy = {
+    id: "legacy-position",
+    targetSelector: "#hero-preview",
+    method: "to" as const,
+    position: 1,
+    duration: 4,
+    properties: {},
+    keyframes: {
+      format: "percentage" as const,
+      keyframes: [{ percentage: 50, properties: { x: 309, y: -57 } }],
+    },
+  };
+  expect(
+    mergeTimelinePropertyLanes([legacy], lanes, 1, 4).map((row) => row.group),
+  ).toEqual(["rotation", "visual"]);
+  expect(
+    mergeTimelineCompactKeyframes(
+      { format: "percentage", keyframes: legacy.keyframes.keyframes },
+      lanes,
+    )?.keyframes.some((key) => "x" in key.properties),
+  ).toBe(false);
+  expect(nativeTimelineLaneCounts(projections).get(timelineElement.key!)).toBe(
+    2,
+  );
 });

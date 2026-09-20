@@ -6,7 +6,6 @@ import {
   CLIP_Y,
   TRACKS_TOP_PAD,
   TRACKS_BOTTOM_PAD,
-  TRACK_H,
   PLAYHEAD_HEAD_W,
   getTimelinePlayheadLeft,
   getTimelineRowTop,
@@ -40,15 +39,16 @@ interface TimelineCanvasProps extends TimelineLaneBaseProps {
 }
 
 export const TimelineCanvas = memo(function TimelineCanvas(props: TimelineCanvasProps) {
+  const mediaHeight = usePlayerStore((s) => s.timelineTrackHeight);
   const { draggedClip, scrollRef, selectedElementIds, displayTrackOrder } = props;
   const draggedRowIndex =
     draggedClip?.started === true ? displayTrackOrder.indexOf(draggedClip.previewTrack) : -1;
   const draggedRowHeight = getTimelineRowHeight(draggedRowIndex, props.rowHeights);
-  // A clip bar in an EXPANDED row still renders at TRACK_H (the property lanes
+  // A clip bar in an EXPANDED row still renders at mediaHeight (the property lanes
   // occupy the rest of the row — see TimelineLanes' clipHeight), so the drag
   // ghost and drop placeholder must clamp to it or they stretch to the full
   // expanded row height and stop matching the clip being dragged.
-  const draggedClipHeight = Math.min(draggedRowHeight, TRACK_H) - CLIP_Y * 2;
+  const draggedClipHeight = Math.min(draggedRowHeight, mediaHeight) - CLIP_Y * 2;
   const {
     onResizeElement,
     onMoveElement,
@@ -155,7 +155,7 @@ export const TimelineCanvas = memo(function TimelineCanvas(props: TimelineCanvas
               top: getTimelineRowTop(rowIndex, props.rowHeights) + CLIP_Y,
               left: props.contentOrigin + gap.start * props.pps,
               width: Math.max((gap.end - gap.start) * props.pps, 2),
-              height: TRACK_H - CLIP_Y * 2,
+              height: mediaHeight - CLIP_Y * 2,
               background: loud ? "rgba(60,230,172,0.18)" : "rgba(60,230,172,0.055)",
               borderRadius: 4,
               zIndex: 25,
@@ -227,7 +227,7 @@ export const TimelineCanvas = memo(function TimelineCanvas(props: TimelineCanvas
       />
 
       {/* Marquee (rubber-band) multi-select rectangle — mirrors the canvas
-          MarqueeOverlay look: semi-transparent accent fill + dashed border. */}
+          MarqueeOverlay look: semi-transparent accent fill + solid border. */}
       {props.marqueeRect && (
         <div
           aria-hidden="true"
@@ -238,7 +238,7 @@ export const TimelineCanvas = memo(function TimelineCanvas(props: TimelineCanvas
             width: props.marqueeRect.width,
             height: props.marqueeRect.height,
             background: "rgba(60,230,172,0.10)",
-            border: "1px dashed rgba(60,230,172,0.7)",
+            border: "1px solid var(--color-studio-accent)",
             borderRadius: 2,
             zIndex: 70,
           }}

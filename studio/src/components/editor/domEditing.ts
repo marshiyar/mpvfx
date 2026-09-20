@@ -38,7 +38,6 @@ export {
   getDomEditTargetKey,
   isTextEditableSelection,
   readHfId,
-  refreshDomEditSelection,
   resolveDomEditCapabilities,
   resolveDomEditSelection,
   serializeDomEditTextFields,

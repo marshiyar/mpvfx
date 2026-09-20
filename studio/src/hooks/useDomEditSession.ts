@@ -15,7 +15,7 @@ import { useGsapScriptCommits } from "./useGsapScriptCommits";
 import { useGsapCacheVersion } from "./useGsapTweenCache";
 import { useDomEditWiring } from "./useDomEditWiring";
 import { useGsapAwareEditing } from "./useGsapAwareEditing";
-import { useStudioSelectionPublisher } from "./useStudioSelectionPublisher";
+import { usePreviewSelectionRefresh } from "./usePreviewSelectionRefresh";
 import { useKeyframeEaseCommits } from "./useKeyframeEaseCommits";
 import type { DomEditSelection } from "../components/editor/domEditingTypes";
 import { membersForDelete } from "./domEditDeleteMembers";
@@ -155,9 +155,8 @@ export function useDomEditSession({
     refreshKey,
   });
 
-  useStudioSelectionPublisher({
+  usePreviewSelectionRefresh({
     projectId,
-    domEditSelection,
     domEditSelectionRef,
     refreshKey,
     previewDocumentVersion,
@@ -510,8 +509,8 @@ export function useDomEditSession({
   const commitNativeProject = useCallback(
     async (commit: NativeKeyframeProjectCommit): Promise<boolean> => {
       const editing = nativeProjectEditing;
-      const document = editing?.nativeDocument;
-      if (!editing || !document) return false;
+      const document = editing?.nativeDocument ?? editing?.nativeBootstrapDocument;
+      if (!editing || !document || commit.document.id !== document.id) return false;
       try {
         const repository = createNativeProjectRepository({
           readOptionalProjectFile: editing.readOptionalProjectFile,
@@ -520,7 +519,7 @@ export function useDomEditSession({
           commitFileTransaction: editing.commitFileTransaction,
         });
         const committed = await repository.save(commit.document, {
-          expectedRevision: document.revision,
+          expectedRevision: editing.nativeDocument?.revision ?? null,
           label: commit.label,
         });
         editing.onNativeDocumentCommitted?.(committed.document);

@@ -2,7 +2,7 @@ import type { MutableRefObject } from "react";
 import type { EditHistoryKind } from "../utils/editHistory";
 import { saveProjectFilesWithHistory } from "../utils/studioFileHistory";
 import { patchMediaColorGradingInHtml } from "./editor/colorGradingScopePatch";
-import { hasRelativeLutSource } from "./studioMediaJobs";
+import { hasRelativeLutSource } from "./studioMediaAssetUtils";
 
 export type ColorGradingScope = "source-file" | "project";
 export type ColorGradingScopeResult = { changedFiles: number; changedElements: number };

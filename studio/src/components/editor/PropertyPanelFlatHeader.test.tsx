@@ -33,10 +33,10 @@ function renderHeader(overrides: Partial<Parameters<typeof PropertyPanelFlatHead
 }
 
 describe("PropertyPanelFlatHeader", () => {
-  it("renders name, meta, and the mint text-type icon", () => {
+  it("renders one name without implementation metadata", () => {
     const { host, root } = renderHeader();
     expect(host.textContent).toContain("Mono Label");
-    expect(host.textContent).toContain(".mono-label · div");
+    expect(host.textContent).not.toContain(".mono-label · div");
     const icon = host.querySelector('[data-flat-header-icon="true"]');
     expect(icon?.className).toContain("text-panel-accent");
     act(() => root.unmount());
@@ -56,7 +56,7 @@ describe("PropertyPanelFlatHeader", () => {
     act(() => otherRoot.unmount());
   });
 
-  it("fires onCopy and onClear from their action buttons", () => {
+  it("keeps Clear without the redundant copy action", () => {
     const { host, root, props } = renderHeader();
     const copy = host.querySelector<HTMLButtonElement>(
       '[aria-label="Copy element info to clipboard"]',
@@ -64,7 +64,8 @@ describe("PropertyPanelFlatHeader", () => {
     const clear = host.querySelector<HTMLButtonElement>('[aria-label="Clear selection"]');
     act(() => copy?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     act(() => clear?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    expect(props.onCopy).toHaveBeenCalledTimes(1);
+    expect(copy).toBeNull();
+    expect(props.onCopy).not.toHaveBeenCalled();
     expect(props.onClear).toHaveBeenCalledTimes(1);
     act(() => root.unmount());
   });

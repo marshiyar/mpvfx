@@ -689,3 +689,15 @@ describe("TimelineLanes selection", () => {
     act(() => view.root.unmount());
   });
 });
+
+it("keeps overlapping audio and visual clips individually reachable on a mixed track", () => {
+  const { host, root } = renderLanes({ elements: [
+    { ...element("picture", 0), tag: "img" },
+    { ...element("sound", 0), tag: "audio" },
+  ] });
+  const clips = Array.from(host.querySelectorAll<HTMLButtonElement>("button.timeline-clip"));
+  expect(clips).toHaveLength(2);
+  expect(clips.map(clip => clip.style.top)).toEqual(["3px", "51px"]);
+  expect(clips.map(clip => clip.style.height)).toEqual(["42px", "42px"]);
+  act(() => root.unmount());
+});

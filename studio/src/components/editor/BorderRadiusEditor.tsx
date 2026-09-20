@@ -1,8 +1,13 @@
 import { useCallback, useState } from "react";
 import { useTrackDesignInput } from "../../contexts/DesignPanelInputContext";
 import { RotateCcw } from "../../icons/SystemIcons";
+import { FlatRow, FlatSlider } from "./propertyPanelFlatPrimitives";
 import { MetricField } from "./propertyPanelPrimitives";
-import { formatNumericValue, parseNumericValue, RESPONSIVE_GRID } from "./propertyPanelHelpers";
+import {
+  formatNumericValue,
+  parseNumericValue,
+  RESPONSIVE_GRID,
+} from "./propertyPanelHelpers";
 
 type Corner = "tl" | "tr" | "br" | "bl";
 
@@ -12,6 +17,7 @@ interface BorderRadiusEditorProps {
   br: number;
   bl: number;
   disabled?: boolean;
+  compact?: boolean;
   onCommit: (corner: Corner | "all", value: number) => void;
 }
 
@@ -34,6 +40,7 @@ export function BorderRadiusEditor({
   br,
   bl,
   disabled,
+  compact = false,
   onCommit,
 }: BorderRadiusEditorProps) {
   const track = useTrackDesignInput();
@@ -67,7 +74,11 @@ export function BorderRadiusEditor({
 
   const path = buildRoundedRectPath(PREVIEW_W, PREVIEW_H, sTL, sTR, sBR, sBL);
 
-  const radiusField = (label: string, corner: Corner | "all", value: number) => (
+  const radiusField = (
+    label: string,
+    corner: Corner | "all",
+    value: number,
+  ) => (
     <div className="group relative min-w-0">
       <MetricField
         label={label}
@@ -75,7 +86,9 @@ export function BorderRadiusEditor({
         disabled={disabled}
         liveCommit
         onCommit={(next) =>
-          corner === "all" ? handleCornerCommit("tl", next) : handleCornerCommit(corner, next)
+          corner === "all"
+            ? handleCornerCommit("tl", next)
+            : handleCornerCommit(corner, next)
         }
       />
       {value !== 0 && (
@@ -96,6 +109,55 @@ export function BorderRadiusEditor({
     </div>
   );
 
+  if (compact)
+    return (
+      <div>
+        <FlatSlider
+          label="Corners"
+          value={tl}
+          min={0}
+          max={Math.max(100, tl, tr, br, bl)}
+          displayValue={uniform ? `${formatNumericValue(tl)}px` : "Mixed"}
+          tier={tl || tr || br || bl ? "explicitCustom" : "default"}
+          disabled={disabled}
+          onCommit={(next) => onCommit("all", next)}
+          onCommitText={(next) => {
+            const value = parseNumericValue(next);
+            if (value !== null) onCommit("all", Math.max(0, value));
+          }}
+          onReset={() => onCommit("all", 0)}
+        />
+        <details>
+          <summary className="cursor-pointer text-[10px] text-panel-text-3">
+            Individual corners
+          </summary>
+          <div className="grid grid-cols-2 gap-x-2">
+            {(
+              [
+                ["Top left", "tl", tl],
+                ["Top right", "tr", tr],
+                ["Bottom left", "bl", bl],
+                ["Bottom right", "br", br],
+              ] as const
+            ).map(([label, corner, value]) => (
+              <FlatRow
+                compact
+                key={corner}
+                label={label}
+                value={`${formatNumericValue(value)}px`}
+                tier="default"
+                disabled={disabled}
+                onCommit={(next) => {
+                  const numeric = parseNumericValue(next);
+                  if (numeric !== null) onCommit(corner, Math.max(0, numeric));
+                }}
+              />
+            ))}
+          </div>
+        </details>
+      </div>
+    );
+
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-3">
@@ -111,15 +173,30 @@ export function BorderRadiusEditor({
             stroke="rgba(255,255,255,0.24)"
             strokeWidth={1.5}
           />
-          <circle cx={sTL} cy={sTL} r={3} fill={linked ? "#3b82f6" : "#a78bfa"} />
-          <circle cx={PREVIEW_W - sTR} cy={sTR} r={3} fill={linked ? "#3b82f6" : "#a78bfa"} />
+          <circle
+            cx={sTL}
+            cy={sTL}
+            r={3}
+            fill={linked ? "#3b82f6" : "#a78bfa"}
+          />
+          <circle
+            cx={PREVIEW_W - sTR}
+            cy={sTR}
+            r={3}
+            fill={linked ? "#3b82f6" : "#a78bfa"}
+          />
           <circle
             cx={PREVIEW_W - sBR}
             cy={PREVIEW_H - sBR}
             r={3}
             fill={linked ? "#3b82f6" : "#a78bfa"}
           />
-          <circle cx={sBL} cy={PREVIEW_H - sBL} r={3} fill={linked ? "#3b82f6" : "#a78bfa"} />
+          <circle
+            cx={sBL}
+            cy={PREVIEW_H - sBL}
+            r={3}
+            fill={linked ? "#3b82f6" : "#a78bfa"}
+          />
         </svg>
 
         <button

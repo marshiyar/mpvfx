@@ -8,8 +8,6 @@ export interface PreviewZoomState {
 export const MIN_PREVIEW_ZOOM_PERCENT = 100;
 export const MAX_PREVIEW_ZOOM_PERCENT = 400;
 export const PREVIEW_PAN_SURFACE_SELECTOR = '[data-preview-pan-surface="true"]';
-/** Canvas movement stops at its real edge; the player never exposes gray overscroll. */
-export const PREVIEW_PAN_OVERSCROLL_PX = 0;
 export const DEFAULT_PREVIEW_ZOOM: PreviewZoomState = {
   zoomPercent: 100,
   panX: 0,

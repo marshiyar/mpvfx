@@ -69,17 +69,10 @@ function renderSection(overrides: Partial<DomEditSelection> = {}) {
 }
 
 describe("FlatMediaSection — source row", () => {
-  it("renders the source path and copies it to clipboard on click", () => {
-    Object.defineProperty(navigator, "clipboard", {
-      value: { writeText: vi.fn().mockResolvedValue(undefined) },
-      configurable: true,
-    });
+  it("omits the repeated source path and copy action", () => {
     const { host, root } = renderSection();
-    expect(host.textContent).toContain("assets/intro-loop.mp4");
-    const copyButton = host.querySelector<HTMLButtonElement>('[data-flat-media-copy="true"]');
-    expect(copyButton).not.toBeNull();
-    act(() => copyButton?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("assets/intro-loop.mp4");
+    expect(host.textContent).not.toContain("assets/intro-loop.mp4");
+    expect(host.querySelector('[data-flat-media-copy="true"]')).toBeNull();
     act(() => root.unmount());
   });
 });
@@ -311,51 +304,13 @@ describe("FlatMediaSection — explicit crop mode", () => {
   });
 });
 
-describe("FlatMediaSection — cutout", () => {
-  it("shows the WebM label for video and fires background removal on click", async () => {
-    const onRemoveBackground = vi.fn().mockResolvedValue({ outputPath: "assets/intro-loop.webm" });
-    const onSetHtmlAttribute = vi.fn();
-    const onSetAttribute = vi.fn();
-    const host = document.createElement("div");
-    document.body.append(host);
-    const root = createRoot(host);
-    const element = makeVideoElement();
-    act(() => {
-      root.render(
-        <FlatMediaSection
-          projectDir={null}
-          element={element}
-          styles={{}}
-          onSetStyle={vi.fn()}
-          onSetAttribute={onSetAttribute}
-          onSetHtmlAttribute={onSetHtmlAttribute}
-          onRemoveBackground={onRemoveBackground}
-        />,
-      );
-    });
-    expect(host.textContent).toContain("transparent WebM");
-    const removeBgButton = host.querySelector<HTMLButtonElement>(
-      '[data-flat-media-remove-bg="true"]',
-    );
-    expect(removeBgButton).not.toBeNull();
-    await act(async () => {
-      removeBgButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    expect(onRemoveBackground).toHaveBeenCalled();
-    act(() => root.unmount());
-  });
-
-  it("toggles BG plate via FlatToggle", () => {
+describe("FlatMediaSection — background removal controls", () => {
+  it("does not render the removed cutout controls", () => {
     const { host, root } = renderSection();
-    const plateToggle = host.querySelector<HTMLButtonElement>(
-      '[data-flat-toggle="true"][aria-label="BG plate"]',
-    );
-    expect(plateToggle).not.toBeNull();
-    expect(plateToggle?.getAttribute("aria-checked")).toBe("false");
-    act(() => plateToggle?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    expect(plateToggle?.getAttribute("aria-checked")).toBe("true");
+    expect(host.textContent).not.toContain("Cutout");
+    expect(host.textContent).not.toContain("Remove BG");
+    expect(host.textContent).not.toContain("BG plate");
+    expect(host.querySelector('[data-flat-media-remove-bg="true"]')).toBeNull();
     act(() => root.unmount());
   });
 });
@@ -768,36 +723,6 @@ describe("FlatMediaSection — explicit resets", () => {
     expect(onSetHtmlAttribute).toHaveBeenNthCalledWith(2, "muted", null);
     expect(onSetAttribute).toHaveBeenCalledWith("has-audio", "");
     expect(onSetHtmlAttribute).toHaveBeenNthCalledWith(3, "muted", "true");
-    act(() => root.unmount());
-  });
-
-  it("resets cutout quality and BG plate to their operation defaults", () => {
-    const { host, root } = renderSection();
-    const quality = Array.from(host.querySelectorAll("select")).find(
-      (select) => select.getAttribute("aria-label") === "Quality",
-    );
-    expect(quality).not.toBeUndefined();
-    act(() => {
-      if (quality) {
-        quality.value = "best";
-        quality.dispatchEvent(new Event("change", { bubbles: true }));
-      }
-    });
-    const qualityReset = host.querySelector<HTMLButtonElement>('[data-flat-select-reset="true"]');
-    expect(qualityReset).not.toBeNull();
-    act(() => qualityReset?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    expect(quality?.value).toBe("balanced");
-
-    const plateToggle = host.querySelector<HTMLButtonElement>(
-      '[data-flat-toggle="true"][aria-label="BG plate"]',
-    );
-    act(() => plateToggle?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    const plateReset = host.querySelector<HTMLButtonElement>(
-      '[data-flat-media-toggle-reset="true"][aria-label="Reset BG plate"]',
-    );
-    expect(plateReset).not.toBeNull();
-    act(() => plateReset?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    expect(plateToggle?.getAttribute("aria-checked")).toBe("false");
     act(() => root.unmount());
   });
 

@@ -14,7 +14,7 @@ import {
 export type LaneValues = Record<string, number | string>;
 
 function roundValue(value: number): string {
-  return String(Math.round(value * 100) / 100);
+  return String(Math.round(value));
 }
 
 /** GSAP applies a keyframe's `ease` to the segment ARRIVING at it, so the curve
@@ -130,6 +130,7 @@ const GROUP_VALUE_READOUTS: Partial<
   Record<PropertyGroupName, (values: LaneValues) => string | null>
 > = {
   position: positionValueReadout,
+  scale: (values) => typeof values.scale === "number" ? `${roundValue(values.scale * 100)}%` : null,
   rotation: rotationValueReadout,
   visual: visualValueReadout,
 };

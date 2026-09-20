@@ -16,7 +16,9 @@ import {
 } from "./useEnableKeyframes";
 import { usePlayerStore } from "../player/store/playerStore";
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+(
+  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
 
 let cleanup: (() => void) | null = null;
 afterEach(() => {
@@ -44,12 +46,20 @@ describe("resolveNewTweenRange", () => {
   // the element's range fixes it (auto-stamp's full range passes the playhead through).
   it("anchors at the playhead through the auto-stamped full-composition range", () => {
     // data-start="0", data-duration="14" (the auto-stamp), playhead 4.9 → 4.9
-    expect(resolveNewTweenRange("0", "14", 4.9)).toEqual({ start: 4.9, duration: 9.1 });
+    expect(resolveNewTweenRange("0", "14", 4.9)).toEqual({
+      start: 4.9,
+      duration: 9.1,
+    });
   });
 
   it("anchors at the playhead when the element has no authored range", () => {
-    expect(resolveNewTweenRange(undefined, undefined, 4)).toEqual({ start: 4, duration: 1 });
-    expect(resolveNewTweenRange(undefined, undefined, 6.123456).start).toBe(6.123);
+    expect(resolveNewTweenRange(undefined, undefined, 4)).toEqual({
+      start: 4,
+      duration: 1,
+    });
+    expect(resolveNewTweenRange(undefined, undefined, 6.123456).start).toBe(
+      6.123,
+    );
   });
 
   it("never returns a negative start", () => {
@@ -58,7 +68,10 @@ describe("resolveNewTweenRange", () => {
 
   it("clamps the playhead into a genuinely narrow authored clip", () => {
     // clip [2.5, 8]: inside → playhead; before → start; after → end
-    expect(resolveNewTweenRange("2.5", "5.5", 4)).toEqual({ start: 4, duration: 4 });
+    expect(resolveNewTweenRange("2.5", "5.5", 4)).toEqual({
+      start: 4,
+      duration: 4,
+    });
     expect(resolveNewTweenRange("2.5", "5.5", 1).start).toBe(2.5);
     expect(resolveNewTweenRange("2.5", "5.5", 99).start).toBe(8);
   });
@@ -115,7 +128,9 @@ describe("isPlayheadWithinTween", () => {
   // then treated as clip-wide.
   it("spans the clip for a duration-less tween when given the selection", () => {
     const durationless = anim({ position: 0 });
-    const selection = { dataAttributes: { duration: "16" } } as unknown as DomEditSelection;
+    const selection = {
+      dataAttributes: { duration: "16" },
+    } as unknown as DomEditSelection;
 
     expect(isPlayheadWithinTween(durationless, 5)).toBe(false);
     expect(isPlayheadWithinTween(durationless, 5, selection)).toBe(true);
@@ -148,14 +163,19 @@ describe("buildExtendedKeyframes", () => {
     expect(last.percentage).toBe(100); // the new keyframe sits at the new end
     expect(last.properties).toEqual({ x: -460, y: -20 });
     expect(out.keyframes[0]!.percentage).toBe(0); // old start still anchors 0%
-    expect(out.keyframes.some((k) => k.percentage > 0 && k.percentage < 100)).toBe(true);
+    expect(
+      out.keyframes.some((k) => k.percentage > 0 && k.percentage < 100),
+    ).toBe(true);
   });
 
   it("extends the start when the playhead precedes the tween", () => {
     const out = buildExtendedKeyframes(kfAnim, 0, { x: 0, y: 0 });
     expect(out.position).toBe(0); // start moved back to the playhead
     expect(out.duration).toBe(4.4); // end (abs 4.4) unchanged
-    expect(out.keyframes[0]).toEqual({ percentage: 0, properties: { x: 0, y: 0 } });
+    expect(out.keyframes[0]).toEqual({
+      percentage: 0,
+      properties: { x: 0, y: 0 },
+    });
     // the old first stop (abs 1.0) is now partway in: 1.0 / 4.4 ≈ 22.7%
     expect(out.keyframes[1]!.percentage).toBeCloseTo(22.7, 1);
   });
@@ -170,7 +190,11 @@ describe("buildExtendedKeyframes", () => {
         easeEach: "power2.inOut",
         keyframes: [
           { percentage: 50, properties: { x: 50 }, ease: "sine.in" },
-          { percentage: adjacentFrame, properties: { x: 51 }, ease: "back.out(1.7)" },
+          {
+            percentage: adjacentFrame,
+            properties: { x: 51 },
+            ease: "back.out(1.7)",
+          },
         ],
       },
     });
@@ -181,14 +205,10 @@ describe("buildExtendedKeyframes", () => {
     // A 0.1%-rounded remap collapses each pair into one stop (49.6 / 50.4).
     // These are adjacent Studio output frames and must retain source separation.
     expect(after.keyframes.map((keyframe) => keyframe.percentage)).toEqual([
-      49.5867768595,
-      49.6143250689,
-      100,
+      49.5867768595, 49.6143250689, 100,
     ]);
     expect(before.keyframes.map((keyframe) => keyframe.percentage)).toEqual([
-      0,
-      50.4132231405,
-      50.4407713499,
+      0, 50.4132231405, 50.4407713499,
     ]);
     expect(after.keyframes[0]?.ease).toBe("sine.in");
     expect(after.keyframes[1]?.ease).toBe("back.out(1.7)");
@@ -224,7 +244,10 @@ describe("promoteSetToKeyframes — explicit authoring", () => {
 
     await promoteSetToKeyframes(session, sel, setAnim, 1, iframe);
 
-    const kfs = committed?.keyframes as Array<{ percentage: number; auto?: boolean }>;
+    const kfs = committed?.keyframes as Array<{
+      percentage: number;
+      auto?: boolean;
+    }>;
     expect(committed?.type).toBe("replace-with-keyframes");
     expect(committed?.position).toBe(1);
     expect(kfs).toEqual([{ percentage: 0, properties: { x: -74, y: -74 } }]);
@@ -297,7 +320,10 @@ describe("applyArcKeyframeAtPlayhead", () => {
     } as DomEditSelection;
     const iframe = {
       contentWindow: {
-        gsap: { getProperty: (_element: Element, property: string) => (property === "x" ? x : y) },
+        gsap: {
+          getProperty: (_element: Element, property: string) =>
+            property === "x" ? x : y,
+        },
       },
     } as unknown as HTMLIFrameElement;
     return { commitMutation, iframe, sel, session };
@@ -305,7 +331,13 @@ describe("applyArcKeyframeAtPlayhead", () => {
 
   it("removes an existing interior stop without redistributing the remaining times", async () => {
     const fixture = arcFixture(50, 50);
-    await applyArcKeyframeAtPlayhead(fixture.session, fixture.sel, arcAnim, 5, fixture.iframe);
+    await applyArcKeyframeAtPlayhead(
+      fixture.session,
+      fixture.sel,
+      arcAnim,
+      5,
+      fixture.iframe,
+    );
     expect(fixture.commitMutation).toHaveBeenCalledWith(
       {
         type: "replace-with-keyframes",
@@ -325,13 +357,25 @@ describe("applyArcKeyframeAtPlayhead", () => {
 
   it("preserves the path endpoints", async () => {
     const fixture = arcFixture(0, 0);
-    await applyArcKeyframeAtPlayhead(fixture.session, fixture.sel, arcAnim, 0, fixture.iframe);
+    await applyArcKeyframeAtPlayhead(
+      fixture.session,
+      fixture.sel,
+      arcAnim,
+      0,
+      fixture.iframe,
+    );
     expect(fixture.commitMutation).not.toHaveBeenCalled();
   });
 
   it("adds a temporal keyframe at the exact playhead while preserving authored times", async () => {
     const fixture = arcFixture(25, 25);
-    await applyArcKeyframeAtPlayhead(fixture.session, fixture.sel, arcAnim, 2.5, fixture.iframe);
+    await applyArcKeyframeAtPlayhead(
+      fixture.session,
+      fixture.sel,
+      arcAnim,
+      2.5,
+      fixture.iframe,
+    );
     expect(fixture.commitMutation).toHaveBeenCalledWith(
       {
         type: "replace-with-keyframes",
@@ -367,14 +411,18 @@ describe("applyArcKeyframeAtPlayhead", () => {
       expect.objectContaining({
         type: "replace-with-keyframes",
         duration: 10,
-        keyframes: expect.arrayContaining([{ percentage: 25, properties: { x: 25, y: 25 } }]),
+        keyframes: expect.arrayContaining([
+          { percentage: 25, properties: { x: 25, y: 25 } },
+        ]),
       }),
       { label: "Add keyframe", softReload: true },
     );
   });
 });
 
-function renderEnableKeyframes(session: EnableKeyframesSession): () => Promise<void> {
+function renderEnableKeyframes(
+  session: EnableKeyframesSession,
+): () => Promise<void> {
   let enable: (() => Promise<void>) | null = null;
   function Probe() {
     const sessionRef = useRef<EnableKeyframesSession | undefined>(session);
@@ -415,7 +463,12 @@ describe("useEnableKeyframes — flat tween transaction", () => {
     window.location.hash = "#/project/test-project";
     usePlayerStore.setState({ currentTime: 3 });
     const selection = makeElementSelection();
-    const flat = anim({ id: "flat-single", position: 1, duration: 1, properties: { x: 10 } });
+    const flat = anim({
+      id: "flat-single",
+      position: 1,
+      duration: 1,
+      properties: { x: 10 },
+    });
     flatTweenResponse(flat);
     const handleConvert = vi.fn(async () => undefined);
     const commitMutation = vi.fn(async () => undefined);
@@ -444,7 +497,6 @@ describe("useEnableKeyframes — flat tween transaction", () => {
       keyframes: [{ percentage: 0, properties: { x: 10 } }],
     });
   });
-
 });
 
 describe("useEnableKeyframes — frame-identity toggle", () => {
@@ -470,7 +522,10 @@ describe("useEnableKeyframes — frame-identity toggle", () => {
     });
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => ({ ok: true, json: async () => ({ animations: [keyframed] }) })),
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ animations: [keyframed] }),
+      })),
     );
     const remove = vi.fn();
     const add = vi.fn(async () => undefined);
@@ -491,7 +546,12 @@ describe("useEnableKeyframes — frame-identity toggle", () => {
     await act(async () => enable());
 
     expect(remove).not.toHaveBeenCalled();
-    expect(add).toHaveBeenCalledWith("long-keyframed", 50.5, { x: 6 }, undefined);
+    expect(add).toHaveBeenCalledWith(
+      "long-keyframed",
+      50.5,
+      { x: 6 },
+      undefined,
+    );
   });
 
   it("extends a 120s tween without merging adjacent source frames or dropping easing", async () => {
@@ -509,7 +569,11 @@ describe("useEnableKeyframes — frame-identity toggle", () => {
         easeEach: "power2.inOut",
         keyframes: [
           { percentage: 50, properties: { x: 50 }, ease: "sine.in" },
-          { percentage: adjacentFrame, properties: { x: 51 }, ease: "back.out(1.7)" },
+          {
+            percentage: adjacentFrame,
+            properties: { x: 51 },
+            ease: "back.out(1.7)",
+          },
         ],
       },
     });
@@ -537,7 +601,11 @@ describe("useEnableKeyframes — frame-identity toggle", () => {
         easeEach: "power2.inOut",
         keyframes: [
           { percentage: 49.5867768595, properties: { x: 50 }, ease: "sine.in" },
-          { percentage: 49.6143250689, properties: { x: 51 }, ease: "back.out(1.7)" },
+          {
+            percentage: 49.6143250689,
+            properties: { x: 51 },
+            ease: "back.out(1.7)",
+          },
           { percentage: 100, properties: { x: 101 } },
         ],
       }),
@@ -583,9 +651,123 @@ describe("useEnableKeyframes — new tween on a class-only element", () => {
 
     await act(async () => enable());
 
-    const mutation = commitMutation.mock.calls[0]?.[0] as { targetSelector: string };
+    const mutation = commitMutation.mock.calls[0]?.[0] as {
+      targetSelector: string;
+    };
     expect(mutation?.targetSelector).toBeTruthy();
     expect(document.querySelectorAll(mutation.targetSelector)).toHaveLength(1);
     expect(document.querySelector(mutation.targetSelector)).toBe(groups[3]);
+  });
+});
+
+// The toolbar must use the same authority as the inspector and preview.
+describe("useEnableKeyframes — native position", () => {
+  function nativeSession() {
+    const selection = makeElementSelection();
+    const commitKeyframeProperties = vi.fn(async () => undefined);
+    const deleteNativeKeyframes = vi.fn(async () => undefined);
+    const commitMutation = vi.fn(async () => undefined);
+    const nativeProjectDocument = {
+      schemaVersion: 1,
+      id: "project:test",
+      revision: 1,
+      frameRate: { numerator: 30, denominator: 1 },
+      canvas: { width: 1920, height: 1080, background: "#000" },
+      assets: [{ id: "asset", kind: "image", name: "card.svg" }],
+      sequence: {
+        id: "sequence",
+        name: "Main",
+        tracks: [
+          {
+            id: "track",
+            kind: "video",
+            clips: [
+              {
+                id: "clip",
+                assetId: "asset",
+                startFrame: 143,
+                durationFrames: 120,
+                sourceInFrame: 0,
+                muted: false,
+                effects: [],
+                binding: { domId: "el", sourceFile: "index.html" },
+                staticParameters: {
+                  "transform.position.x": -640,
+                  "transform.position.y": 0,
+                },
+                parameterTracks: [],
+              },
+            ],
+          },
+        ],
+      },
+    } as import("../project/nativeProjectDocument").NativeProjectDocument;
+    return {
+      domEditSelection: selection,
+      selectedGsapAnimations: [anim({ properties: { x: 309, y: -57 } })],
+      handleGsapAddAnimation: vi.fn(),
+      handleGsapConvertToKeyframes: vi.fn(),
+      handleGsapRemoveKeyframe: vi.fn(),
+      nativeProjectDocument,
+      commitKeyframeProperties,
+      deleteNativeKeyframes,
+      commitMutation,
+    };
+  }
+
+  it("captures native position without writing a competing legacy tween", async () => {
+    usePlayerStore.setState({ currentTime: 5.392 });
+    const session = nativeSession();
+    await renderEnableKeyframes(session)();
+    expect(session.commitKeyframeProperties).toHaveBeenCalledWith(
+      session.domEditSelection,
+      { x: -640, y: 0 },
+    );
+    expect(session.commitMutation).not.toHaveBeenCalled();
+  });
+
+  it("removes coincident native X/Y keys atomically at the current output frame", async () => {
+    usePlayerStore.setState({ currentTime: 5.392 });
+    const session = nativeSession();
+    session.nativeProjectDocument.sequence.tracks[0]!.clips[0]!.parameterTracks =
+      ["x", "y"].map((axis) => ({
+        schemaVersion: 1,
+        id: axis,
+        parameterId: `transform.position.${axis}`,
+        valueType: "number",
+        frameRate: { numerator: 30, denominator: 1 },
+        keyframes: [
+          {
+            id: axis + ":18",
+            frame: 18,
+            value: 0,
+            outgoing: { type: "linear" },
+          },
+        ],
+      }));
+    await renderEnableKeyframes(session)();
+    expect(session.deleteNativeKeyframes).toHaveBeenCalledWith(
+      ["x", "y"].map((axis) => ({
+        sequenceId: "sequence",
+        trackId: "track",
+        clipId: "clip",
+        parameterId: `transform.position.${axis}`,
+        frame: 18,
+      })),
+    );
+    expect(session.commitMutation).not.toHaveBeenCalled();
+    expect(session.commitKeyframeProperties).not.toHaveBeenCalled();
+  });
+
+  it("does not fall back to the legacy writer when a native save rejects", async () => {
+    usePlayerStore.setState({ currentTime: 5.392 });
+    const session = nativeSession();
+    session.commitKeyframeProperties.mockRejectedValue(
+      new Error("Disk unavailable"),
+    );
+    await expect(renderEnableKeyframes(session)()).rejects.toThrow(
+      "Disk unavailable",
+    );
+    expect(session.commitMutation).not.toHaveBeenCalled();
   });
 });

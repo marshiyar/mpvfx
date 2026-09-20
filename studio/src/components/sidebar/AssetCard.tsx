@@ -365,11 +365,6 @@ export function FontRow({
           </span>
           <div className="flex items-center gap-1.5">
             <span className="text-[10px] text-neutral-600 truncate">{extension}</span>
-            {used && (
-              <span className="text-[9px] font-medium text-panel-accent bg-panel-accent/10 px-1.5 py-px rounded">
-                in use
-              </span>
-            )}
             <CopyChip feedback={copyFeedback} asset={asset} />
           </div>
         </div>

@@ -3,7 +3,6 @@
 export {
   STUDIO_MOTION_PATH,
   STUDIO_MOTION_TIMELINE_ID,
-  STUDIO_GSAP_EASE_OPTIONS,
   type StudioMotionTarget,
   type StudioGsapMotionValues,
   type StudioGsapCustomEase,

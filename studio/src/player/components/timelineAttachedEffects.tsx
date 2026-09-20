@@ -1,3 +1,4 @@
+import { usePlayerStore } from "../store/playerStore";
 import { memo } from "react";
 import {
   hasHfColorGradingAuthoredValues,
@@ -8,7 +9,7 @@ import { resolveNativeClipSelection } from "../../project/nativePropertyEditPlan
 import type { TimelineElement } from "../store/playerStore";
 import { elementFxChain } from "./automationLaneData";
 import { timelineNestedStripColor } from "./timelineNestedStrip";
-import { EFFECT_STRIP_H, TRACK_H } from "./timelineLayout";
+import { EFFECT_STRIP_H } from "./timelineLayout";
 
 export interface TimelineAttachedEffect {
   id: string;
@@ -83,12 +84,15 @@ export function timelineAttachedEffectLaneCount(
 export const TimelineAttachedEffectStrips = memo(function TimelineAttachedEffectStrips({
   element,
   nativeEffects,
+  mediaRowCount = 1,
   pps,
 }: {
   element: TimelineElement;
   nativeEffects?: readonly NativeClipEffect[];
   pps: number;
+  mediaRowCount?: number;
 }) {
+  const mediaHeight = usePlayerStore((s) => s.timelineTrackHeight);
   const effects = timelineAttachedEffects(element, nativeEffects);
   if (effects.length === 0) return null;
   return (
@@ -99,7 +103,7 @@ export const TimelineAttachedEffectStrips = memo(function TimelineAttachedEffect
       className="pointer-events-none absolute z-[6] overflow-hidden"
       style={{
         left: element.start * pps,
-        top: TRACK_H,
+        top: mediaHeight * mediaRowCount,
         width: Math.max(element.duration * pps, 4),
         height: effects.length * EFFECT_STRIP_H,
       }}

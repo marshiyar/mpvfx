@@ -18,8 +18,6 @@ import {
   type ResolvedProject,
   type RenderJobState,
   type StudioApiAdapter,
-  type BackgroundRemovalRender,
-  createBackgroundRemovalJob,
   createProjectSignature,
   affectsProjectSignature,
 } from "@hyperframes/studio-server";
@@ -49,7 +47,6 @@ import { planSinglePassExportDimensions } from "./vite.export-single-pass";
 import { buildStudioExportPerformanceProfile } from "./vite.export-performance-profile";
 import { tryDirectMediaExport } from "./vite.direct-media-export";
 import type { ExportDimensions, ExportFormat } from "./src/utils/exportPolicy";
-import { render as renderBackgroundRemoval } from "./desktop/backgroundRemoval/pipeline";
 
 function isPathWithin(parentDir: string, childPath: string): boolean {
   const childRelativePath = relative(resolve(parentDir), resolve(childPath));
@@ -109,6 +106,25 @@ export function resolveStandaloneRenderDimensionPlan(input: {
     resizeDimensions: null,
     outputResolution: singlePass.outputResolution,
   };
+}
+
+/** Vite remains a development host; packaged Electron uses the same adapter directly. */
+export function createViteAdapter(
+  dataDir: string,
+  server: ViteDevServer,
+  signatureCache: ProjectSignatureCache,
+): StandaloneViteAdapter {
+  return createStandaloneAdapter(
+    dataDir,
+    {
+      studioDir: __dirname,
+      async loadModule<T>(specifier: string): Promise<T> {
+        return (await server.ssrLoadModule(specifier)) as T;
+      },
+      onClose: (listener) => server.httpServer?.once("close", listener),
+    },
+    signatureCache,
+  );
 }
 
 /**
@@ -174,7 +190,6 @@ export interface StandaloneViteAdapter extends StudioApiAdapter {
 export interface StandaloneAdapterHost {
   studioDir: string;
   loadModule<T = Record<string, unknown>>(specifier: string): Promise<T>;
-  renderBackgroundRemoval?: BackgroundRemovalRender;
   onClose?(listener: () => void): void;
 }
 
@@ -470,12 +485,13 @@ export function createStandaloneAdapter(
               removeCancelledOutput();
               return;
             }
+            const renderBodyScripts = createStudioDevRenderBodyScripts(opts.project.dir);
             const producerProjectDir = createNativeProjectExportMaterialization(
               opts.project.dir,
               join(staging.directory, "native-project"),
               staging.directory,
+              { renderBodyScripts, entryFile: opts.composition ?? "index.html" },
             );
-            const renderBodyScripts = createStudioDevRenderBodyScripts(producerProjectDir);
             const producerConfig = buildStandaloneProducerRenderConfig({
               fps: opts.fps,
               quality: opts.quality as "draft" | "standard" | "high",
@@ -577,13 +593,6 @@ export function createStandaloneAdapter(
       return state;
     },
 
-    startBackgroundRemoval(opts) {
-      return createBackgroundRemovalJob(
-        opts,
-        host.renderBackgroundRemoval ?? renderBackgroundRemoval,
-      );
-    },
-
     async generateThumbnail(opts) {
       return generateThumbnail(opts);
     },
@@ -667,23 +676,4 @@ export function createStandaloneAdapter(
       return { written, block };
     },
   };
-}
-
-/** Vite remains a development host; packaged Electron uses the same adapter directly. */
-export function createViteAdapter(
-  dataDir: string,
-  server: ViteDevServer,
-  signatureCache: ProjectSignatureCache,
-): StandaloneViteAdapter {
-  return createStandaloneAdapter(
-    dataDir,
-    {
-      studioDir: __dirname,
-      async loadModule<T>(specifier: string): Promise<T> {
-        return (await server.ssrLoadModule(specifier)) as T;
-      },
-      onClose: (listener) => server.httpServer?.once("close", listener),
-    },
-    signatureCache,
-  );
 }

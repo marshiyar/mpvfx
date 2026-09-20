@@ -194,7 +194,7 @@ describe("native timeline asset insertion planner", () => {
     expect(JSON.stringify(before)).toBe(snapshot);
   });
 
-  it("rejects an occupied lane whose media kind is incompatible", () => {
+  it("inserts audio onto the existing video track without moving its lane", () => {
     const result = planNativeTimelineAssetInsertions({
       document: project(),
       insertions: [insertion({
@@ -204,7 +204,24 @@ describe("native timeline asset insertion planner", () => {
         requestedTrack: 0,
       })],
     });
-    expect(result).toMatchObject({ ok: false, failure: { code: "incompatible-lane" } });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.document.sequence.tracks).toHaveLength(1);
+    expect(result.document.sequence.tracks[0]).toMatchObject({ id: "track:existing", kind: "mixed", lane: { authoredTrack: 0, displayTrack: 0 } });
+    expect(result.document.sequence.tracks[0]!.clips).toHaveLength(2);
+  });
+
+  it("inserts video and audio together into one new requested row", () => {
+    const result = planNativeTimelineAssetInsertions({ document: project(), insertions: [
+      insertion({ requestedTrack: 8, binding: { sourceFile: "index.html", domId: "new-video" } }),
+      insertion({ requestedTrack: 8, kind: "audio", assetPath: "voice.wav", binding: { sourceFile: "index.html", domId: "new-audio" } }),
+    ] });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const tracks = result.document.sequence.tracks.filter(track => track.lane?.authoredTrack === 8);
+    expect(tracks).toHaveLength(1);
+    expect(tracks[0]).toMatchObject({ kind: "mixed", clips: expect.any(Array) });
+    expect(tracks[0]!.clips).toHaveLength(2);
   });
 
   it("rejects deterministic asset, clip, and track identity collisions", () => {

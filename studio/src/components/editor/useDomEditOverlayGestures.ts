@@ -1,3 +1,4 @@
+import { captureNativeGestureDraft } from "../../project/nativeGestureDraft";
 // fallow-ignore-file code-duplication
 /**
  * Gesture handling for DomEditOverlay.
@@ -69,11 +70,6 @@ import {
 } from "../../utils/dragDebug";
 import { createGroupDragMover } from "./groupDragMove";
 import { DomEditSaveQueueOpenError } from "../../utils/domEditSaveQueue";
-import {
-  constrainMediaDragDelta,
-  constrainMediaResizeSize,
-  isCanvasBoundMediaElement,
-} from "./mediaCanvasContainment";
 
 function logGestureCommitFailure(message: string, error: unknown): void {
   if (error instanceof DomEditSaveQueueOpenError) return;
@@ -218,7 +214,7 @@ export function createDomEditOverlayGestureHandlers(
       // unpredictably. Rotation ~0 keeps snapping exactly as before.
       const dragRotated =
         Math.abs(g.actualRotation) >= ROTATED_SNAP_BYPASS_DEGREES;
-      if (!dragRotated && sc?.snapEnabled && sc.targets.length > 0) {
+      if (!dragRotated && sc?.snapEnabled) {
         // Snap the element's VISIBLE (crop-hugged) edges, not the full bounds.
         const movingRect = hugOrientedRectForElement(
           {
@@ -262,27 +258,6 @@ export function createDomEditOverlayGestureHandlers(
               threshold: SNAP_THRESHOLD_PX,
             });
         opts.snapGuidesRef.current = { guides: snap.guides, spacingGuides };
-      }
-      if (sc?.compositionTarget && isCanvasBoundMediaElement(sel.element)) {
-        const visibleRect = hugOrientedRectForElement(
-          {
-            left: g.originLeft,
-            top: g.originTop,
-            width: g.originWidth,
-            height: g.originHeight,
-            editScaleX: g.editScaleX,
-            editScaleY: g.editScaleY,
-            angle: g.actualRotation,
-          },
-          sel.element,
-        );
-        const contained = constrainMediaDragDelta({
-          rect: visibleRect,
-          canvas: sc.compositionTarget,
-          proposed: { dx, dy },
-        });
-        dx = contained.dx;
-        dy = contained.dy;
       }
       g.lastSnappedDx = dx;
       g.lastSnappedDy = dy;
@@ -333,61 +308,6 @@ export function createDomEditOverlayGestureHandlers(
         pointerStart: { x: g.startX, y: g.startY },
         centerStart: { x: g.centerX, y: g.centerY },
       });
-      const compositionTarget = g.snapContext?.compositionTarget;
-      if (compositionTarget && isCanvasBoundMediaElement(sel.element)) {
-        if (g.resizeCrop) {
-          const desiredInsets = scaleCropInsetsForBoxResize({
-            insets: g.resizeCrop.initial,
-            from: { width: g.actualWidth, height: g.actualHeight },
-            to: nextSize,
-          });
-          const desiredVisible = {
-            width: Math.max(
-              0,
-              nextSize.width - desiredInsets.left - desiredInsets.right,
-            ),
-            height: Math.max(
-              0,
-              nextSize.height - desiredInsets.top - desiredInsets.bottom,
-            ),
-          };
-          const constrainedVisible = constrainMediaResizeSize({
-            desired: desiredVisible,
-            center: {
-              x: g.interactionLeft + g.interactionWidth / 2,
-              y: g.interactionTop + g.interactionHeight / 2,
-            },
-            angle: g.actualRotation,
-            displayScaleX: g.editScaleX * g.contentScaleX,
-            displayScaleY: g.editScaleY * g.contentScaleY,
-            canvas: compositionTarget,
-          });
-          const factor = Math.min(
-            desiredVisible.width > 0
-              ? constrainedVisible.width / desiredVisible.width
-              : 1,
-            desiredVisible.height > 0
-              ? constrainedVisible.height / desiredVisible.height
-              : 1,
-          );
-          nextSize = {
-            width: nextSize.width * factor,
-            height: nextSize.height * factor,
-          };
-        } else {
-          nextSize = constrainMediaResizeSize({
-            desired: nextSize,
-            center: {
-              x: g.originLeft + g.originWidth / 2,
-              y: g.originTop + g.originHeight / 2,
-            },
-            angle: g.actualRotation,
-            displayScaleX: g.editScaleX * g.contentScaleX,
-            displayScaleY: g.editScaleY * g.contentScaleY,
-            canvas: compositionTarget,
-          });
-        }
-      }
       applyStudioBoxSizeDraft(sel.element, nextSize);
       applyResizeCrop(g, sel.element, nextSize);
 
@@ -405,6 +325,7 @@ export function createDomEditOverlayGestureHandlers(
         iframe,
         measureOrientedRect,
       );
+      captureNativeGestureDraft(sel.element);
       const draftRect = hugOrientedRectForElement(sourceDraftRect, sel.element);
       logResizeMove({
         pointer: { x: e.clientX, y: e.clientY },

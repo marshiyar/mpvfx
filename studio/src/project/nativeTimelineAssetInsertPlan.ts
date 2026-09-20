@@ -251,14 +251,8 @@ export function planNativeTimelineAssetInsertions(
         track.lane?.authoredTrack === insertion.requestedTrack ||
         track.lane?.displayTrack === insertion.requestedTrack,
     );
-    if (laneOwner && laneOwner.kind !== trackKind) {
-      return fail(
-        "incompatible-lane",
-        `Track ${insertion.requestedTrack} is occupied by ${laneOwner.kind} media`,
-        insertionIndex,
-      );
-    }
-    const trackId = laneOwner?.id ?? stableTrackId(insertion.requestedTrack, trackKind);
+    const newLaneKinds = new Set(input.insertions.filter(entry => entry.requestedTrack === insertion.requestedTrack).map(entry => trackKindFor(entry.kind)));
+    const trackId = laneOwner?.id ?? stableTrackId(insertion.requestedTrack, newLaneKinds.size > 1 ? "mixed" : trackKind);
     const collidingTrack = input.document.sequence.tracks.find((track) => track.id === trackId);
     if (!laneOwner && collidingTrack) {
       return fail("identity-collision", `Deterministic track ID ${trackId} already exists`, insertionIndex);
@@ -333,6 +327,7 @@ export function planNativeTimelineAssetInsertions(
       tracks.push(track);
       newTrackIds.add(track.id);
     }
+    if (track.kind !== candidate.trackKind) track.kind = "mixed";
     const clip: NativeProjectClip = {
       id: candidate.clipId,
       assetId: candidate.assetId,

@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef } from "react";
-import { Magnet, MagnifyingGlassMinus, MagnifyingGlassPlus } from "@phosphor-icons/react";
+import {
+  Magnet,
+  MagnifyingGlassMinus,
+  MagnifyingGlassPlus,
+} from "@phosphor-icons/react";
 import {
   useEnableKeyframes,
+  nativeToolbarPosition,
   isPlayheadWithinTween,
   type EnableKeyframesSession,
 } from "../hooks/useEnableKeyframes";
@@ -31,14 +36,19 @@ import type { NativeProjectDocument } from "../project/nativeProjectDocument";
 import type { NativeKeyframeProjectCommit } from "../player/components/deleteSelectedKeyframes";
 import { timelineKeyframeTargetFromSelectionKey } from "../player/components/timelineKeyframeIdentity";
 import { canSplitElement } from "../utils/timelineElementSplit";
-import { canAddBeatAt, addBeatAtCompositionTime } from "../utils/beatEditActions";
+import {
+  canAddBeatAt,
+  addBeatAtCompositionTime,
+} from "../utils/beatEditActions";
 
 interface DomEditSessionSlice extends EnableKeyframesSession {
   domEditSelection: DomEditSelection | null;
   selectedGsapAnimations: GsapAnimation[];
   handleGsapMoveKeyframes?: NudgeSelectedKeyframesSession["handleGsapMoveKeyframes"];
   nativeDocument?: NativeProjectDocument | null;
-  commitNativeProject?: (commit: NativeKeyframeProjectCommit) => Promise<boolean>;
+  commitNativeProject?: (
+    commit: NativeKeyframeProjectCommit,
+  ) => Promise<boolean>;
 }
 
 interface TimelineToolbarProps {
@@ -71,9 +81,15 @@ function isMotionPathEndpoint(
   const start = resolveTweenStart(animation) ?? 0;
   return (
     (keyframes[0] !== undefined &&
-      keyframeIsAtOutputTime(keyframes[0].percentage, currentTime, { start, duration })) ||
+      keyframeIsAtOutputTime(keyframes[0].percentage, currentTime, {
+        start,
+        duration,
+      })) ||
     (keyframes.at(-1) !== undefined &&
-      keyframeIsAtOutputTime(keyframes.at(-1)!.percentage, currentTime, { start, duration }))
+      keyframeIsAtOutputTime(keyframes.at(-1)!.percentage, currentTime, {
+        start,
+        duration,
+      }))
   );
 }
 
@@ -82,24 +98,51 @@ function resolveKeyframeToggleState(
   currentTime: number,
 ): KeyframeToggleState {
   if (!session?.domEditSelection) return NO_KEYFRAME_TOGGLE;
+  const native = nativeToolbarPosition(session, currentTime);
+  if (native)
+    return {
+      state: native.active ? "active" : "inactive",
+      isMotionPath: false,
+      pathEndpoint: false,
+      willExtend: false,
+    };
   const arcAnimation = session.selectedGsapAnimations.find(
     (animation) => animation.arcPath && animation.keyframes,
   );
   const animation =
     arcAnimation ??
-    session.selectedGsapAnimations.find((candidate) => candidate.keyframes && !candidate.arcPath);
+    session.selectedGsapAnimations.find(
+      (candidate) => candidate.keyframes && !candidate.arcPath,
+    );
   if (!animation?.keyframes) return NO_KEYFRAME_TOGGLE;
 
   const isMotionPath = Boolean(arcAnimation);
-  if (!isPlayheadWithinTween(animation, currentTime, session.domEditSelection)) {
-    return { state: "inactive", isMotionPath, pathEndpoint: false, willExtend: true };
+  if (
+    !isPlayheadWithinTween(animation, currentTime, session.domEditSelection)
+  ) {
+    return {
+      state: "inactive",
+      isMotionPath,
+      pathEndpoint: false,
+      willExtend: true,
+    };
   }
 
-  const duration = resolveEditableTweenDuration(animation, session.domEditSelection);
+  const duration = resolveEditableTweenDuration(
+    animation,
+    session.domEditSelection,
+  );
   const start = resolveTweenStart(animation) ?? 0;
-  const pathEndpoint = isMotionPathEndpoint(arcAnimation, currentTime, session.domEditSelection);
-  const active = animation.keyframes.keyframes.some(
-    (keyframe) => keyframeIsAtOutputTime(keyframe.percentage, currentTime, { start, duration }),
+  const pathEndpoint = isMotionPathEndpoint(
+    arcAnimation,
+    currentTime,
+    session.domEditSelection,
+  );
+  const active = animation.keyframes.keyframes.some((keyframe) =>
+    keyframeIsAtOutputTime(keyframe.percentage, currentTime, {
+      start,
+      duration,
+    }),
   );
   return {
     state: pathEndpoint ? "none" : active ? "active" : "inactive",
@@ -132,25 +175,38 @@ function useKeyframeToggle(session?: DomEditSessionSlice) {
     sessionRef as React.RefObject<EnableKeyframesSession | undefined>,
   );
 
-  const selected = elements.find((element) => (element.key ?? element.id) === selectedElementId);
-  if (!isKeyframeable(selected)) return { ...NO_KEYFRAME_TOGGLE, onToggle: undefined };
+  const selected = elements.find(
+    (element) => (element.key ?? element.id) === selectedElementId,
+  );
+  if (!isKeyframeable(selected))
+    return { ...NO_KEYFRAME_TOGGLE, onToggle: undefined };
 
   const toggleState = resolveKeyframeToggleState(session, currentTime);
 
   return {
     ...toggleState,
-    onToggle: session?.domEditSelection && !toggleState.pathEndpoint ? onToggle : undefined,
+    onToggle:
+      session?.domEditSelection && !toggleState.pathEndpoint
+        ? onToggle
+        : undefined,
   };
 }
 
 // fallow-ignore-next-line complexity
-export function TimelineToolbar({ domEditSession, onSplitElement }: TimelineToolbarProps) {
+export function TimelineToolbar({
+  domEditSession,
+  onSplitElement,
+}: TimelineToolbarProps) {
   const activeTool = usePlayerStore((s) => s.activeTool);
   const setActiveTool = usePlayerStore((s) => s.setActiveTool);
   const timelineSnapEnabled = usePlayerStore((s) => s.timelineSnapEnabled);
-  const setTimelineSnapEnabled = usePlayerStore((s) => s.setTimelineSnapEnabled);
+  const setTimelineSnapEnabled = usePlayerStore(
+    (s) => s.setTimelineSnapEnabled,
+  );
   const autoKeyframeEnabled = usePlayerStore((s) => s.autoKeyframeEnabled);
-  const setAutoKeyframeEnabled = usePlayerStore((s) => s.setAutoKeyframeEnabled);
+  const setAutoKeyframeEnabled = usePlayerStore(
+    (s) => s.setAutoKeyframeEnabled,
+  );
   // Subscribe so the add-beat button reacts to playhead movement and analysis load.
   const currentTime = usePlayerStore((s) => s.currentTime);
   const beatAnalysisReady = usePlayerStore((s) => s.beatAnalysis !== null);
@@ -159,7 +215,8 @@ export function TimelineToolbar({ domEditSession, onSplitElement }: TimelineTool
   const selectedElementId = usePlayerStore((s) => s.selectedElementId);
   const elements = usePlayerStore((s) => s.elements);
   const timelineFitPps = usePlayerStore((s) => s.timelineFitPps);
-  const { zoomMode, manualZoomPercent, setZoomMode, setManualZoomPercent } = useTimelineZoom();
+  const { zoomMode, manualZoomPercent, setZoomMode, setManualZoomPercent } =
+    useTimelineZoom();
   const displayedTimelineZoomPercent = getTimelineZoomPercent(
     zoomMode,
     manualZoomPercent,
@@ -173,21 +230,29 @@ export function TimelineToolbar({ domEditSession, onSplitElement }: TimelineTool
     onToggle: onToggleKeyframe,
   } = useKeyframeToggle(domEditSession);
 
+  const nativePositionAction =
+    nativeToolbarPosition(domEditSession, currentTime) !== null;
+
+  const trackHeight = usePlayerStore((s) => s.timelineTrackHeight);
+  const setTrackHeight = usePlayerStore((s) => s.setTimelineTrackHeight);
   const selectedKeyframes = usePlayerStore((s) => s.selectedKeyframes);
   const hasNativeSelectedKeyframe = Boolean(
     selectedElementId &&
-      [...selectedKeyframes].some(
-        (key) => timelineKeyframeTargetFromSelectionKey(selectedElementId, key)?.native,
-      ),
+    [...selectedKeyframes].some(
+      (key) =>
+        timelineKeyframeTargetFromSelectionKey(selectedElementId, key)?.native,
+    ),
   );
 
   const canNudgeSelectedKeyframes = Boolean(
     domEditSession?.domEditSelection &&
-      ((domEditSession.handleGsapMoveKeyframes &&
-        domEditSession.selectedGsapAnimations.some((animation) => animation.keyframes)) ||
-        (hasNativeSelectedKeyframe &&
-          domEditSession.nativeDocument &&
-          domEditSession.commitNativeProject)),
+    ((domEditSession.handleGsapMoveKeyframes &&
+      domEditSession.selectedGsapAnimations.some(
+        (animation) => animation.keyframes,
+      )) ||
+      (hasNativeSelectedKeyframe &&
+        domEditSession.nativeDocument &&
+        domEditSession.commitNativeProject)),
   );
   const onNudgeSelectedKeyframe = useCallback(
     (direction: -1 | 1, large: boolean) => {
@@ -209,7 +274,9 @@ export function TimelineToolbar({ domEditSession, onSplitElement }: TimelineTool
   useKeyframeKeyboard({
     enabled: Boolean(onToggleKeyframe) || canNudgeSelectedKeyframes,
     onAddKeyframe: onToggleKeyframe,
-    onNudgeKeyframe: canNudgeSelectedKeyframes ? onNudgeSelectedKeyframe : undefined,
+    onNudgeKeyframe: canNudgeSelectedKeyframes
+      ? onNudgeSelectedKeyframe
+      : undefined,
   });
 
   // "N" toggles timeline snapping (industry convention: Resolve/FCP).
@@ -232,7 +299,8 @@ export function TimelineToolbar({ domEditSession, onSplitElement }: TimelineTool
 
   // CapCut-flat icon buttons: no per-button border/box chrome — a transparent
   // 28px hit area with a subtle rounded hover wash, consistent 16px glyphs.
-  const flatBtn = "flex h-7 w-7 items-center justify-center rounded-md transition-colors";
+  const flatBtn =
+    "flex h-7 w-7 items-center justify-center rounded-md transition-colors";
   const flatIdle = `${flatBtn} text-neutral-400 hover:bg-white/[0.06] hover:text-neutral-200 active:scale-[0.98]`;
   const flatActive = `${flatBtn} bg-white/[0.08] text-neutral-100 active:scale-[0.98]`;
   const flatDisabled = `${flatBtn} text-neutral-700 cursor-not-allowed`;
@@ -251,7 +319,12 @@ export function TimelineToolbar({ domEditSession, onSplitElement }: TimelineTool
               aria-pressed={activeTool === "select"}
               className={activeTool === "select" ? flatActive : flatIdle}
             >
-              <svg width="16" height="16" viewBox="0 0 12 12" fill="currentColor">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 12 12"
+                fill="currentColor"
+              >
                 <path d="M2 0.5L10 6L6.5 6.5L8.5 11L6.5 11.5L4.5 7L2 9Z" />
               </svg>
             </button>
@@ -269,7 +342,9 @@ export function TimelineToolbar({ domEditSession, onSplitElement }: TimelineTool
           </Tooltip>
           {/* Divider: tool-mode | editing-actions */}
           <div aria-hidden="true" className="mx-1 h-4 w-px bg-neutral-800" />
-          <Tooltip label={timelineSnapEnabled ? "Snapping on (N)" : "Snapping off (N)"}>
+          <Tooltip
+            label={timelineSnapEnabled ? "Snapping on (N)" : "Snapping off (N)"}
+          >
             <button
               type="button"
               onClick={() => setTimelineSnapEnabled(!timelineSnapEnabled)}
@@ -285,23 +360,25 @@ export function TimelineToolbar({ domEditSession, onSplitElement }: TimelineTool
               toolbar layout never shifts. */}
           <Tooltip
             label={
-              keyframePathEndpoint
-                ? "Motion path endpoints cannot be removed"
-                : !onToggleKeyframe
-                  ? "Select an animated element to add keyframes"
-                  : keyframeIsMotionPath
-                    ? keyframeWillExtend
-                      ? "Extend motion path to playhead (K)"
+              nativePositionAction
+                ? `${keyframeState === "active" ? "Remove" : "Add"} position keyframe at playhead (K)`
+                : keyframePathEndpoint
+                  ? "Motion path endpoints cannot be removed"
+                  : !onToggleKeyframe
+                    ? "Select an animated element to add keyframes"
+                    : keyframeIsMotionPath
+                      ? keyframeWillExtend
+                        ? "Extend motion path to playhead (K)"
+                        : keyframeState === "active"
+                          ? "Remove waypoint from motion path (K)"
+                          : "Add waypoint to motion path (K)"
                       : keyframeState === "active"
-                        ? "Remove waypoint from motion path (K)"
-                        : "Add waypoint to motion path (K)"
-                    : keyframeState === "active"
-                      ? "Remove keyframe at playhead (K)"
-                      : keyframeState === "inactive"
-                        ? keyframeWillExtend
-                          ? "Add keyframe at playhead, extends animation (K)"
-                          : "Add keyframe at playhead (K)"
-                        : "Add keyframe (K)"
+                        ? "Remove keyframe at playhead (K)"
+                        : keyframeState === "inactive"
+                          ? keyframeWillExtend
+                            ? "Add keyframe at playhead, extends animation (K)"
+                            : "Add keyframe at playhead (K)"
+                          : "Add keyframe (K)"
             }
           >
             <button
@@ -309,17 +386,19 @@ export function TimelineToolbar({ domEditSession, onSplitElement }: TimelineTool
               disabled={!onToggleKeyframe}
               onClick={onToggleKeyframe}
               aria-label={
-                keyframePathEndpoint
-                  ? "Motion path endpoint"
-                  : keyframeIsMotionPath
-                    ? keyframeState === "active"
-                      ? "Remove motion path waypoint"
-                      : keyframeWillExtend
-                        ? "Extend motion path to playhead"
-                        : "Add motion path waypoint"
-                    : keyframeState === "active"
-                      ? "Remove keyframe at playhead"
-                      : "Add keyframe at playhead"
+                nativePositionAction
+                  ? `${keyframeState === "active" ? "Remove" : "Add"} position keyframe at playhead`
+                  : keyframePathEndpoint
+                    ? "Motion path endpoint"
+                    : keyframeIsMotionPath
+                      ? keyframeState === "active"
+                        ? "Remove motion path waypoint"
+                        : keyframeWillExtend
+                          ? "Extend motion path to playhead"
+                          : "Add motion path waypoint"
+                      : keyframeState === "active"
+                        ? "Remove keyframe at playhead"
+                        : "Add keyframe at playhead"
               }
               className={
                 !onToggleKeyframe
@@ -333,7 +412,12 @@ export function TimelineToolbar({ domEditSession, onSplitElement }: TimelineTool
                     }`
               }
             >
-              <svg width="16" height="16" viewBox="0 0 10 10" fill="currentColor">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 10 10"
+                fill="currentColor"
+              >
                 {keyframeState === "active" ? (
                   <path d="M5 0.5L9.5 5L5 9.5L0.5 5Z" />
                 ) : (
@@ -350,8 +434,8 @@ export function TimelineToolbar({ domEditSession, onSplitElement }: TimelineTool
           <Tooltip
             label={
               autoKeyframeEnabled
-                ? "Auto-record manual edits as keyframes (click to turn off)"
-                : "Manual edits will not be recorded as keyframes (click to turn on)"
+                ? "Auto-keyframe enabled: manual edits can start animation on static properties (click to turn off)"
+                : "Auto-keyframe disabled: use a property diamond to start animation; existing native animation remains keyframed"
             }
           >
             <button
@@ -369,7 +453,11 @@ export function TimelineToolbar({ domEditSession, onSplitElement }: TimelineTool
                 {/* Same diamond outline as the Add-keyframe icon, with a
                       record-style dot inside: filled = auto-recording,
                       hollow = manual edits won't be keyframed. */}
-                <path d="M5 0.7L9.3 5L5 9.3L0.7 5Z" stroke="currentColor" strokeWidth="1" />
+                <path
+                  d="M5 0.7L9.3 5L5 9.3L0.7 5Z"
+                  stroke="currentColor"
+                  strokeWidth="1"
+                />
                 <circle
                   cx="5"
                   cy="5"
@@ -391,7 +479,9 @@ export function TimelineToolbar({ domEditSession, onSplitElement }: TimelineTool
                 : null;
               const splittable = el != null && canSplitElement(el);
               const canSplit =
-                splittable && currentTime > el.start && currentTime < el.start + el.duration;
+                splittable &&
+                currentTime > el.start &&
+                currentTime < el.start + el.duration;
               return (
                 <Tooltip
                   label={
@@ -475,6 +565,12 @@ export function TimelineToolbar({ domEditSession, onSplitElement }: TimelineTool
           })()}
         </div>
         <div className="flex items-center gap-0.5">
+          <label className="mr-2 flex items-center gap-1 text-neutral-400" title="Track height">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 2h10M3 14h10M8 4v8M6 6l2-2 2 2M6 10l2 2 2-2" stroke="currentColor" strokeWidth="1.2" /></svg>
+            <input type="range" min="32" max="96" step="8" value={trackHeight} aria-label="Track height"
+              onChange={(e) => setTrackHeight(Number(e.target.value))}
+              className="mx-1 h-6 w-16 cursor-pointer appearance-none bg-transparent [&::-webkit-slider-runnable-track]:h-[2px] [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-neutral-700 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-[10px] [&::-webkit-slider-thumb]:h-[10px] [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-neutral-950 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:-mt-1 [&::-webkit-slider-thumb]:cursor-grab [&::-webkit-slider-thumb:active]:cursor-grabbing" />
+          </label>
           <Tooltip label="Zoom out">
             <button
               type="button"
@@ -482,7 +578,12 @@ export function TimelineToolbar({ domEditSession, onSplitElement }: TimelineTool
               onClick={() => {
                 setZoomMode("manual");
                 setManualZoomPercent(
-                  getNextTimelineZoomPercent("out", zoomMode, manualZoomPercent, timelineFitPps),
+                  getNextTimelineZoomPercent(
+                    "out",
+                    zoomMode,
+                    manualZoomPercent,
+                    timelineFitPps,
+                  ),
                 );
               }}
               className={flatIdle}
@@ -494,7 +595,10 @@ export function TimelineToolbar({ domEditSession, onSplitElement }: TimelineTool
             type="range"
             min="0"
             max="100"
-            value={timelineZoomPercentToSlider(displayedTimelineZoomPercent, timelineFitPps)}
+            value={timelineZoomPercentToSlider(
+              displayedTimelineZoomPercent,
+              timelineFitPps,
+            )}
             title={`${displayedTimelineZoomPercent}%`}
             aria-label="Timeline zoom"
             onDoubleClick={(event) => {
@@ -505,7 +609,10 @@ export function TimelineToolbar({ domEditSession, onSplitElement }: TimelineTool
             onChange={(e) => {
               setZoomMode("manual");
               setManualZoomPercent(
-                timelineSliderToZoomPercent(Number(e.target.value), timelineFitPps),
+                timelineSliderToZoomPercent(
+                  Number(e.target.value),
+                  timelineFitPps,
+                ),
               );
             }}
             // h-6 on the input is the 24x24 WCAG 2.2 (2.5.8) target: the visible
@@ -519,7 +626,12 @@ export function TimelineToolbar({ domEditSession, onSplitElement }: TimelineTool
               onClick={() => {
                 setZoomMode("manual");
                 setManualZoomPercent(
-                  getNextTimelineZoomPercent("in", zoomMode, manualZoomPercent, timelineFitPps),
+                  getNextTimelineZoomPercent(
+                    "in",
+                    zoomMode,
+                    manualZoomPercent,
+                    timelineFitPps,
+                  ),
                 );
               }}
               className={flatIdle}

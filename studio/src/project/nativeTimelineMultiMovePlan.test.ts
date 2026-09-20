@@ -221,9 +221,23 @@ describe("native timeline multi-clip move planner", () => {
     expect(result).toMatchObject({ ok: false, failure: { code: "unbound-clip" } });
   });
 
+  it("creates one empty destination track for a group gesture without mutating the source", () => {
+    const original = document();
+    const before = JSON.stringify(original);
+    const result = planNativeTimelineMultiMove({ document: original,
+      changes: [elementA, elementB].map((element, index) => ({ element, requestedStartSeconds: 2 + index * 6, destinationAuthoredTrack: 99 })),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const destinations = result.document.sequence.tracks.filter(track => track.lane?.authoredTrack === 99);
+    expect(destinations).toHaveLength(1);
+    expect(destinations[0]?.clips).toHaveLength(2);
+    expect(JSON.stringify(original)).toBe(before);
+  });
+
   it.each([
-    ["an unmapped authored lane", 99, "unmapped-lane"],
-    ["an authored lane mapped only to an incompatible track kind", 23, "incompatible-lane"],
+    ["an invalid authored lane", -1, "unmapped-lane"],
+
   ])("rejects %s without mutation", (_label, destinationAuthoredTrack, code) => {
     const original = document();
     const before = JSON.stringify(original);
@@ -256,4 +270,15 @@ describe("native timeline multi-clip move planner", () => {
       failure: { code: "empty-change-set" },
     });
   });
+});
+
+it("moves visual media into an audio track without moving either row", () => {
+  const original = document();
+  const result = planNativeTimelineMultiMove({ document: original,
+    changes: [{ element: elementA, requestedStartSeconds: 2, destinationAuthoredTrack: 23 }],
+  });
+  expect(result.ok).toBe(true);
+  if (!result.ok) return;
+  expect(result.document.sequence.tracks.map(t => [t.id, t.lane])).toEqual(original.sequence.tracks.map(t => [t.id, t.lane]));
+  expect(result.document.sequence.tracks.find(t => t.lane?.authoredTrack === 23)?.kind).toBe("mixed");
 });

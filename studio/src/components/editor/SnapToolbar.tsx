@@ -1,12 +1,11 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { MagnetStraight, GridFour, Path } from "@phosphor-icons/react";
+import { MagnetStraight, GridFour } from "@phosphor-icons/react";
 import { readStudioUiPreferences, writeStudioUiPreferences } from "../../utils/studioUiPreferences";
-import { usePlayerStore } from "../../player/store/playerStore";
 
 const SNAP_DEFAULTS = {
   snapEnabled: true,
   gridVisible: false,
-  gridSpacing: 50,
+  gridSpacing: 3,
   snapToGrid: false,
 };
 
@@ -16,12 +15,14 @@ function readSnapPrefs() {
   return {
     snapEnabled: prefs.snapEnabled ?? SNAP_DEFAULTS.snapEnabled,
     gridVisible: prefs.gridVisible ?? SNAP_DEFAULTS.gridVisible,
-    gridSpacing: prefs.gridSpacing ?? SNAP_DEFAULTS.gridSpacing,
+    gridSpacing: [2, 3, 4].includes(prefs.gridSpacing ?? 0) ? prefs.gridSpacing! : 3,
     snapToGrid: prefs.snapToGrid ?? SNAP_DEFAULTS.snapToGrid,
   };
 }
 
 interface SnapToolbarProps {
+  recordingState?: "idle" | "recording" | "preview";
+  onToggleRecording?: () => void;
   onSnapChange?: (prefs: {
     snapEnabled: boolean;
     gridVisible: boolean;
@@ -40,14 +41,9 @@ interface SnapToolbarProps {
 }
 
 // fallow-ignore-next-line complexity
-export const SnapToolbar = memo(function SnapToolbar({ onSnapChange, crop }: SnapToolbarProps) {
+export const SnapToolbar = memo(function SnapToolbar({ onSnapChange, crop, recordingState, onToggleRecording }: SnapToolbarProps) {
   const [prefs, setPrefs] = useState(readSnapPrefs);
   const [gridPopoverOpen, setGridPopoverOpen] = useState(false);
-  // Motion-path "set destination" toggle — shown only when the selected element
-  // can take a path; arms a single canvas click to place it (MotionPathOverlay).
-  const motionPathCreateAvailable = usePlayerStore((s) => s.motionPathCreateAvailable);
-  const motionPathArmed = usePlayerStore((s) => s.motionPathArmed);
-  const setMotionPathArmed = usePlayerStore((s) => s.setMotionPathArmed);
   const popoverRef = useRef<HTMLDivElement>(null);
   const gridButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -105,9 +101,21 @@ export const SnapToolbar = memo(function SnapToolbar({ onSnapChange, crop }: Sna
 
   return (
     <div
-      className="absolute top-2 right-2 z-50 flex items-center gap-1"
+      role="toolbar"
+      aria-label="Preview tools"
+      className="absolute top-0 inset-x-0 z-50 flex h-9 items-center justify-end gap-1 border-b border-neutral-800/70 bg-neutral-950 px-2"
       onPointerDown={(e) => e.stopPropagation()}
     >
+      {onToggleRecording && (
+        <button type="button" onClick={onToggleRecording}
+          aria-label={recordingState === "recording" ? "Stop gesture recording" : "Record gesture (R)"}
+          aria-pressed={recordingState === "recording"}
+          title="Record movement (R)"
+          className="mr-auto flex h-7 items-center gap-1.5 rounded px-2 text-[11px] text-neutral-300 hover:bg-neutral-800">
+          <span className={`h-2 w-2 bg-red-500 ${recordingState === "recording" ? "rounded-sm animate-pulse" : "rounded-full"}`} />
+          {recordingState === "recording" ? "Stop" : "Record"}
+        </button>
+      )}
       {crop?.available && !crop.active && !crop.applying && (
         <button
           type="button"
@@ -154,23 +162,6 @@ export const SnapToolbar = memo(function SnapToolbar({ onSnapChange, crop }: Sna
           </button>
         </div>
       )}
-      {motionPathCreateAvailable && (
-        <button
-          type="button"
-          className={`rounded-md p-1.5 transition-colors active:scale-[0.95] ${
-            motionPathArmed
-              ? "bg-studio-accent/20 text-studio-accent"
-              : "bg-black/40 text-white/60 hover:bg-black/60 hover:text-white/80"
-          }`}
-          onClick={() => setMotionPathArmed(!motionPathArmed)}
-          title={
-            motionPathArmed ? "Click the canvas to set the destination" : "Set motion destination"
-          }
-          aria-label="Set motion destination"
-        >
-          <Path size={16} weight={motionPathArmed ? "fill" : "regular"} />
-        </button>
-      )}
       <button
         type="button"
         className={`rounded-md p-1.5 transition-colors active:scale-[0.95] ${
@@ -201,8 +192,8 @@ export const SnapToolbar = memo(function SnapToolbar({ onSnapChange, crop }: Sna
           }}
           title={
             prefs.gridVisible
-              ? "Grid visible (G) — right-click for spacing options"
-              : "Grid hidden (G) — right-click for spacing options"
+              ? "Grid visible (G)"
+              : "Grid hidden (G)"
           }
           aria-label="Toggle grid"
         >
@@ -226,23 +217,15 @@ export const SnapToolbar = memo(function SnapToolbar({ onSnapChange, crop }: Sna
             ref={popoverRef}
             className="absolute right-0 top-full mt-1 rounded-lg bg-neutral-800 border border-neutral-700 p-3 min-w-[180px]"
           >
-            <label className="flex items-center justify-between text-xs text-white/80 mb-2">
-              <span>Grid spacing</span>
-              <input
-                type="number"
-                min={10}
-                max={500}
-                step={10}
-                value={prefs.gridSpacing}
-                onChange={(e) => {
-                  const val = Number.parseInt(e.target.value, 10);
-                  if (Number.isFinite(val) && val >= 10 && val <= 500) {
-                    updatePrefs({ gridSpacing: val });
-                  }
-                }}
-                className="w-16 rounded bg-neutral-900 border border-neutral-600 px-1.5 py-0.5 text-xs text-white text-right tabular-nums outline-none focus:border-studio-accent"
-              />
-            </label>
+            <div className="flex gap-1" aria-label="Grid preset">
+              {[{ value: 3, label: "Thirds" }, { value: 4, label: "Quarters" }, { value: 2, label: "Center" }].map(preset => (
+                <button key={preset.value} type="button" aria-pressed={prefs.gridSpacing === preset.value}
+                  className={`rounded px-2 py-1.5 text-[11px] ${prefs.gridSpacing === preset.value ? "bg-white/15 text-white" : "text-white/60 hover:bg-white/5"}`}
+                  onClick={() => { updatePrefs({ gridSpacing: preset.value, gridVisible: true }); setGridPopoverOpen(false); }}>
+                  {preset.label}
+                </button>
+              ))}
+            </div>
             <label className="flex items-center gap-2 text-xs text-white/80 cursor-pointer">
               <input
                 type="checkbox"

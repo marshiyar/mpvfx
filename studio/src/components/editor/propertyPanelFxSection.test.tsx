@@ -464,15 +464,13 @@ describe("FxSection chain", () => {
     );
   });
 
-  it("draws the rack as a signal path, with both ends named", () => {
+  it("keeps effect order without redundant signal-path headings", () => {
     // Order is audible here, and a list does not look ordered. Numbering the
     // steps and naming the two ends is what makes "move up" read as the most
     // consequential control in the panel rather than a cosmetic one.
     const { host } = mount({ chain: chainOf("highpass", "limiter") });
     const terms = Array.from(host.querySelectorAll(".hf-fx-term")).map((e) => e.textContent);
-    expect(terms).toHaveLength(2);
-    expect(terms[0]).toContain("In");
-    expect(terms[1]).toContain("Out");
+    expect(terms).toHaveLength(0);
     // Counted over what the rack SHOWS: the carve module leads it, so the first
     // hand-built effect is 02.
     const numbers = Array.from(host.querySelectorAll(".hf-fx-node-index")).map((e) =>
@@ -498,6 +496,8 @@ describe("FxSection chain", () => {
     expect(run).toBeTruthy();
     // The label carries a disclosure caret, so match the name inside it.
     expect(run?.querySelector(".hf-fx-preset-run-label")?.textContent).toContain("Telephone");
+    expect(run?.querySelectorAll(".hf-fx-node")).toHaveLength(0);
+    click(run?.querySelector(".hf-fx-preset-run-label"));
     expect(run?.querySelectorAll(".hf-fx-node")).toHaveLength(written.length);
   });
 
@@ -669,7 +669,10 @@ describe("FxSection chain", () => {
     });
     const runs = Array.from(host.querySelectorAll("[data-fx-preset='telephone']"));
     expect(runs).toHaveLength(2);
-    for (const run of runs) expect(run.querySelectorAll(".hf-fx-node")).toHaveLength(1);
+    for (const run of runs) {
+      click(run.querySelector(".hf-fx-preset-run-label"));
+      expect(run.querySelectorAll(".hf-fx-node")).toHaveLength(1);
+    }
   });
 
   it("letters each family differently, so the kind reads before the word does", () => {
@@ -800,6 +803,7 @@ describe("FxSection chain", () => {
       // modules inside are detail. Two presets in a rack was thirteen cards
       // deep before anything hand-built appeared.
       const { host } = mount({ chain: applied() });
+      click(bracket(host)?.querySelector(".hf-fx-preset-run-label"));
       const nodes = bracket(host)?.querySelectorAll(".hf-fx-node").length ?? 0;
       expect(nodes).toBeGreaterThan(1);
 
@@ -811,12 +815,12 @@ describe("FxSection chain", () => {
       );
     });
 
-    it("arrives open, so nobody has to discover it is a chain", () => {
+    it("arrives collapsed with its amount control available", () => {
       const { host } = mount({ chain: applied() });
-      expect(bracket(host)?.hasAttribute("data-collapsed")).toBe(false);
+      expect(bracket(host)?.hasAttribute("data-collapsed")).toBe(true);
       expect(
         bracket(host)?.querySelector(".hf-fx-preset-run-label")?.getAttribute("aria-expanded"),
-      ).toBe("true");
+      ).toBe("false");
     });
 
     it("keeps the whole-preset controls reachable while folded", () => {
@@ -828,14 +832,14 @@ describe("FxSection chain", () => {
       expect(bracket(host)?.querySelector(".hf-fx-preset-run-remove")).toBeTruthy();
     });
 
-    it("gives each preset its own title treatment", () => {
+    it("uses a consistent compact title treatment", () => {
       // A preset is a character, and the point of Telephone or Megaphone is
       // that you know what it sounds like before you play it. Type carries that.
       const { host } = mount({ chain: applied() });
       const label = bracket(host)?.querySelector<HTMLElement>(".hf-fx-preset-run-label");
       const styled = fxPresetStyle("telephone");
-      expect(label?.className).toContain("tracking-[0.3em]");
-      expect(label?.style.color).toBeTruthy();
+      expect(label?.className).toContain("text-[11px]");
+      expect(label?.style.color).toBe("");
       // And it differs from another preset's, or it is not a treatment.
       expect(styled.type).not.toBe(fxPresetStyle("megaphone").type);
       expect(styled.color).not.toBe(fxPresetStyle("megaphone").color);

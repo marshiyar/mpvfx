@@ -39,6 +39,7 @@ describe("AudioWaveform", () => {
       );
     });
 
+    expect(host.querySelector("canvas")?.style.height).toBe("calc(100% - 16px)");
     expect(leaseSpy).toHaveBeenCalled();
     expect(leaseSpy.mock.calls.at(-1)?.[0]).toMatchObject({
       projectId: "project-a",

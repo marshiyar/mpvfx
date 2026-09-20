@@ -1,4 +1,5 @@
 import { useCallback, useRef } from "react";
+import { applyPatchByTarget } from "../utils/sourcePatcher";
 
 import type { DomEditSelection } from "../components/editor/domEditingTypes";
 import {
@@ -25,6 +26,8 @@ export type ProjectAnimatedPropertyCommitIntent = "edit" | "keyframe";
 
 export interface ProjectAnimatedPropertyCommitOptions {
   readonly intent?: ProjectAnimatedPropertyCommitIntent;
+  /** Compatibility styles that must land atomically with native geometry. */
+  readonly sourceStyles?: Readonly<Record<string, string>>;
 }
 
 export interface UseProjectAnimatedPropertyCommitOptions {
@@ -41,7 +44,7 @@ export interface UseProjectAnimatedPropertyCommitOptions {
   readonly commitFileTransaction?: CommitNativeTimelineFileTransaction;
   readonly onNativeDocumentCommitted?: (document: NativeProjectDocument) => void;
   readonly getPlayheadSeconds: () => number;
-  /** Read at commit time so a queued gesture obeys the current editor mode. */
+  /** Snapshot at invocation so a queued edit retains its authoring mode. */
   readonly getAutoKeyframeEnabled?: () => boolean;
   readonly legacyCommitProperties: (
     selection: DomEditSelection,
@@ -140,6 +143,27 @@ export function useProjectAnimatedPropertyCommit(
       properties: Record<string, number | string>,
       commitOptions: ProjectAnimatedPropertyCommitOptions = {},
     ): Promise<ProjectAnimatedPropertyCommitRoute> => {
+      // Capture authoring identity before persistence waits behind another edit.
+      const authoringDependencies = dependenciesRef.current;
+      const sourceStyles = { ...commitOptions.sourceStyles };
+      const sourceFile = selection.sourceFile;
+      const sourceTarget = { id: selection.id, hfId: selection.hfId,
+        selector: selection.selector, selectorIndex: selection.selectorIndex };
+      const request = {
+        selectedElement: selectionReference(selection),
+        playheadSeconds: authoringDependencies.getPlayheadSeconds(),
+        properties: { ...properties },
+        selectionBounds: {
+          width: selection.boundingBox.width,
+          height: selection.boundingBox.height,
+        },
+        propertyBaselines: readNativePropertyBaselines({
+          computedStyles: selection.computedStyles,
+          boundingBox: selection.boundingBox,
+        }),
+        intent: commitOptions.intent ?? "edit",
+        autoKeyframeEnabled: authoringDependencies.getAutoKeyframeEnabled?.() ?? false,
+      } as const;
       const run = queueRef.current.then(async (): Promise<ProjectAnimatedPropertyCommitRoute> => {
         const dependencies = dependenciesRef.current;
         const persistedDocument = latestDocumentRef.current;
@@ -149,21 +173,6 @@ export function useProjectAnimatedPropertyCommit(
           return "legacy";
         }
 
-        const request = {
-          selectedElement: selectionReference(selection),
-          playheadSeconds: dependencies.getPlayheadSeconds(),
-          properties,
-          selectionBounds: {
-            width: selection.boundingBox.width,
-            height: selection.boundingBox.height,
-          },
-          propertyBaselines: readNativePropertyBaselines({
-            computedStyles: selection.computedStyles,
-            boundingBox: selection.boundingBox,
-          }),
-          intent: commitOptions.intent ?? "edit",
-          autoKeyframeEnabled: dependencies.getAutoKeyframeEnabled?.() ?? false,
-        } as const;
         const initialPlan = planNativePropertyEdit(document, request);
         if (!initialPlan.ok) {
           if (LEGACY_FALLBACK_CODES.has(initialPlan.failure.code)) {
@@ -173,11 +182,27 @@ export function useProjectAnimatedPropertyCommit(
           throw new NativeProjectEditRoutingError(initialPlan.failure);
         }
 
+        const hasSourceStyles = Object.keys(sourceStyles).length > 0;
+        if (hasSourceStyles && (!sourceFile || !dependencies.commitFileTransaction)) {
+          throw new Error("Resizing cropped media requires an atomic source and project save");
+        }
+        const commitFileTransaction = dependencies.commitFileTransaction;
         const repository = createNativeProjectRepository({
           readOptionalProjectFile: dependencies.readOptionalProjectFile,
           writeProjectFile: dependencies.writeProjectFile,
           recordHistory: dependencies.recordHistory,
-          commitFileTransaction: dependencies.commitFileTransaction,
+          commitFileTransaction: hasSourceStyles && commitFileTransaction
+            ? async input => {
+                const before = await dependencies.readOptionalProjectFile(sourceFile!);
+                if (before == null) throw new Error("The cropped media source could not be read");
+                let after = before;
+                for (const [property, value] of Object.entries(sourceStyles)) {
+                  after = applyPatchByTarget(after, sourceTarget, { type: "inline-style", property, value });
+                }
+                await commitFileTransaction({ ...input, files: [...input.files,
+                  { path: sourceFile!, expectedBefore: before, after }] });
+              }
+            : commitFileTransaction,
         });
         const intent = request.intent;
         const applyPlannedEdit = (draft: NativeProjectDocument): NativeProjectDocument => {

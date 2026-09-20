@@ -51,7 +51,6 @@ async function startDesktopApplication(): Promise<void> {
     current: process.env,
     ...mediaBinaries,
     browserCacheDir: app.isPackaged ? process.resourcesPath : join(appPath, ".puppeteer-cache"),
-    backgroundRemovalModelsDir: join(paths.cache, "background-removal-models"),
   });
   assertBundledMediaBinariesAvailable();
 

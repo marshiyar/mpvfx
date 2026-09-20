@@ -10,14 +10,6 @@ export function getCategory(path: string): MediaCategory | null {
   return null;
 }
 
-export function getAudioSubtype(path: string): string {
-  const lower = path.toLowerCase();
-  if (lower.includes("/bgm/") || lower.includes("/music/")) return "BGM";
-  if (lower.includes("/sfx/") || lower.includes("/sound")) return "SFX";
-  if (lower.includes("/voice/") || lower.includes("/narrat")) return "Voice";
-  return "Audio";
-}
-
 export function basename(path: string): string {
   const name = path.split("/").pop() ?? path;
   const dot = name.lastIndexOf(".");

@@ -1,3 +1,4 @@
+import { FlatSlider } from "./propertyPanelFlatPrimitives";
 import { useMemo, useRef, useState } from "react";
 import { Plus, RotateCcw, X } from "../../icons/SystemIcons";
 import {
@@ -25,17 +26,28 @@ import { useTrackDesignInput } from "../../contexts/DesignPanelInputContext";
 
 function normalizeProjectPath(value: string): string {
   const trimmed = value.trim();
-  const maybeUrl = /^[a-z]+:\/\//i.test(trimmed) ? new URL(trimmed).pathname : trimmed;
+  const maybeUrl = /^[a-z]+:\/\//i.test(trimmed)
+    ? new URL(trimmed).pathname
+    : trimmed;
   return decodeURIComponent(maybeUrl)
     .replace(/\\/g, "/")
     .replace(/^\.?\//, "");
 }
 
-function toRelativeProjectAssetPath(sourceFile: string, assetPath: string): string {
+function toRelativeProjectAssetPath(
+  sourceFile: string,
+  assetPath: string,
+): string {
   const fromParts = normalizeProjectPath(sourceFile).split("/").filter(Boolean);
-  const targetParts = normalizeProjectPath(assetPath).split("/").filter(Boolean);
+  const targetParts = normalizeProjectPath(assetPath)
+    .split("/")
+    .filter(Boolean);
   fromParts.pop();
-  while (fromParts.length > 0 && targetParts.length > 0 && fromParts[0] === targetParts[0]) {
+  while (
+    fromParts.length > 0 &&
+    targetParts.length > 0 &&
+    fromParts[0] === targetParts[0]
+  ) {
     fromParts.shift();
     targetParts.shift();
   }
@@ -93,7 +105,10 @@ export function ImageFillField({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const imageAssets = useMemo(() => assets.filter((a) => IMAGE_EXT.test(a)), [assets]);
+  const imageAssets = useMemo(
+    () => assets.filter((a) => IMAGE_EXT.test(a)),
+    [assets],
+  );
   const selectedAsset = useMemo(
     () => resolveSelectedAsset(value, sourceFile, imageAssets),
     [imageAssets, sourceFile, value],
@@ -134,7 +149,9 @@ export function ImageFillField({
             }`}
           >
             <Plus size={12} className="flex-shrink-0" />
-            <span className="truncate">{uploading ? "Uploading…" : "Upload image"}</span>
+            <span className="truncate">
+              {uploading ? "Uploading…" : "Upload image"}
+            </span>
           </button>
           <input
             ref={fileInputRef}
@@ -191,7 +208,8 @@ export function ImageFillField({
           </div>
         ) : (
           <div className="rounded-xl border border-dashed border-neutral-800 bg-neutral-900/50 px-3 py-3 text-[11px] leading-5 text-neutral-500">
-            No image assets yet. Upload one here and Studio will also add it to the Assets tab.
+            No image assets yet. Upload one here and Studio will also add it to
+            the Assets tab.
           </div>
         )}
       </div>
@@ -200,7 +218,9 @@ export function ImageFillField({
         label="External URL"
         value={externalUrlValue}
         disabled={disabled}
-        onCommit={(next) => onCommit(next.trim() ? `url("${next.trim()}")` : "none")}
+        onCommit={(next) =>
+          onCommit(next.trim() ? `url("${next.trim()}")` : "none")
+        }
       />
     </div>
   );
@@ -222,27 +242,45 @@ export function GradientField({
   onCommit: (nextValue: string) => void;
 }) {
   const track = useTrackDesignInput();
+  const [selectedStop, setSelectedStop] = useState(0);
   const previewRef = useRef<HTMLDivElement | null>(null);
-  const parsed = parseGradient(value) ?? buildDefaultGradientModel(fallbackColor);
+  const parsed =
+    parseGradient(value) ?? buildDefaultGradientModel(fallbackColor);
 
   const commit = (next: GradientModel) => onCommit(serializeGradient(next));
-  const patch = (partial: Partial<GradientModel>) => commit({ ...parsed, ...partial });
+  const patch = (partial: Partial<GradientModel>) =>
+    commit({ ...parsed, ...partial });
 
-  const updateStop = (index: number, partial: Partial<GradientModel["stops"][number]>) => {
-    const stops = parsed.stops.map((stop, i) => (i === index ? { ...stop, ...partial } : stop));
+  const updateStop = (
+    index: number,
+    partial: Partial<GradientModel["stops"][number]>,
+  ) => {
+    const stops = parsed.stops.map((stop, i) =>
+      i === index ? { ...stop, ...partial } : stop,
+    );
     commit({ ...parsed, stops });
   };
 
   const addStop = (position?: number) => {
-    const nextGradient =
-      position != null
-        ? insertGradientStop(parsed, position)
-        : insertGradientStop(
-            parsed,
-            parsed.stops.at(-1)?.position != null
-              ? Math.min(100, (parsed.stops.at(-1)?.position ?? 90) + 10)
-              : 100,
-          );
+    if (parsed.stops.length >= 6) return;
+    const ordered = [...parsed.stops].sort((a, b) => a.position - b.position);
+    let largestGap = -1;
+    let midpoint = 50;
+    for (let index = 1; index < ordered.length; index++) {
+      const left = ordered[index - 1]!.position;
+      const right = ordered[index]!.position;
+      if (right - left > largestGap) {
+        largestGap = right - left;
+        midpoint = (left + right) / 2;
+      }
+    }
+    const requestedPosition = position ?? midpoint;
+    const nextGradient = insertGradientStop(parsed, requestedPosition);
+    setSelectedStop(
+      nextGradient.stops.findIndex(
+        (stop) => Math.abs(stop.position - requestedPosition) < 0.1,
+      ),
+    );
     track("button", "Add gradient stop");
     commit(nextGradient);
   };
@@ -250,20 +288,27 @@ export function GradientField({
   const removeStop = (index: number) => {
     if (parsed.stops.length <= 2) return;
     track("button", `Remove gradient stop ${index + 1}`);
+    setSelectedStop(Math.max(0, index - 1));
     commit({ ...parsed, stops: parsed.stops.filter((_, i) => i !== index) });
   };
 
   const previewStyle = { backgroundImage: serializeGradient(parsed) };
 
   return (
-    <div className="space-y-4">
-      <div className={`${FIELD} space-y-3 p-3`}>
+    <details data-gradient-editor="true" className="min-w-0">
+      <summary className="flex cursor-pointer list-none items-center gap-2 py-1 text-[11px] text-panel-text-3">
+        <span className="w-[86px] shrink-0">Gradient</span>
+        <span className="h-5 min-w-0 flex-1 rounded border border-panel-border-input" style={previewStyle} />
+        <span aria-hidden="true">⌄</span>
+      </summary>
+      <div className="space-y-2 pt-2">
+      <div className="space-y-2">
         <div
           ref={previewRef}
-          className="relative h-11 overflow-hidden rounded-lg border border-neutral-700"
+          className="relative h-7 rounded border border-panel-border-input"
           style={previewStyle}
           onClick={(event) => {
-            if (disabled) return;
+            if (disabled || parsed.stops.length >= 6) return;
             const rect = previewRef.current?.getBoundingClientRect();
             if (!rect || rect.width <= 0) return;
             addStop(((event.clientX - rect.left) / rect.width) * 100);
@@ -280,20 +325,31 @@ export function GradientField({
               aria-valuemax={100}
               onKeyDown={(event) => {
                 if (disabled) return;
-                if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+                if (event.key !== "ArrowLeft" && event.key !== "ArrowRight")
+                  return;
                 event.preventDefault();
                 const step = event.shiftKey ? 10 : 1;
                 const delta = event.key === "ArrowRight" ? step : -step;
                 updateStop(index, {
-                  position: Math.max(0, Math.min(100, Math.round(stop.position + delta))),
+                  position: Math.max(
+                    0,
+                    Math.min(100, Math.round(stop.position + delta)),
+                  ),
                 });
               }}
               className="absolute top-1/2 h-4 w-4 -translate-y-1/2 cursor-ew-resize rounded-full border-2 border-neutral-950 bg-white outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-studio-accent"
               style={{
                 left: `calc(${stop.position}% - 8px)`,
                 backgroundColor: stop.color,
+                boxShadow:
+                  index === selectedStop
+                    ? "0 0 0 2px var(--color-panel-accent, #5d8aff)"
+                    : undefined,
               }}
-              onClick={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                setSelectedStop(index);
+              }}
               onDoubleClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
@@ -301,22 +357,31 @@ export function GradientField({
                 const evenlySpacedPosition =
                   parsed.stops.length <= 1
                     ? 0
-                    : Math.round((index / (parsed.stops.length - 1)) * 1000) / 10;
+                    : Math.round((index / (parsed.stops.length - 1)) * 1000) /
+                      10;
                 track("button", `Reset gradient stop ${index + 1} position`);
                 updateStop(index, { position: evenlySpacedPosition });
               }}
               onPointerDown={(event) => {
                 if (disabled) return;
                 event.stopPropagation();
+                setSelectedStop(index);
                 event.currentTarget.setPointerCapture(event.pointerId);
               }}
               onPointerMove={(event) => {
-                if (disabled || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
+                if (
+                  disabled ||
+                  !event.currentTarget.hasPointerCapture(event.pointerId)
+                )
+                  return;
                 const rect = previewRef.current?.getBoundingClientRect();
                 if (!rect || rect.width <= 0) return;
                 const next = Math.max(
                   0,
-                  Math.min(100, ((event.clientX - rect.left) / rect.width) * 100),
+                  Math.min(
+                    100,
+                    ((event.clientX - rect.left) / rect.width) * 100,
+                  ),
                 );
                 updateStop(index, { position: Math.round(next * 10) / 10 });
               }}
@@ -329,6 +394,81 @@ export function GradientField({
             />
           ))}
         </div>
+      </div>
+      <div className="relative space-y-1">
+        <div className="absolute right-7 top-0 z-10">
+          <button
+            type="button"
+            aria-label="Add stop"
+            disabled={disabled || parsed.stops.length >= 6}
+            onClick={() => addStop()}
+            title={
+              parsed.stops.length >= 6
+                ? "Maximum 6 stops"
+                : "Add a gradient stop"
+            }
+            className="flex h-7 w-7 items-center justify-center rounded text-panel-text-3 hover:bg-white/5 disabled:opacity-30"
+          >
+            <Plus size={12} />
+          </button>
+        </div>
+        <div className="space-y-1">
+          {parsed.stops.map((stop, index) =>
+            index ===
+            Math.min(Math.max(0, selectedStop), parsed.stops.length - 1) ? (
+              <div
+                key={`stop-editor-${index}`}
+                data-gradient-stop-editor="true"
+                className="grid min-w-0 grid-cols-[minmax(0,1fr)_56px] items-center gap-x-2"
+              >
+                <ColorField
+                  flat
+                  label={`Stop ${index + 1}`}
+                  value={stop.color}
+                  disabled={disabled}
+                  onCommit={(next) => updateStop(index, { color: next })}
+                />
+                <div className="col-span-2">
+                  <FlatSlider
+                    tier="default"
+                    min={0}
+                    max={100}
+                    value={stop.position}
+                    label="Position"
+                    displayValue={`${Math.round(stop.position)}%`}
+                    disabled={disabled}
+                    onCommit={(next) => updateStop(index, { position: next })}
+                    onCommitText={(next) =>
+                      updateStop(index, {
+                        position: Math.max(
+                          0,
+                          Math.min(
+                            100,
+                            Number.parseFloat(next.replace("%", "")) || 0,
+                          ),
+                        ),
+                      })
+                    }
+                  />
+                </div>
+                <button
+                  type="button"
+                  disabled={disabled || parsed.stops.length <= 2}
+                  onClick={() => removeStop(index)}
+                  className="col-start-2 row-start-1 ml-auto flex w-7 h-7 items-center justify-center rounded text-panel-text-3 hover:bg-white/5 disabled:opacity-30"
+                  aria-label={`Remove stop ${index + 1}`}
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ) : null,
+          )}
+        </div>
+      </div>
+      <details className="space-y-2">
+        <summary className="cursor-pointer py-1 text-[11px] text-panel-text-3">
+          Gradient options
+        </summary>
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <SegmentedControl
             trackName="Gradient type"
@@ -373,129 +513,93 @@ export function GradientField({
             Reverse
           </button>
         </div>
-      </div>
 
-      {(parsed.kind === "linear" || parsed.kind === "conic") && (
-        <div className="grid gap-1.5">
-          <span className={LABEL}>{parsed.kind === "linear" ? "Angle" : "Start angle"}</span>
-          <SliderControl
-            trackName={parsed.kind === "linear" ? "Angle" : "Start angle"}
-            value={parsed.angle}
-            min={0}
-            max={360}
-            step={1}
-            disabled={disabled}
-            displayValue={`${Math.round(parsed.angle)}°`}
-            formatDisplayValue={(next) => `${Math.round(next)}°`}
-            onReset={() => patch({ angle: parsed.kind === "conic" ? 0 : 180 })}
-            onCommit={(next) => patch({ angle: next })}
-          />
-        </div>
-      )}
-
-      {parsed.kind === "radial" && (
-        <div className={RESPONSIVE_GRID}>
-          <SelectField
-            label="Shape"
-            value={parsed.shape}
-            disabled={disabled}
-            onChange={(next) => patch({ shape: next as GradientModel["shape"] })}
-            options={["ellipse", "circle"]}
-          />
-          <SelectField
-            label="Size"
-            value={parsed.radialSize}
-            disabled={disabled}
-            onChange={(next) => patch({ radialSize: next as GradientModel["radialSize"] })}
-            options={["closest-side", "closest-corner", "farthest-side", "farthest-corner"]}
-          />
-        </div>
-      )}
-
-      {(parsed.kind === "radial" || parsed.kind === "conic") && (
-        <div className={RESPONSIVE_GRID}>
-          <div className="grid min-w-0 gap-1.5">
-            <span className={LABEL}>Center X</span>
+        {(parsed.kind === "linear" || parsed.kind === "conic") && (
+          <div className="grid gap-1.5">
+            <span className={LABEL}>
+              {parsed.kind === "linear" ? "Angle" : "Start angle"}
+            </span>
             <SliderControl
-              trackName="Center X"
-              value={parsed.centerX}
+              trackName={parsed.kind === "linear" ? "Angle" : "Start angle"}
+              value={parsed.angle}
               min={0}
-              max={100}
+              max={360}
               step={1}
               disabled={disabled}
-              displayValue={`${Math.round(parsed.centerX)}%`}
-              formatDisplayValue={(next) => `${Math.round(next)}%`}
-              onReset={() => patch({ centerX: 50 })}
-              onCommit={(next) => patch({ centerX: next })}
+              displayValue={`${Math.round(parsed.angle)}°`}
+              formatDisplayValue={(next) => `${Math.round(next)}°`}
+              onReset={() =>
+                patch({ angle: parsed.kind === "conic" ? 0 : 180 })
+              }
+              onCommit={(next) => patch({ angle: next })}
             />
           </div>
-          <div className="grid min-w-0 gap-1.5">
-            <span className={LABEL}>Center Y</span>
-            <SliderControl
-              trackName="Center Y"
-              value={parsed.centerY}
-              min={0}
-              max={100}
-              step={1}
-              disabled={disabled}
-              displayValue={`${Math.round(parsed.centerY)}%`}
-              formatDisplayValue={(next) => `${Math.round(next)}%`}
-              onReset={() => patch({ centerY: 50 })}
-              onCommit={(next) => patch({ centerY: next })}
-            />
-          </div>
-        </div>
-      )}
+        )}
 
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <span className={LABEL}>Stops</span>
-          <button
-            type="button"
-            disabled={disabled || parsed.stops.length >= 6}
-            onClick={() => addStop()}
-            title={parsed.stops.length >= 6 ? "Maximum 6 stops" : "Add a gradient stop"}
-            className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-neutral-700 bg-neutral-950 px-2.5 text-[11px] font-medium text-neutral-300 transition-colors hover:border-neutral-600 hover:text-white active:scale-[0.98] disabled:cursor-not-allowed disabled:text-neutral-600"
-          >
-            <Plus size={12} />
-            Add stop
-          </button>
-        </div>
-        <div className="space-y-3">
-          {parsed.stops.map((stop, index) => (
-            <div
-              key={`stop-editor-${index}`}
-              className="grid min-w-0 grid-cols-[minmax(0,1fr)_68px_28px] gap-2"
-            >
-              <ColorField
-                label={`Stop ${index + 1}`}
-                value={stop.color}
+        {parsed.kind === "radial" && (
+          <div className={RESPONSIVE_GRID}>
+            <SelectField
+              label="Shape"
+              value={parsed.shape}
+              disabled={disabled}
+              onChange={(next) =>
+                patch({ shape: next as GradientModel["shape"] })
+              }
+              options={["ellipse", "circle"]}
+            />
+            <SelectField
+              label="Size"
+              value={parsed.radialSize}
+              disabled={disabled}
+              onChange={(next) =>
+                patch({ radialSize: next as GradientModel["radialSize"] })
+              }
+              options={[
+                "closest-side",
+                "closest-corner",
+                "farthest-side",
+                "farthest-corner",
+              ]}
+            />
+          </div>
+        )}
+
+        {(parsed.kind === "radial" || parsed.kind === "conic") && (
+          <div className={RESPONSIVE_GRID}>
+            <div className="grid min-w-0 gap-1.5">
+              <span className={LABEL}>Center X</span>
+              <SliderControl
+                trackName="Center X"
+                value={parsed.centerX}
+                min={0}
+                max={100}
+                step={1}
                 disabled={disabled}
-                onCommit={(next) => updateStop(index, { color: next })}
+                displayValue={`${Math.round(parsed.centerX)}%`}
+                formatDisplayValue={(next) => `${Math.round(next)}%`}
+                onReset={() => patch({ centerX: 50 })}
+                onCommit={(next) => patch({ centerX: next })}
               />
-              <DetailField
-                label="Pos"
-                value={`${Math.round(stop.position)}%`}
-                disabled={disabled}
-                onCommit={(next) =>
-                  updateStop(index, {
-                    position: Number.parseFloat(next.replace("%", "")) || 0,
-                  })
-                }
-              />
-              <button
-                type="button"
-                disabled={disabled || parsed.stops.length <= 2}
-                onClick={() => removeStop(index)}
-                className="mt-[22px] flex h-10 items-center justify-center rounded-lg border border-neutral-700 bg-neutral-950 text-neutral-400 transition-colors hover:border-neutral-600 hover:text-white disabled:cursor-not-allowed disabled:text-neutral-700"
-                aria-label={`Remove stop ${index + 1}`}
-              >
-                <X size={12} />
-              </button>
             </div>
-          ))}
-        </div>
+            <div className="grid min-w-0 gap-1.5">
+              <span className={LABEL}>Center Y</span>
+              <SliderControl
+                trackName="Center Y"
+                value={parsed.centerY}
+                min={0}
+                max={100}
+                step={1}
+                disabled={disabled}
+                displayValue={`${Math.round(parsed.centerY)}%`}
+                formatDisplayValue={(next) => `${Math.round(next)}%`}
+                onReset={() => patch({ centerY: 50 })}
+                onCommit={(next) => patch({ centerY: next })}
+              />
+            </div>
+          </div>
+        )}
+      </details>
       </div>
-    </div>
+    </details>
   );
 }

@@ -50,7 +50,7 @@ export interface TimelineEditCallbackDeps {
     updates: Pick<TimelineElement, "start" | "duration" | "playbackStart">,
   ) => Promise<void> | void;
   handleTimelineGroupResize: NonNullable<TimelineEditCallbacks["onResizeElements"]>;
-  handleToggleTrackHidden: (track: number, hidden: boolean) => Promise<void> | void;
+  handleToggleTrackHidden: NonNullable<TimelineEditCallbacks["onToggleTrackHidden"]>;
   setAudioGroupAttribute: {
     setLive: (groupId: string, attr: string, value: string | null) => void;
     setQuiet: (groupId: string, attr: string, value: string | null, label: string) => Promise<void>;

@@ -24,19 +24,32 @@ export const NATIVE_CUBIC_Y_MAX = 2;
 
 type ControlName = keyof CubicBezierControlPoints;
 
-const CONTROL_NAMES = ["x1", "y1", "x2", "y2"] as const satisfies readonly ControlName[];
+const CONTROL_NAMES = [
+  "x1",
+  "y1",
+  "x2",
+  "y2",
+] as const satisfies readonly ControlName[];
 
-const clonePoints = (points: CubicBezierControlPoints): CubicBezierControlPoints => ({
+const clonePoints = (
+  points: CubicBezierControlPoints,
+): CubicBezierControlPoints => ({
   x1: points.x1,
   y1: points.y1,
   x2: points.x2,
   y2: points.y2,
 });
 
-const pointsForValue = (value: NativeInterpolation): CubicBezierControlPoints =>
-  value.type === "cubic-bezier" ? clonePoints(value.controlPoints) : clonePoints(DEFAULT_CUBIC);
+const pointsForValue = (
+  value: NativeInterpolation,
+): CubicBezierControlPoints =>
+  value.type === "cubic-bezier"
+    ? clonePoints(value.controlPoints)
+    : clonePoints(DEFAULT_CUBIC);
 
-const pointDrafts = (points: CubicBezierControlPoints): Record<ControlName, string> => ({
+const pointDrafts = (
+  points: CubicBezierControlPoints,
+): Record<ControlName, string> => ({
   x1: String(points.x1),
   y1: String(points.y1),
   x2: String(points.x2),
@@ -61,16 +74,25 @@ export function NativeInterpolationEditor({
   const [drafts, setDrafts] = useState<Record<ControlName, string>>(() =>
     pointDrafts(initialPoints),
   );
-  const [invalidControl, setInvalidControl] = useState<ControlName | null>(null);
+  const [invalidControl, setInvalidControl] = useState<ControlName | null>(
+    null,
+  );
   const errorId = useId();
 
-  const sourcePoints = value.type === "cubic-bezier" ? value.controlPoints : DEFAULT_CUBIC;
+  const sourcePoints =
+    value.type === "cubic-bezier" ? value.controlPoints : DEFAULT_CUBIC;
   useEffect(() => {
     const next = clonePoints(sourcePoints);
     setPoints(next);
     setDrafts(pointDrafts(next));
     setInvalidControl(null);
-  }, [sourcePoints.x1, sourcePoints.y1, sourcePoints.x2, sourcePoints.y2, value.type]);
+  }, [
+    sourcePoints.x1,
+    sourcePoints.y1,
+    sourcePoints.x2,
+    sourcePoints.y2,
+    value.type,
+  ]);
 
   const commitControl = (name: ControlName): void => {
     const raw = drafts[name].trim();
@@ -89,68 +111,79 @@ export function NativeInterpolationEditor({
     onCommit({ type: "cubic-bezier", controlPoints: nextPoints });
   };
 
-  const commitType = (type: NativeInterpolation["type"]): void => {
-    if (type === "cubic-bezier") {
-      onCommit({ type, controlPoints: clonePoints(points) });
-      return;
-    }
-    onCommit({ type });
+  const presets: Record<string, CubicBezierControlPoints> = {
+    "ease-in": { x1: 0.42, y1: 0, x2: 1, y2: 1 },
+    "ease-out": { x1: 0, y1: 0, x2: 0.58, y2: 1 },
+    "ease-in-out": { x1: 0.42, y1: 0, x2: 0.58, y2: 1 },
   };
+  const selected =
+    value.type === "cubic-bezier"
+      ? (Object.entries(presets).find(([, preset]) =>
+          CONTROL_NAMES.every(
+            (name) => preset[name] === value.controlPoints[name],
+          ),
+        )?.[0] ?? "custom")
+      : value.type;
 
   return (
     <div className="space-y-2">
-      <div
-        role="group"
-        aria-label="Interpolation"
-        className="grid grid-cols-3 gap-1 rounded-md bg-black/20 p-1"
-      >
-        {(
-          [
-            ["hold", "Hold"],
-            ["linear", "Linear"],
-            ["cubic-bezier", "Cubic"],
-          ] as const
-        ).map(([type, label]) => {
-          const selected = value.type === type;
-          return (
-            <button
-              key={type}
-              type="button"
-              aria-pressed={selected}
-              disabled={disabled}
-              onClick={() => commitType(type)}
-              className={`rounded px-2 py-1 text-[10px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                selected
-                  ? "bg-panel-accent/20 text-panel-accent"
-                  : "text-panel-text-3 hover:bg-white/5 hover:text-panel-text-1"
-              }`}
-            >
-              {label}
-            </button>
-          );
-        })}
-      </div>
+      <label className="flex min-h-[30px] items-center justify-between gap-3 text-[11px] text-panel-text-3">
+        Easing
+        <select
+          aria-label="Keyframe easing"
+          disabled={disabled}
+          value={selected}
+          className="min-w-0 rounded border border-panel-border-input bg-panel-bg px-2 py-1 text-panel-text-1"
+          onChange={(event) => {
+            const next = event.currentTarget.value;
+            if (next === "linear" || next === "hold") onCommit({ type: next });
+            else
+              onCommit({
+                type: "cubic-bezier",
+                controlPoints: clonePoints(presets[next] ?? points),
+              });
+          }}
+        >
+          <option value="linear">Linear · constant speed</option>
+          <option value="ease-in">Ease in · slow start</option>
+          <option value="ease-out">Ease out · slow finish</option>
+          <option value="ease-in-out">Ease in &amp; out</option>
+          <option value="hold">Hold · no transition</option>
+          <option value="custom">Custom curve…</option>
+        </select>
+      </label>
 
       {value.type === "cubic-bezier" && (
-        <div className="space-y-1.5">
+        <details className="space-y-1.5" open={selected === "custom"}>
+          <summary className="cursor-pointer text-[11px] text-panel-text-3">
+            Curve handles
+          </summary>
           <div className="grid grid-cols-4 gap-1.5">
             {CONTROL_NAMES.map((name) => {
               const upperName = name.toUpperCase();
               const label = `Cubic ${upperName}`;
               return (
-                <label key={name} className="min-w-0 text-[9px] text-panel-text-3">
+                <label
+                  key={name}
+                  className="min-w-0 text-[9px] text-panel-text-3"
+                >
                   <span className="mb-0.5 block">{upperName}</span>
                   <input
                     type="text"
                     inputMode="decimal"
                     aria-label={label}
                     aria-invalid={invalidControl === name}
-                    aria-describedby={invalidControl === name ? errorId : undefined}
+                    aria-describedby={
+                      invalidControl === name ? errorId : undefined
+                    }
                     value={drafts[name]}
                     disabled={disabled}
                     onChange={(event) => {
                       const nextDraft = event.currentTarget.value;
-                      setDrafts((current) => ({ ...current, [name]: nextDraft }));
+                      setDrafts((current) => ({
+                        ...current,
+                        [name]: nextDraft,
+                      }));
                       if (invalidControl === name) setInvalidControl(null);
                     }}
                     onBlur={() => commitControl(name)}
@@ -167,15 +200,19 @@ export function NativeInterpolationEditor({
               );
             })}
           </div>
-          <p className="text-[9px] text-panel-text-3">X handles: 0–1. Y handles: −1–2.</p>
+          <p className="text-[9px] text-panel-text-3">
+            X handles: 0–1. Y handles: −1–2.
+          </p>
           <p
             id={errorId}
             aria-live="polite"
             className={`text-[9px] text-red-400 ${invalidControl === null ? "sr-only" : ""}`}
           >
-            {invalidControl === null ? "Cubic handles are valid" : "Enter a finite number"}
+            {invalidControl === null
+              ? "Cubic handles are valid"
+              : "Enter a finite number"}
           </p>
-        </div>
+        </details>
       )}
     </div>
   );

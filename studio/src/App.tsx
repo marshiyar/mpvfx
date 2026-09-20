@@ -31,7 +31,6 @@ import { deleteSelectedKeyframes } from "./hooks/timelineEditingHelpers";
 import { clearKeyframeInteractionAfterHistory } from "./hooks/keyframeHistoryState";
 import { useCaptionDetection } from "./hooks/useCaptionDetection";
 import { useRenderClipContent } from "./hooks/useRenderClipContent";
-import { useFrameCapture } from "./hooks/useFrameCapture";
 import { useCompositionDimensions } from "./hooks/useCompositionDimensions";
 import { useToast } from "./hooks/useToast";
 import { useCompositionContentLoader } from "./hooks/useCompositionContentLoader";
@@ -43,7 +42,6 @@ import {
   useInspectorState,
 } from "./hooks/useStudioContextValue";
 import type { DomEditSelection } from "./components/editor/domEditing";
-import { StudioHeader } from "./components/StudioHeader";
 import { useGestureCommit } from "./hooks/useGestureCommit";
 import { GestureTrailOverlay } from "./components/editor/GestureTrailOverlay";
 import { StudioLeftSidebar } from "./components/StudioLeftSidebar";
@@ -145,6 +143,7 @@ export function StudioApp() {
     reloadToken: `${refreshKey}:${nativeProjectReloadToken}`,
     onNativeDuration: handleNativeDuration,
     getPlaybackRate: getNativePlaybackRate,
+    getPlayheadSeconds: getNativePlayheadSeconds,
   });
   const readLegacyAnimations = useCallback(
     async (legacyProjectId: string, sourceFile: string) =>
@@ -411,12 +410,6 @@ export function StudioApp() {
       : null,
     effectiveTimelineDuration,
   });
-  const frameCapture = useFrameCapture({
-    projectId,
-    activeCompPath,
-    showToast,
-    waitForPendingDomEditSaves: previewPersistence.waitForPendingDomEditSaves,
-  });
   const fileDrop = useGlobalFileDrop(timelineEditing.handleTimelineFileDrop);
   const handleToggleRecordingRef = useRef<() => void>(() => {});
   const domEditSessionRef = useRef(domEditSession);
@@ -526,13 +519,6 @@ export function StudioApp() {
                   onDragOver={fileDrop.onDragOver}
                   onDrop={fileDrop.onDrop}
                 >
-                  <StudioHeader
-                    captureFrameHref={frameCapture.captureFrameHref}
-                    captureFrameFilename={frameCapture.captureFrameFilename}
-                    handleCaptureFrameClick={frameCapture.handleCaptureFrameClick}
-                    refreshCaptureFrameTime={frameCapture.refreshCaptureFrameTime}
-                    capturing={frameCapture.capturing}
-                  />
                   {previewPersistence.domEditSaveQueuePaused && !externalFileChanges.blocked && (
                     <SaveQueuePausedBanner
                       message={previewPersistence.domEditSaveQueuePaused}

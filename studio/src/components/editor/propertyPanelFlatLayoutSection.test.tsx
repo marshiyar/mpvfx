@@ -11,7 +11,9 @@ import {
   LayoutZIndexRow,
 } from "./propertyPanelFlatLayoutSection";
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+(
+  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -29,28 +31,45 @@ function renderInto(node: React.ReactElement) {
 
 function getFlatRowInput(host: HTMLElement, label: string): HTMLInputElement {
   const rows = Array.from(host.querySelectorAll<HTMLElement>(".group"));
-  const row = rows.find((el) => el.querySelector("span")?.textContent === label);
+  const row = rows.find(
+    (el) => el.querySelector("span")?.textContent === label,
+  );
   const input = row?.querySelector<HTMLInputElement>("input");
   if (!input) throw new Error(`expected an input for row "${label}"`);
   return input;
 }
 
-function getFlatRowReset(host: HTMLElement, label: string): HTMLButtonElement | null {
+function getFlatRowReset(
+  host: HTMLElement,
+  label: string,
+): HTMLButtonElement | null {
   const rows = Array.from(host.querySelectorAll<HTMLElement>(".group"));
-  const row = rows.find((element) => element.querySelector("span")?.textContent === label);
-  return row?.querySelector<HTMLButtonElement>('[data-flat-row-reset="true"]') ?? null;
+  const row = rows.find(
+    (element) => element.querySelector("span")?.textContent === label,
+  );
+  return (
+    row?.querySelector<HTMLButtonElement>('[data-flat-row-reset="true"]') ??
+    null
+  );
 }
 
-function getFlexReset(host: HTMLElement, label: string): HTMLButtonElement | null {
+function getFlexReset(
+  host: HTMLElement,
+  label: string,
+): HTMLButtonElement | null {
   const labelSpan = Array.from(host.querySelectorAll("span")).find(
     (element) => element.textContent === label,
   );
-  return labelSpan?.parentElement?.querySelector<HTMLButtonElement>(
-    '[data-flat-segmented-reset="true"], [data-flat-select-reset="true"], [data-flat-row-reset="true"]',
-  ) ?? null;
+  return (
+    labelSpan?.parentElement?.querySelector<HTMLButtonElement>(
+      '[data-flat-segmented-reset="true"], [data-flat-select-reset="true"], [data-flat-row-reset="true"]',
+    ) ?? null
+  );
 }
 
-function baseGeometryProps(overrides: Partial<Parameters<typeof LayoutGeometryRows>[0]> = {}) {
+function baseGeometryProps(
+  overrides: Partial<Parameters<typeof LayoutGeometryRows>[0]> = {},
+) {
   return {
     element: {} as never,
     displayX: 0,
@@ -77,6 +96,22 @@ function baseGeometryProps(overrides: Partial<Parameters<typeof LayoutGeometryRo
 }
 
 describe("LayoutGeometryRows", () => {
+  it("shows whole transform values while keyframe authoring retains exact values", () => {
+    const commit = vi.fn();
+    const rotation = -231.2935988663;
+    const { host, root } = renderInto(<LayoutGeometryRows {...baseGeometryProps({
+      displayX: 309.482, displayY: -57.236, displayR: rotation,
+      gsapAnimId: "rotation-animation", navKeyframes: [{ percentage: 0, properties: { rotation: 0 } }],
+      currentPct: 50, onCommitKeyframeProperty: commit,
+    })} />);
+    expect(getFlatRowInput(host, "Rotation").value).toBe("-231°");
+    expect(getFlatRowInput(host, "X").value).toBe("309px");
+    expect(getFlatRowInput(host, "Y").value).toBe("-57px");
+    act(() => host.querySelector<HTMLButtonElement>('[title="Add rotation keyframe"]')!.click());
+    expect(commit).toHaveBeenCalledWith(expect.anything(), "rotation", rotation);
+    act(() => root.unmount());
+  });
+
   it("resets custom X, Y, and Angle to canonical zero values but does not guess W/H baselines", () => {
     const commitManualOffset = vi.fn();
     const commitManualRotation = vi.fn();
@@ -94,16 +129,22 @@ describe("LayoutGeometryRows", () => {
 
     const xReset = getFlatRowReset(host, "X");
     const yReset = getFlatRowReset(host, "Y");
-    const angleReset = getFlatRowReset(host, "Angle");
+    const angleReset = getFlatRowReset(host, "Rotation");
     expect(xReset).not.toBeNull();
     expect(yReset).not.toBeNull();
     expect(angleReset).not.toBeNull();
     expect(getFlatRowReset(host, "W")).toBeNull();
     expect(getFlatRowReset(host, "H")).toBeNull();
 
-    act(() => xReset?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    act(() => yReset?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    act(() => angleReset?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    act(() =>
+      xReset?.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+    );
+    act(() =>
+      yReset?.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+    );
+    act(() =>
+      angleReset?.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+    );
     expect(commitManualOffset.mock.calls).toEqual([
       ["x", "0px"],
       ["y", "0px"],
@@ -114,22 +155,26 @@ describe("LayoutGeometryRows", () => {
 
   it("does not offer position or angle resets at their zero defaults", () => {
     const { host, root } = renderInto(
-      <LayoutGeometryRows {...baseGeometryProps({ displayX: 0, displayY: 0, displayR: 0 })} />,
+      <LayoutGeometryRows
+        {...baseGeometryProps({ displayX: 0, displayY: 0, displayR: 0 })}
+      />,
     );
     expect(getFlatRowReset(host, "X")).toBeNull();
     expect(getFlatRowReset(host, "Y")).toBeNull();
-    expect(getFlatRowReset(host, "Angle")).toBeNull();
+    expect(getFlatRowReset(host, "Rotation")).toBeNull();
     act(() => root.unmount());
   });
 
   it("renders X, Y, W, H, Angle labels and formatted values", () => {
-    const { host, root } = renderInto(<LayoutGeometryRows {...baseGeometryProps()} />);
+    const { host, root } = renderInto(
+      <LayoutGeometryRows {...baseGeometryProps()} />,
+    );
     expect(host.textContent).toContain("X");
     expect(host.textContent).toContain("Y");
     expect(host.textContent).toContain("W");
     expect(host.textContent).toContain("H");
-    expect(host.textContent).toContain("Angle");
-    expect(getFlatRowInput(host, "W").value).toBe("257.4px");
+    expect(host.textContent).toContain("Rotation");
+    expect(getFlatRowInput(host, "W").value).toBe("257px");
     expect(getFlatRowInput(host, "Y").value).toBe("-24px");
     act(() => root.unmount());
   });
@@ -141,7 +186,10 @@ describe("LayoutGeometryRows", () => {
     );
     const input = host.querySelectorAll("input")[0];
     if (!input) throw new Error("expected an X input");
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!;
     act(() => {
       setter.call(input, "40px");
       input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -153,9 +201,13 @@ describe("LayoutGeometryRows", () => {
 
   it("wraps the keyframe gutter cluster at 30% opacity when the property has no keyframes", () => {
     const { host, root } = renderInto(
-      <LayoutGeometryRows {...baseGeometryProps({ gsapAnimId: "anim-1", navKeyframes: null })} />,
+      <LayoutGeometryRows
+        {...baseGeometryProps({ gsapAnimId: "anim-1", navKeyframes: null })}
+      />,
     );
-    const dimmed = host.querySelectorAll('[data-flat-kf-gutter="true"][style*="opacity: 0.3"]');
+    const dimmed = host.querySelectorAll(
+      '[data-flat-kf-gutter="true"][style*="opacity: 0.3"]',
+    );
     expect(dimmed.length).toBeGreaterThan(0);
     act(() => root.unmount());
   });
@@ -169,7 +221,9 @@ describe("LayoutGeometryRows", () => {
         })}
       />,
     );
-    const full = host.querySelectorAll('[data-flat-kf-gutter="true"][style*="opacity: 1"]');
+    const full = host.querySelectorAll(
+      '[data-flat-kf-gutter="true"][style*="opacity: 1"]',
+    );
     expect(full.length).toBeGreaterThan(0);
     act(() => root.unmount());
   });
@@ -193,7 +247,9 @@ describe("LayoutGeometryRows", () => {
     const addButton = host.querySelector('[title="Add x keyframe"]');
     if (!addButton) throw new Error("expected an Add x keyframe button");
     act(() => {
-      (addButton as HTMLElement).dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      (addButton as HTMLElement).dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
     });
     expect(onCommitAnimatedProperty).toHaveBeenCalledWith(element, "x", 0);
     expect(onCommitAnimatedProperty).not.toHaveBeenCalledWith(null, "x", 0);
@@ -222,9 +278,15 @@ describe("LayoutGeometryRows", () => {
 
     const addButton = host.querySelector('[title="Add rotation keyframe"]');
     if (!addButton) throw new Error("expected an Add rotation keyframe button");
-    act(() => addButton.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    act(() =>
+      addButton.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+    );
 
-    expect(onCommitKeyframeProperty).toHaveBeenCalledWith(element, "rotation", -180);
+    expect(onCommitKeyframeProperty).toHaveBeenCalledWith(
+      element,
+      "rotation",
+      -180,
+    );
     expect(onCommitAnimatedProperty).not.toHaveBeenCalled();
     act(() => root.unmount());
   });
@@ -250,13 +312,22 @@ describe("LayoutGeometryRows", () => {
       />,
     );
 
-    const ghostRotationDiamond = host.querySelector('[title="Convert rotation to keyframes"]');
-    if (!ghostRotationDiamond) throw new Error("expected the rotation ghost diamond");
+    const ghostRotationDiamond = host.querySelector(
+      '[title="Convert rotation to keyframes"]',
+    );
+    if (!ghostRotationDiamond)
+      throw new Error("expected the rotation ghost diamond");
     act(() => {
-      ghostRotationDiamond.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      ghostRotationDiamond.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
     });
 
-    expect(onCommitAnimatedProperty).toHaveBeenCalledWith(element, "rotation", -180);
+    expect(onCommitAnimatedProperty).toHaveBeenCalledWith(
+      element,
+      "rotation",
+      -180,
+    );
     expect(onConvertToKeyframes).not.toHaveBeenCalled();
     act(() => root.unmount());
   });
@@ -268,7 +339,7 @@ describe("LayoutZIndexRow", () => {
     const { host, root } = renderInto(
       <LayoutZIndexRow styles={{ "z-index": "7" }} onSetStyle={onSetStyle} />,
     );
-    const reset = getFlatRowReset(host, "Z-index");
+    const reset = getFlatRowReset(host, "Layer order");
     expect(reset).not.toBeNull();
     act(() => reset?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     expect(onSetStyle).toHaveBeenCalledWith("z-index", "auto");
@@ -279,7 +350,7 @@ describe("LayoutZIndexRow", () => {
     const { host, root } = renderInto(
       <LayoutZIndexRow styles={{ "z-index": "auto" }} onSetStyle={vi.fn()} />,
     );
-    expect(getFlatRowReset(host, "Z-index")).toBeNull();
+    expect(getFlatRowReset(host, "Layer order")).toBeNull();
     act(() => root.unmount());
   });
 
@@ -288,11 +359,14 @@ describe("LayoutZIndexRow", () => {
     const { host, root } = renderInto(
       <LayoutZIndexRow styles={{ "z-index": "3" }} onSetStyle={onSetStyle} />,
     );
-    expect(host.textContent).toContain("Z-index");
+    expect(host.textContent).toContain("Layer order");
     const input = host.querySelector("input");
     if (!input) throw new Error("expected an input");
     expect(input.value).toBe("3");
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!;
     act(() => {
       setter.call(input, "5");
       input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -323,7 +397,9 @@ describe("LayoutFlexBlock", () => {
     for (const label of ["Direction", "Justify", "Align", "Gap"]) {
       const reset = getFlexReset(host, label);
       expect(reset, `expected ${label} reset`).not.toBeNull();
-      act(() => reset?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+      act(() =>
+        reset?.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+      );
     }
     expect(onSetStyle.mock.calls).toEqual([
       ["flex-direction", "row"],
@@ -356,7 +432,11 @@ describe("LayoutFlexBlock", () => {
 
   it("renders nothing when the element is not flex", () => {
     const { host, root } = renderInto(
-      <LayoutFlexBlock styles={{ display: "block" }} onSetStyle={vi.fn()} disabled={false} />,
+      <LayoutFlexBlock
+        styles={{ display: "block" }}
+        onSetStyle={vi.fn()}
+        disabled={false}
+      />,
     );
     expect(host.textContent).toBe("");
     act(() => root.unmount());
@@ -372,12 +452,14 @@ describe("LayoutFlexBlock", () => {
       />,
     );
     expect(host.textContent).toContain("Flex");
-    const columnOption = Array.from(host.querySelectorAll('[data-flat-segment="true"]')).find(
-      (el) => el.textContent === "Column",
-    );
+    const columnOption = Array.from(
+      host.querySelectorAll('[data-flat-segment="true"]'),
+    ).find((el) => el.textContent === "Column");
     if (!columnOption) throw new Error("expected a Column segment option");
     act(() =>
-      (columnOption as HTMLElement).dispatchEvent(new MouseEvent("click", { bubbles: true })),
+      (columnOption as HTMLElement).dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      ),
     );
     expect(onSetStyle).toHaveBeenCalledWith("flex-direction", "column");
     act(() => root.unmount());
@@ -442,9 +524,9 @@ describe("FlatLayoutSection", () => {
     );
     const text = host.textContent ?? "";
     expect(text).toContain("X");
-    expect(text).toContain("Z-index");
+    expect(text).toContain("Layer order");
     expect(text).toContain("Flex");
-    expect(text).toContain("3D Transform");
+    expect(text).toContain("3D transform");
     act(() => root.unmount());
   });
 
@@ -515,7 +597,49 @@ describe("FlatLayoutSection", () => {
       />,
     );
 
-    expect(host.textContent).not.toContain("3D Transform");
+    expect(host.textContent).not.toContain("3D transform");
     act(() => root.unmount());
   });
+});
+
+describe("motion audit: legacy keyframe identity in flat inspector", () => {
+  it("recognizes the same key despite percentage round-trip error", () => {
+    const { host, root } = renderInto(
+      <LayoutGeometryRows
+        {...baseGeometryProps({
+          gsapAnimId: "anim-1",
+          ...{ clipDuration: 4 },
+          navKeyframes: [{ percentage: 100 / 3, properties: { x: 10 } }],
+          currentPct: 33.33333333333333,
+        })}
+      />,
+    );
+    const remove = host.querySelector('[aria-label="Remove x keyframe"]');
+    act(() => root.unmount());
+    expect(remove).not.toBeNull();
+  });
+});
+
+it("groups native Position into one keyframe control and commits both axes together", () => {
+  const commit = vi.fn(async () => undefined);
+  const remove = vi.fn();
+  const props = baseGeometryProps({
+    keyframeTargetId: "native:clip",
+    onCommitKeyframeProperties: commit,
+    onRemoveKeyframeGroup: remove,
+  });
+  const { host, root } = renderInto(<LayoutGeometryRows {...props} />);
+  expect(
+    host.querySelector('[aria-label="Convert x to keyframes"]'),
+  ).toBeNull();
+  expect(
+    host.querySelector('[aria-label="Convert y to keyframes"]'),
+  ).toBeNull();
+  const position = host.querySelector<HTMLButtonElement>(
+    '[aria-label="Convert Position to keyframes"]',
+  );
+  expect(position).not.toBeNull();
+  act(() => position!.click());
+  expect(commit).toHaveBeenCalledWith(props.element, { x: 0, y: -24 });
+  act(() => root.unmount());
 });

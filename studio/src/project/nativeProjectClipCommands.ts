@@ -8,6 +8,7 @@ import {
   type NativeProjectDocument,
   type NativeProjectTrack,
 } from "./nativeProjectDocument";
+import { sliceNativeInterpolation } from "./nativeInterpolationSlice";
 import { evaluateNativeParameterTrack } from "./nativeKeyframeEvaluator";
 import {
   createNativeParameterTrack,
@@ -147,18 +148,12 @@ const locateClip = (
   return { trackIndex, clipIndex, track, clip: track.clips[clipIndex]! };
 };
 
-const compatible = (clip: NativeProjectClip, destination: NativeProjectTrack, document: NativeProjectDocument) => {
-  const asset = document.assets.find((candidate) => candidate.id === clip.assetId);
-  return !!asset && (destination.kind === "audio" ? asset.kind === "audio" : asset.kind !== "audio");
-};
-
 /** Validate every requested edit against the same original document before mutation. */
 const locateMoves = (
   document: NativeProjectDocument,
   moves: readonly NativeProjectClipMove[],
 ): LocatedMove[] | NativeProjectClipFailure => {
   const addressed = new Set<string>();
-  const destinations = new Set<string>();
   const located: LocatedMove[] = [];
   for (const move of moves) {
     if (document.sequence.id !== move.address.sequenceId) {
@@ -172,11 +167,6 @@ const locateMoves = (
       return { code: "duplicate-target", message: `Clip ${move.address.clipId} is targeted more than once` };
     }
     addressed.add(addressKey);
-    const nextDestinationKey = destinationKey(move.destination);
-    if (destinations.has(nextDestinationKey)) {
-      return { code: "destination-collision", message: "Two moves have the same destination track and start frame" };
-    }
-    destinations.add(nextDestinationKey);
 
     const sourceTrackIndex = document.sequence.tracks.findIndex(
       (track) => track.id === move.address.trackId,
@@ -200,12 +190,6 @@ const locateMoves = (
     }
     const clip = sourceTrack.clips[sourceClipIndex]!;
     const destinationTrack = document.sequence.tracks[destinationTrackIndex]!;
-    if (!compatible(clip, destinationTrack, document)) {
-      return {
-        code: "incompatible-destination",
-        message: `Clip ${clip.id} cannot move to ${destinationTrack.kind} track ${destinationTrack.id}`,
-      };
-    }
     located.push({ ...move, sourceTrackIndex, sourceClipIndex, clip, destinationTrackIndex });
   }
   return located;
@@ -259,24 +243,50 @@ const rebaseTrack = (
   nextTrackId: string,
 ): NativeParameterTrack => {
   const typed = track as NativeParameterTrack<NativeValueType>;
-  const atBoundary = typed.keyframes.find((keyframe) => keyframe.frame === fromFrame);
-  const prior = typed.keyframes.filter((keyframe) => keyframe.frame <= fromFrame).at(-1);
-  const baseline = atBoundary ?? {
-    id: nativeSplitBaselineKeyframeId(track.id, fromFrame),
-    frame: fromFrame,
-    value: evaluateNativeParameterTrack(typed, fromFrame),
-    outgoing: cloneOutgoing((prior ?? typed.keyframes[0]!).outgoing),
+  const sample = (frame: number) => {
+    const authored = typed.keyframes.find((key) => key.frame === frame);
+    return authored ?? {
+      id: nativeSplitBaselineKeyframeId(track.id, frame),
+      frame,
+      value: evaluateNativeParameterTrack(typed, frame),
+      outgoing: { type: "hold" as const },
+    };
   };
-  const keyframes = [
-    { ...baseline, frame: 0, outgoing: cloneOutgoing(baseline.outgoing) },
-    ...typed.keyframes
-      .filter((keyframe) => keyframe.frame > fromFrame && keyframe.frame < untilFrameExclusive)
-      .map((keyframe) => ({
-        ...keyframe,
-        frame: keyframe.frame - fromFrame,
-        outgoing: cloneOutgoing(keyframe.outgoing),
-      })),
-  ];
+  const frames = [fromFrame, ...typed.keyframes
+    .filter((key) => key.frame > fromFrame && key.frame < untilFrameExclusive)
+    .map((key) => key.frame)];
+  // Keep the final visible sample if the trim cuts an animated segment.
+  const lastVisible = untilFrameExclusive - 1;
+  if (lastVisible > frames[frames.length - 1]! && typed.keyframes.some((key) => key.frame > lastVisible)) {
+    frames.push(lastVisible);
+  }
+  const keyframes = frames.map((frame) => ({
+    ...sample(frame), frame: frame - fromFrame,
+    outgoing: cloneOutgoing(sample(frame).outgoing),
+  }));
+  for (let i = 0; i + 1 < frames.length; i++) {
+    const start = frames[i]!;
+    const end = frames[i + 1]!;
+    const left = typed.keyframes.findLast((key) => key.frame <= start);
+    const right = typed.keyframes.find((key) => key.frame > start);
+    if (!left || !right) {
+      keyframes[i]!.outgoing = { type: "hold" };
+      continue;
+    }
+    const span = right.frame - left.frame;
+    const interpolation = sliceNativeInterpolation(left.outgoing,
+      (start - left.frame) / span, (end - left.frame) / span);
+    if (interpolation) {
+      keyframes[i]!.outgoing = interpolation;
+    } else {
+      // Equal-endpoint returning Bezier segments need explicit frame samples.
+      keyframes[i]!.outgoing = { type: "linear" };
+      for (let frame = start + 1; frame < end; frame++) {
+        keyframes.push({ ...sample(frame), frame: frame - fromFrame, outgoing: { type: "linear" } });
+      }
+    }
+  }
+  keyframes.sort((a, b) => a.frame - b.frame);
   return createNativeParameterTrack({
     id: nextTrackId,
     parameterId: typed.parameterId,
@@ -320,17 +330,21 @@ const applyTrimIn = (
   const location = locateClip(document, address);
   if (isLocatedClipFailure(location)) return reject(document, location.code, location.message);
   const delta = startFrame - location.clip.startFrame;
-  if (!Number.isSafeInteger(startFrame) || delta < 0 || delta >= location.clip.durationFrames) {
-    return reject(document, "invalid-trim", "Trim-in start must be an integer inside the clip");
+  if (!Number.isSafeInteger(startFrame) || startFrame < 0 || delta >= location.clip.durationFrames) {
+    return reject(document, "invalid-trim", "Trim-in start must be a nonnegative integer before the clip end");
   }
   const clip = location.clip;
-  const sourceDelta = exactSourceFrameDelta(clip, delta);
+  const isImage = document.assets.find((asset) => asset.id === clip.assetId)?.kind === "image";
+  const sourceDelta = isImage ? 0 : exactSourceFrameDelta(clip, delta);
   if (sourceDelta === null) {
     return reject(
       document,
       "non-integral-source-boundary",
       "Trim boundary does not map to an exact integral source frame at this playback rate",
     );
+  }
+  if (clip.sourceInFrame + sourceDelta < 0) {
+    return reject(document, "invalid-trim", "Cannot extend before the beginning of the source media");
   }
   return succeed(
     document,
@@ -352,16 +366,25 @@ const applyTrimOut = (
   const location = locateClip(document, address);
   if (isLocatedClipFailure(location)) return reject(document, location.code, location.message);
   const nextDuration = endFrameExclusive - location.clip.startFrame;
-  if (!Number.isSafeInteger(endFrameExclusive) || nextDuration <= 0 || nextDuration > location.clip.durationFrames) {
-    return reject(document, "invalid-trim", "Trim-out end must be an integer inside the clip end");
+  if (!Number.isSafeInteger(endFrameExclusive) || nextDuration <= 0) {
+    return reject(document, "invalid-trim", "Trim-out end must be an integer after the clip start");
   }
   const clip = location.clip;
+  const asset = document.assets.find((candidate) => candidate.id === clip.assetId)!;
+  const rate = clip.playbackRate ?? DEFAULT_NATIVE_PLAYBACK_RATE;
+  if (asset.kind !== "image" &&
+      BigInt(clip.sourceInFrame) * BigInt(rate.denominator) + BigInt(nextDuration) * BigInt(rate.numerator) >
+      BigInt(asset.durationFrames) * BigInt(rate.denominator)) {
+    return reject(document, "invalid-trim", "Cannot extend beyond the end of the source media");
+  }
   return succeed(
     document,
     replaceClip(document, location, {
       ...clip,
       durationFrames: nextDuration,
-      parameterTracks: rebasedTracks(clip, 0, nextDuration, (track) => track.id),
+      parameterTracks: nextDuration >= clip.durationFrames
+        ? clip.parameterTracks
+        : rebasedTracks(clip, 0, nextDuration, (track) => track.id),
     }),
   );
 };
@@ -522,8 +545,11 @@ export const applyNativeProjectClipCommand = (
         clipIndex: Number.MAX_SAFE_INTEGER,
         stableOrder: track.clips.length + index,
       }));
+    const kinds = new Set([...stationary, ...arrivals].map(({ clip }) =>
+      document.assets.find(asset => asset.id === clip.assetId)?.kind === "audio" ? "audio" : "video"));
     return {
       ...track,
+      kind: [...kinds].some(kind => kind !== track.kind) ? "mixed" as const : track.kind,
       clips: [...stationary, ...arrivals]
         .sort(
           (left, right) =>

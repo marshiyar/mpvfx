@@ -91,14 +91,6 @@ export function useStudioPlaybackContextOptional(): StudioPlaybackValue | null {
   return useContext(StudioPlaybackContext);
 }
 
-/** @deprecated Use useStudioShellContext and/or useStudioPlaybackContext instead. */
-// fallow-ignore-next-line unused-export
-export function useStudioContext(): StudioContextValue {
-  const shell = useStudioShellContext();
-  const playback = useStudioPlaybackContext();
-  return useMemo(() => ({ ...shell, ...playback }), [shell, playback]);
-}
-
 export function StudioShellProvider({
   value,
   children,
@@ -195,20 +187,4 @@ export function StudioPlaybackProvider({
     ],
   );
   return <StudioPlaybackContext value={stable}>{children}</StudioPlaybackContext>;
-}
-
-/** @deprecated Use StudioShellProvider and StudioPlaybackProvider instead. */
-// fallow-ignore-next-line unused-export
-export function StudioProvider({
-  value,
-  children,
-}: {
-  value: StudioContextValue;
-  children: ReactNode;
-}) {
-  return (
-    <StudioShellProvider value={value}>
-      <StudioPlaybackProvider value={value}>{children}</StudioPlaybackProvider>
-    </StudioShellProvider>
-  );
 }

@@ -6,8 +6,6 @@ import type { TimelineElement } from "../../player";
 import { roundToCenti } from "../../utils/rounding";
 
 export type {
-  BackgroundRemovalProgress,
-  BackgroundRemovalResult,
   PropertyPanelProps,
 } from "./propertyPanelTypes";
 
@@ -271,6 +269,11 @@ export function normalizePanelPxValue(
     options.fallback ?? 0,
   );
   return `${formatNumericValue(next)}px`;
+}
+
+/** Compact transform readout only; authoring continues to use the exact source value. */
+export function formatTransformValue(value: number, unit = "px"): string {
+  return `${Math.round(value)}${unit}`;
 }
 
 export function formatPxMetricValue(value: number): string {

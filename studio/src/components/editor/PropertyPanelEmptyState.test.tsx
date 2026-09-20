@@ -40,7 +40,7 @@ describe("PropertyPanelEmptyState — flat multi-select", () => {
     { id: null, selector: "#s2-chart", label: "S2 Chart", tagName: "div" },
   ] as unknown as DomEditSelection[];
 
-  it("lists each selected element and wires group/hide-all/clear actions", () => {
+  it("keeps group/hide-all/clear actions without a selection banner or duplicate list", () => {
     const onGroupSelection = vi.fn();
     const onHideAllSelected = vi.fn();
     const onClearSelection = vi.fn();
@@ -54,9 +54,9 @@ describe("PropertyPanelEmptyState — flat multi-select", () => {
         onClearSelection={onClearSelection}
       />,
     );
-    expect(host.textContent).toContain("2 elements selected");
-    expect(host.textContent).toContain("Mono Label");
-    expect(host.textContent).toContain("S2 Chart");
+    expect(host.textContent).not.toContain("elements selected");
+    expect(host.textContent).not.toContain("Mono Label");
+    expect(host.textContent).not.toContain("S2 Chart");
 
     const group = host.querySelector<HTMLButtonElement>('[data-flat-multiselect-group="true"]');
     act(() => group?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
@@ -103,7 +103,7 @@ describe("PropertyPanelEmptyState — flat multi-select", () => {
     // panel was the way back to the same write.
     expect(host.querySelector('[data-flat-multiselect-hide-all="true"]')).toBeNull();
     // The list still names what is selected; only the actions go.
-    expect(host.textContent).toContain("2 elements selected");
+    expect(host.textContent).not.toContain("elements selected");
     act(() => root.unmount());
   });
 

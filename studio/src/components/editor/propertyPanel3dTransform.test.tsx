@@ -66,6 +66,7 @@ function renderTransform(
       />,
     );
   });
+  act(() => host.querySelector<HTMLButtonElement>("button")?.click());
   return { host, root, element, onCommitAnimatedProperty };
 }
 
@@ -81,11 +82,11 @@ describe("PropertyPanel3dTransform reset controls", () => {
       x: 71,
     });
     const expected = [
-      ["Z", "z", 0],
+      ["Depth", "z", 0],
       ["Scale", "scale", 1],
-      ["RotX", "rotationX", 0],
-      ["RotY", "rotationY", 0],
-      ["RotZ", "rotationZ", 0],
+      ["Tilt X", "rotationX", 0],
+      ["Tilt Y", "rotationY", 0],
+      ["Roll", "rotationZ", 0],
       ["Perspective", "transformPerspective", 0],
     ] as const;
 

@@ -42,6 +42,7 @@ function renderMenu(element: TimelineElement) {
 
 const video: TimelineElement = {
   id: "clip-video",
+  domId: "clip-video",
   tag: "video",
   src: "assets/clip.mp4",
   start: 0,
@@ -136,4 +137,9 @@ describe("ClipContextMenu mute action", () => {
     expect(document.body.textContent).not.toContain("Mute");
     expect(document.body.textContent).not.toContain("Unmute");
   });
+});
+
+it("labels splitting with just the action and shortcut", () => {
+  renderMenu(video);
+  expect(document.querySelector('[role="menuitem"]')?.textContent).toBe("SplitS");
 });
