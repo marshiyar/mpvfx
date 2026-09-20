@@ -1,0 +1,72 @@
+name: Update crash report default version
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: write
+
+jobs:
+  update-version:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Update latest release in crash report form
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          import re
+
+          path = Path(".github/ISSUE_TEMPLATE/crash-report.yml")
+          content = path.read_text()
+          release_tag = os.environ["RELEASE_TAG"]
+
+          version_field = re.search(
+              r"(  - type: input\n    id: version\n.*?)(?=\n  - type:|\Z)",
+              content,
+              re.DOTALL,
+          )
+
+          if not version_field:
+              raise SystemExit("Could not find the version field")
+
+          field = version_field.group(1)
+
+          updated_field, count = re.subn(
+              r"(?m)^(\s+value: ).*(\s+# latest release; updated automatically)$",
+              rf"\g<1>{release_tag}\g<2>",
+              field,
+          )
+
+          if count != 1:
+              raise SystemExit(
+                  "Could not find the automatically updated version value"
+              )
+
+          content = content.replace(field, updated_field)
+          path.write_text(content)
+          PY
+
+      - name: Commit updated issue form
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add .github/ISSUE_TEMPLATE/crash-report.yml
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: update crash report default version"
+            git push origin HEAD:main
+          fi
