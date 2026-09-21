@@ -31,6 +31,7 @@ public class DesktopEvidence {
   [StructLayout(LayoutKind.Sequential)] public struct Rect { public int left, top, right, bottom; }
   [DllImport("user32.dll")] static extern bool EnumWindows(EnumCallback callback, IntPtr data);
   [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hwnd);
+  [DllImport("user32.dll")] static extern bool IsIconic(IntPtr hwnd);
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowText(IntPtr hwnd, StringBuilder text, int count);
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr hwnd, StringBuilder text, int count);
   [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
@@ -71,7 +72,7 @@ public class DesktopEvidence {
     };
     var eventHook = SetWinEventHook(0x8002, 0x8002, IntPtr.Zero, callback, 0, 0, 0);
     eventHookActive=eventHook != IntPtr.Zero;
-    long nextFrame=0; string previous="";
+    long nextFrame=0; string previous=""; uint visibleEditor=0;
     File.WriteAllText(Path.Combine(control,"monitor-ready"), "ready");
     try {
       while (!File.Exists(Path.Combine(control,"monitor-stop")) && clock.Elapsed.TotalMinutes < 20) {
@@ -84,6 +85,11 @@ public class DesktopEvidence {
           } catch(IOException) {}
         }
         var windows=Visible();
+        var editor=windows.Find(w=>w.className == "Chrome_WidgetWin_1" && w.title == "MpVFX" && !IsIconic(new IntPtr(w.handle)) && w.width >= 800 && w.height >= 500);
+        if(editor != null && visibleEditor != editor.pid) {
+          visibleEditor=editor.pid;
+          File.WriteAllText(Path.Combine(control,"visible-editor"),visibleEditor.ToString());
+        }
         var identity=phase + String.Join("|",windows.ConvertAll(w=>w.handle+":"+w.title));
         string filename=null;
         if(clock.ElapsedMilliseconds >= nextFrame) {

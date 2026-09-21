@@ -81,7 +81,9 @@ async function report() {
 }
 async function launch() {
   let messages = "";
-  app = spawn(executable, ["--remote-debugging-port=0", ...(platform === "linux" ? ["--no-sandbox"] : [])], { env: environment, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+  // This is the GUI app under visual test, not a console helper. windowsHide
+  // would suppress its first native ShowWindow on Windows.
+  app = spawn(executable, ["--remote-debugging-port=0", ...(platform === "linux" ? ["--no-sandbox"] : [])], { env: environment, windowsHide: false, stdio: ["ignore", "pipe", "pipe"] });
   for (const stream of [app.stdout, app.stderr]) stream.on("data", (chunk) => { messages = (messages + String(chunk)).slice(-64000); });
   app.on("error", () => {});
   const endpoint = await until(() => {
@@ -95,6 +97,9 @@ async function launch() {
   // Electron owns the native window; Chromium's Browser window-management
   // commands are not implemented by its debugging endpoint.
   await page.bringToFront();
+  if (platform === "win32") await until(() => {
+    try { return readFileSync(join(control, "visible-editor"), "utf8") === String(app.pid); } catch { return false; }
+  }, "native Windows editor is actually visible");
   return client;
 }
 async function stopApp() {
@@ -152,8 +157,9 @@ async function render(format, ordinal, cancel = false) {
     last = (await report()).events.findLast((e) => e.event === "export.finished" && e.context.jobId === jobId);
     return last;
   }, `${format} ${cancel ? "cancel" : "export"} finished`, 240_000);
-  assert.equal(last.data.status, cancel ? "cancelled" : "complete", `Export ${ordinal}: ${JSON.stringify(last.data)}`);
   const timing = { format, status: last.data.status, elapsedMs: Date.now() - started };
+  result.exports.push(timing);
+  assert.equal(last.data.status, cancel ? "cancelled" : "complete", `Export ${ordinal}: ${JSON.stringify(last.data)}`);
   if (!cancel) {
     const rendered = join(profile, "renders", `${jobId}.${format}`);
     assert.ok(existsSync(rendered), "Completed output must exist");
@@ -176,7 +182,6 @@ async function render(format, ordinal, cancel = false) {
     assert.ok(helpers.some((e) => /ffmpeg/i.test(e.data.executable)));
     timing.helperCount = helpers.length;
   }
-  result.exports.push(timing);
   await until(async () => !(await page.$eval(select('[data-diagnostic-action="export-video"]'), (el) => el.disabled)), "export button ready again");
   await screenshot(`0${ordinal + 3}-${format}-${cancel ? "cancelled" : "complete"}`);
 }
@@ -275,11 +280,18 @@ try {
   assert.ok(renderTab); await renderTab.click();
   await page.waitForSelector(select('[data-diagnostic-action="export-video"]'));
   await choose("custom"); await setNumber("Custom export width", 640); await setNumber("Custom export height", 360);
-  await render("mp4", 1);
-  await render("mov", 2);
-  await render("mp4", 3, true);
-  await render("mp4", 4);
-  result.passed.push("ui-mp4-and-mov-export-with-verified-pixels", "ui-cancel-and-repeat-export");
+  for (const [format, ordinal, cancel] of [["mp4", 1, false], ["mov", 2, false], ["mp4", 3, true], ["mp4", 4, false]]) {
+    try {
+      await render(format, ordinal, cancel);
+      result.passed.push(`ui-${format}-${cancel ? "cancel" : "export-verified-pixels"}-${ordinal}`);
+    } catch (error) {
+      // Keep the workflow failed, but collect recovery/other-format evidence
+      // when the app returns to its normal enabled Export state.
+      result.failures.push({ phase, message: error.message });
+      await until(async () => !(await page.$eval(select('[data-diagnostic-action="export-video"]'), (el) => el.disabled)), "export UI recovers after a failed job", 30_000);
+      await screenshot(`failure-${format}-${ordinal}`);
+    }
+  }
   mark("minimum-viewport");
   const originalViewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight, deviceScaleFactor: devicePixelRatio }));
   await page.setViewport({ width: 1024, height: 640, deviceScaleFactor: 1 });
