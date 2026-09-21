@@ -33,6 +33,7 @@ import { commitGsapPositionFromDrag } from "./gsapDragPositionCommit";
 import { resolveTweenStart, resolveTweenDuration } from "../utils/globalTimeCompiler";
 import {
   isInstantHold,
+  keyframeIsAtOutputTime,
   keyframesShareOutputFrame,
   resolveDurableKeyframePercentage,
   resolveEditableTweenDuration,
@@ -436,10 +437,17 @@ export async function tryGsapResizeIntercept(
     return true;
   };
 
-  // With auto-keyframe off (#1808), `anim` is already a real (non-"set")
-  // tween for this resize group, so nudge it as a whole rather than adding a
-  // keyframe at the playhead.
-  if (!usePlayerStore.getState().autoKeyframeEnabled) {
+  // Match inspector edits: auto-key off offsets the whole animation only
+  // between authored frames. A selected diamond or an existing key at the
+  // playhead still owns this resize.
+  const authoredStart = resolveTweenStart(anim) ?? (Number.parseFloat(selection.dataAttributes?.start ?? "0") || 0);
+  const hasKeyframeAtPlayhead = anim.keyframes?.keyframes.some((keyframe) =>
+    keyframeIsAtOutputTime(keyframe.percentage, usePlayerStore.getState().currentTime, {
+      start: authoredStart,
+      duration: tweenDuration,
+    }),
+  );
+  if (!usePlayerStore.getState().autoKeyframeEnabled && activeKeyframePct == null && !hasKeyframeAtPlayhead) {
     await commitWholePropertyOffset(
       selection,
       anim,

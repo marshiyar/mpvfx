@@ -109,7 +109,11 @@ It is **not a clean release sign-off**. See
 
 | ID | State | Acceptance evidence needed |
 | --- | --- | --- |
-| linux-mov-png | Open | MOV succeeds through both streamed and disk PNG frame paths; decoded red/blue pixels and audio are correct. |
+| linux-mov-png | [PR #42](https://github.com/marshiyar/mpvfx/pull/42), focused checks pass | 18 streaming/saved-frame tests pass locally using real host FFmpeg with the Linux input policy. Native Linux MOV verification remains pending. |
+| idle-thumbnail-loop | Fixed locally; other platforms pending | Generated-video native macOS ARM idle probe: retained heap after 90 seconds and GC fell from 417.1 MB to 17.2 MB. The native diagnostics harness now repeats a 90-second retained-heap check on each platform. |
+| canvas-size-keyframes | Fixed in focused regressions; full gesture check pending | Canvas resize edits an authored/selected size keyframe with auto-key off; first size animation preserves measured CSS dimensions at the other keys. Native pointer gesture/reopen verification remains pending. |
+| workspace-controls | [#46](https://github.com/marshiyar/mpvfx/issues/46), open | Restore canvas dimensions and project frame rate access without restoring the removed navigation bar; verify save/reopen and timing preservation when frame rate changes. |
+| codeql-versioning | Workflow repaired; hosted check pending | Init/analyze use the same 4.38.1 commit; Dependabot groups CodeQL sub-actions so subsequent updates land together. |
 | small-window-cancel | Open | At 1024×768 native windows, render progress and Cancel are visible/reachable; clicking Cancel sends the request and stops the job; retry works. |
 | windows-installer | Open | Install creates working Start Menu shortcuts, shows deliberate branding, and update/uninstall lifecycle preserves user work. |
 | mov-thumbnail | Open | Completed ProRes MOV has a valid thumbnail independent of Chromium codec support; output remains correct. |
@@ -155,3 +159,21 @@ focused PR instead of merging unrelated development changes.
 
 These checks verify the automation boundary. They do not certify arbitrary images
 as private, resolve the release backlog, or validate the app on a physical Windows PC.
+
+### September 21 local regression follow-up
+
+The video-thumbnail decoder kept its error handler attached while clearing its
+source and calling `load()`. Chromium emitted another error, repeatedly queuing
+React updates while the editor sat idle. Cleanup now detaches media listeners
+before releasing the decoder and ignores stale events after a source change.
+Regression tests cover successful extraction, decode failure, stale events, and
+canvas extraction errors. Synthetic native macOS ARM diagnostics passed the new
+idle-memory check (2,909 KiB retained growth), edited-video export pixel checks,
+report redaction, a forced renderer crash, local minidump recording, and restart
+recovery. This does not establish long-session stability on every device.
+
+GPU diagnostics also queried complete information in response to
+`gpu-info-update`, which collection itself can emit. It now records basic and
+complete startup snapshots once, preventing a query/log feedback loop. The native
+harness checks that capture stays bounded. Raw user telemetry and crash reports
+remain outside version control and public artifacts.
