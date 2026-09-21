@@ -34,15 +34,26 @@ body:
   - type: textarea
     id: steps
     attributes:
-      label: Reproduction steps & Expected behavior
-      description: DO NOT INCLUDE SENSETIVE INFO
+      label: Reproduction steps
+      description: Use a minimal project with non-sensitive test media when possible.
     validations:
       required: true
 
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
 
   - type: textarea
     id: actual
     attributes:
       label: Actual behavior
     validations:
-      required: false
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context or sanitized logs
