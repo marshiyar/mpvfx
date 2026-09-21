@@ -1,16 +1,23 @@
 name: Released desktop visual verification
+run-name: Visual release ${{ inputs.release_tag || 'v0.0.2' }} ${{ inputs.audit_key || github.sha }}
 
 on:
-  push:
-    branches: [patches-windows]
-    paths:
-      - ".github/workflows/visual-release.yml"
-      - "studio/tests/e2e/visual-release.mjs"
-      - "studio/tests/e2e/windows-desktop-watch.ps1"
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Published version to inspect
+        default: v0.0.2
+        type: string
+      audit_key:
+        description: Deterministic scheduler fingerprint
+        type: string
 
 permissions:
   contents: read
+
+concurrency:
+  group: visual-release-${{ inputs.audit_key || github.ref }}
+  cancel-in-progress: false
 
 jobs:
   visual:
@@ -39,18 +46,23 @@ jobs:
           sudo apt-get install --yes openbox scrot
       - name: Inspect downloaded release on native desktop
         if: runner.os != 'Linux'
+        env:
+          MPVFX_VISUAL_RELEASE_TAG: ${{ inputs.release_tag || 'v0.0.2' }}
         run: node studio/tests/e2e/visual-release.mjs
       - name: Inspect downloaded release in Linux desktop
         if: runner.os == 'Linux'
+        env:
+          MPVFX_VISUAL_RELEASE_TAG: ${{ inputs.release_tag || 'v0.0.2' }}
         run: xvfb-run --auto-servernum --server-args="-screen 0 1600x1000x24" sh -c 'openbox >/dev/null 2>&1 & node studio/tests/e2e/visual-release.mjs'
+      - name: Validate and stage public synthetic evidence
+        if: ${{ !cancelled() }}
+        id: privacy
+        run: node scripts/automation/privacy.mjs
       - name: Retain synthetic visual evidence only
-        if: always()
+        if: ${{ !cancelled() && steps.privacy.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: visual-${{ matrix.os }}
-          path: |
-            studio/out/visual-release/evidence/*.png
-            studio/out/visual-release/evidence/*.mp4
-            studio/out/visual-release/evidence/*.json
+          path: studio/out/visual-release/public-evidence/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3

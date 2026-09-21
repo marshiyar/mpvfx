@@ -15,6 +15,7 @@ editor-reliability-plugin/
 .codex/
 *.codex/
 /scripts/*
+!/scripts/automation/
 .claude/
 .chatgpt/
 .cursor/

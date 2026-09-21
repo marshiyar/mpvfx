@@ -21,6 +21,7 @@ public class DesktopEvidence {
   public class Window {
     public long handle; public uint pid; public string className; public string title;
     public int left; public int top; public int width; public int height;
+    public bool appOwned;
   }
   public class Observation {
     public long elapsedMs; public string phase; public string source; public string image;
@@ -43,13 +44,16 @@ public class DesktopEvidence {
   public List<Observation> observations = new List<Observation>();
   public int frames; public long durationMs; public bool eventHookActive; public int sampleIntervalMs = 100;
   public int screenWidth; public int screenHeight;
+  public string capturePolicy = "mpvfx-windows-only";
   private string phase = "baseline";
   private Stopwatch clock = new Stopwatch();
   private Window Describe(IntPtr hwnd) {
     var cls = new StringBuilder(256); var title = new StringBuilder(256); uint pid; Rect rect;
     GetClassName(hwnd, cls, cls.Capacity); GetWindowText(hwnd, title, title.Capacity);
     GetWindowThreadProcessId(hwnd, out pid); GetWindowRect(hwnd, out rect);
-    return new Window { handle=hwnd.ToInt64(), pid=pid, className=cls.ToString(), title=title.ToString(), left=rect.left, top=rect.top, width=rect.right-rect.left, height=rect.bottom-rect.top };
+    bool appOwned=false;
+    try { var name=Process.GetProcessById((int)pid).ProcessName; appOwned=String.Equals(name,"MpVFX",StringComparison.OrdinalIgnoreCase) || String.Equals(name,"Setup",StringComparison.OrdinalIgnoreCase) || System.Text.RegularExpressions.Regex.IsMatch(name,@"^MpVFX-\d+\.\d+\.\d+(?:-[a-z0-9.-]+)?-Setup$",System.Text.RegularExpressions.RegexOptions.IgnoreCase); } catch {}
+    return new Window { handle=hwnd.ToInt64(), pid=pid, className=cls.ToString(), title=title.ToString(), left=rect.left, top=rect.top, width=rect.right-rect.left, height=rect.bottom-rect.top, appOwned=appOwned };
   }
   private List<Window> Visible() {
     var list = new List<Window>();
@@ -95,7 +99,26 @@ public class DesktopEvidence {
         if(clock.ElapsedMilliseconds >= nextFrame) {
           filename=String.Format("desktop-{0:D5}.png",frames++);
           using(var bitmap=new Bitmap(bounds.Width,bounds.Height)) {
-            using(var graphics=Graphics.FromImage(bitmap)) graphics.CopyFromScreen(bounds.Left,bounds.Top,0,0,bounds.Size);
+            using(var graphics=Graphics.FromImage(bitmap)) {
+              graphics.Clear(Color.FromArgb(32,32,32));
+              // Copy only MpVFX/installer window regions. Never publish the
+              // desktop, runner console, browser, or unrelated notifications.
+              foreach(var window in windows) {
+                bool console=window.className == "ConsoleWindowClass" || window.className == "CASCADIA_HOSTING_WINDOW_CLASS" || window.className == "VirtualConsoleClass";
+                var area=Rectangle.Intersect(bounds,new Rectangle(window.left,window.top,Math.Max(0,window.width),Math.Max(0,window.height)));
+                if(area.Width == 0 || area.Height == 0 || IsIconic(new IntPtr(window.handle))) continue;
+                if(window.appOwned && !console) graphics.CopyFromScreen(area.Left,area.Top,area.Left-bounds.Left,area.Top-bounds.Top,area.Size);
+              }
+              // An unrelated foreground window can overlap the app region.
+              // Mask every other window after copying, including console text.
+              foreach(var window in windows) {
+                bool console=window.className == "ConsoleWindowClass" || window.className == "CASCADIA_HOSTING_WINDOW_CLASS" || window.className == "VirtualConsoleClass";
+                if((window.appOwned && !console) || IsIconic(new IntPtr(window.handle)) || window.className == "Progman" || window.className == "WorkerW") continue;
+                var area=Rectangle.Intersect(bounds,new Rectangle(window.left,window.top,Math.Max(0,window.width),Math.Max(0,window.height)));
+                area.Offset(-bounds.Left,-bounds.Top);
+                graphics.FillRectangle(console ? Brushes.DarkRed : Brushes.DimGray,area);
+              }
+            }
             bitmap.Save(Path.Combine(directory,filename),ImageFormat.Png);
           }
           nextFrame=clock.ElapsedMilliseconds+1000;

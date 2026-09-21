@@ -8,6 +8,7 @@ import { tmpdir, release as osRelease } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { deflateSync, gunzipSync } from "node:zlib";
 import puppeteer from "puppeteer-core";
+import { minimalEnvironment, publicResult } from "../../../scripts/automation/privacy.mjs";
 
 // Full-desktop evidence is safe only on a fresh hosted test machine. No local
 // desktop, user projects, command output, report archive, or dump is uploaded.
@@ -22,12 +23,14 @@ const profile = join(runtime, "profile");
 const control = join(runtime, "control");
 const downloads = join(runtime, "downloads");
 for (const dir of [evidence, profile, control, downloads]) mkdirSync(dir, { recursive: true });
-const version = "0.0.2";
+const releaseTag = process.env.MPVFX_VISUAL_RELEASE_TAG || "v0.0.2";
+assert.match(releaseTag, /^v\d+\.\d+\.\d+(?:-[a-z0-9.-]+)?$/);
+const version = releaseTag.slice(1);
 const platform = process.platform;
 const base = `https://github.com/marshiyar/mpvfx/releases/download/v${version}`;
 const asset = platform === "win32" ? `MpVFX-${version}-Setup.exe` : platform === "darwin" ? `MpVFX-${version}-${process.arch}.dmg` : `mpvfx_${version}_amd64.deb`;
 const ffmpeg = join(dirname(require.resolve("ffmpeg-static/package.json")), platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
-const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toUpperCase() !== "ELECTRON_RUN_AS_NODE"));
+const environment = minimalEnvironment();
 environment.MPVFX_USER_DATA_DIR = profile;
 const result = { version, platform, architecture: process.arch, osRelease: osRelease(), asset, passed: [], failures: [], exports: [], screenshots: [], limitations: ["Hosted virtual machine; physical GPU, Windows 11 SmartScreen, and user display scaling are not reproduced.", "File selection is supplied by the test driver; the OS file-picker interaction is not validated."] };
 let app, browser, page, watcher, executable, mounted, phase = "download";
@@ -44,7 +47,7 @@ async function download(name) {
   const bytes = Buffer.from(await response.arrayBuffer());
   const target = join(downloads, name); writeFileSync(target, bytes); return { target, bytes };
 }
-function run(file, args, options = {}) { return execFileSync(file, args, { windowsHide: true, stdio: "pipe", timeout: 180_000, ...options }); }
+function run(file, args, options = {}) { return execFileSync(file, args, { env: environment, windowsHide: true, stdio: "pipe", timeout: 180_000, ...options }); }
 function rgbPng(rgb, width, height) {
   assert.equal(rgb.length, width * height * 3);
   const chunk = (name, data) => {
@@ -196,7 +199,7 @@ try {
   assert.equal(result.sha256, expected, "Published asset checksum");
   result.passed.push("published-installer-checksum");
   if (platform === "win32") {
-    watcher = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-File", join(import.meta.dirname, "windows-desktop-watch.ps1"), "-EvidenceDirectory", evidence, "-ControlDirectory", control], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    watcher = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-File", join(import.meta.dirname, "windows-desktop-watch.ps1"), "-EvidenceDirectory", evidence, "-ControlDirectory", control], { env: { ...environment, GITHUB_ACTIONS: "true", RUNNER_ENVIRONMENT: "github-hosted" }, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
     let watcherError = "";
     watcher.stderr.on("data", (chunk) => { watcherError = (watcherError + String(chunk)).slice(-4000); });
     await until(() => {
@@ -348,6 +351,6 @@ try {
   if (mounted) { try { run("hdiutil", ["detach", mounted]); } catch {} }
   if (result.failures.length) process.exitCode = 1;
   writeFileSync(join(evidence, "result.json"), JSON.stringify(result, null, 2));
-  console.log(JSON.stringify(result, null, 2));
+  console.log(JSON.stringify(publicResult(result), null, 2));
   rmSync(runtime, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 }

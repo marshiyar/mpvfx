@@ -10,6 +10,18 @@ function readRepositoryFile(path: string): string {
 }
 
 describe("GitHub Actions readiness", () => {
+  it("fails closed on public visual evidence and keeps the scheduler away from release permissions", () => {
+    const visual = readRepositoryFile(".github/workflows/visual-release.yml");
+    expect(visual).toContain("steps.privacy.outcome == 'success'");
+    expect(visual).toContain("run: node scripts/automation/privacy.mjs");
+    expect(visual).toContain("path: studio/out/visual-release/public-evidence/");
+    expect(visual).not.toContain("if: always()");
+    expect(visual).not.toContain("visual-release/evidence/*");
+    const scheduler = readRepositoryFile(".github/workflows/quality-schedule.yml");
+    expect(scheduler).toContain("github.event_name != 'pull_request' && github.ref == 'refs/heads/main'");
+    expect(scheduler).toContain("actions: write");
+    expect(scheduler).not.toMatch(/contents: write|pull_request_target|secrets\.|gh release|git push|upload-artifact/);
+  });
   it("keeps tests and source compilation in a dedicated non-publishing workflow", () => {
     const workflow = readRepositoryFile(".github/workflows/tests.yml");
 
