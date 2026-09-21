@@ -77,7 +77,12 @@ public class DesktopEvidence {
       while (!File.Exists(Path.Combine(control,"monitor-stop")) && clock.Elapsed.TotalMinutes < 20) {
         Application.DoEvents();
         var phaseFile=Path.Combine(control,"phase");
-        if (File.Exists(phaseFile)) { try { phase=File.ReadAllText(phaseFile); } catch(IOException) {} }
+        if (File.Exists(phaseFile)) {
+          try {
+            using(var stream=new FileStream(phaseFile,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete))
+            using(var reader=new StreamReader(stream)) { var next=reader.ReadToEnd(); if(next.Length>0) phase=next; }
+          } catch(IOException) {}
+        }
         var windows=Visible();
         var identity=phase + String.Join("|",windows.ConvertAll(w=>w.handle+":"+w.title));
         string filename=null;

@@ -6,7 +6,7 @@ import { createRequire } from "node:module";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir, release as osRelease } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { gunzipSync } from "node:zlib";
+import { deflateSync, gunzipSync } from "node:zlib";
 import puppeteer from "puppeteer-core";
 
 // Full-desktop evidence is safe only on a fresh hosted test machine. No local
@@ -45,6 +45,24 @@ async function download(name) {
   const target = join(downloads, name); writeFileSync(target, bytes); return { target, bytes };
 }
 function run(file, args, options = {}) { return execFileSync(file, args, { windowsHide: true, stdio: "pipe", timeout: 180_000, ...options }); }
+function rgbPng(rgb, width, height) {
+  assert.equal(rgb.length, width * height * 3);
+  const chunk = (name, data) => {
+    const body = Buffer.concat([Buffer.from(name), data]);
+    let crc = 0xffffffff;
+    for (const byte of body) {
+      crc ^= byte;
+      for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+    }
+    const length = Buffer.alloc(4), checksum = Buffer.alloc(4);
+    length.writeUInt32BE(data.length); checksum.writeUInt32BE((crc ^ 0xffffffff) >>> 0);
+    return Buffer.concat([length, body, checksum]);
+  };
+  const header = Buffer.alloc(13); header.writeUInt32BE(width, 0); header.writeUInt32BE(height, 4); header[8] = 8; header[9] = 2;
+  const rows = Buffer.alloc(height * (width * 3 + 1));
+  for (let y = 0; y < height; y++) rgb.copy(rows, y * (width * 3 + 1) + 1, y * width * 3, (y + 1) * width * 3);
+  return Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]), chunk("IHDR", header), chunk("IDAT", deflateSync(rows)), chunk("IEND", Buffer.alloc(0))]);
+}
 async function screenshot(name) {
   if (page && !page.isClosed()) {
     const filename = `${name}-app.png`;
@@ -105,8 +123,11 @@ async function setNumber(label, value) {
   const field = await page.$(select(`[aria-label="${label}"]`));
   assert.ok(field, `Input ${label}`);
   await field.focus();
-  const modifier = platform === "darwin" ? "Meta" : "Control";
-  await page.keyboard.down(modifier); await page.keyboard.press("KeyA"); await page.keyboard.up(modifier);
+  // Native Electron menu accelerators do not reliably map CDP's Meta+A into
+  // Select All on macOS. Plain caret/backspace keys exercise the input itself.
+  const length = await field.evaluate((el) => el.value.length);
+  for (let index = 0; index < length; index++) await field.press("ArrowRight");
+  for (let index = 0; index < length; index++) await field.press("Backspace");
   await field.type(String(value)); await field.press("Tab");
   assert.equal(await field.evaluate((el) => Number(el.value)), value, `Typed ${label}`);
 }
@@ -142,8 +163,12 @@ async function render(format, ordinal, cancel = false) {
     const pixel = (time) => [...run(ffmpeg, ["-v", "error", "-ss", String(time), "-i", rendered, "-frames:v", "1", "-vf", "crop=2:2:(iw-2)/2:(ih-2)/2,scale=1:1", "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1"])];
     const red = pixel(0.5), blue = pixel(2.5);
     assert.ok(red[0] > 150 && red[2] < 80 && blue[2] > 150 && blue[0] < 80, "Export must preserve red and blue source frames after the UI cuts");
-    run(ffmpeg, ["-v", "error", "-y", "-ss", "0.5", "-i", rendered, "-frames:v", "1", join(evidence, `output-${ordinal}-red.png`)]);
-    run(ffmpeg, ["-v", "error", "-y", "-ss", "2.5", "-i", rendered, "-frames:v", "1", join(evidence, `output-${ordinal}-blue.png`)]);
+    // The audited Linux FFmpeg intentionally omits image encoders. Preserve
+    // decoded RGB bytes in PNG directly, without depending on a system FFmpeg.
+    for (const [time, color] of [[0.5, "red"], [2.5, "blue"]]) {
+      const rgb = run(ffmpeg, ["-v", "error", "-ss", String(time), "-i", rendered, "-frames:v", "1", "-vf", "scale=640:360", "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1"]);
+      writeFileSync(join(evidence, `output-${ordinal}-${color}.png`), rgbPng(rgb, 640, 360));
+    }
     // Only generated render content is copied into the visual evidence.
     if (format === "mp4" && ordinal === 1) writeFileSync(join(evidence, "edited-output.mp4"), readFileSync(rendered));
     const helpers = (await report()).events.filter((e) => e.event === "process.start" && e.context.jobId === jobId);
@@ -283,7 +308,7 @@ try {
   mark("restart-after-crash"); client = await launch();
   const recovered = await report();
   assert.ok(recovered.events.some((e) => e.event === "session.previous_unclean_exit" && e.data.previousSessionId === crashed.sessionId));
-  assert.equal((await page.$$(select('[data-clip="true"]'))).length, 4);
+  await until(async () => (await page.$$(select('[data-clip="true"]'))).length === 4, "four edited clips restored after restart");
   await screenshot("11-recovered-editor");
   result.passed.push("native-crash-dialog-and-restart-with-cuts-preserved");
   mark("complete");
