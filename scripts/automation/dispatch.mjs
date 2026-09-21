@@ -1,4 +1,4 @@
-/** Runs on the default branch; dispatches only fixed checks on our development branch. */
+/** Read-only verification planner. It cannot start or rerun GitHub Actions. */
 import { createHash } from 'node:crypto';
 import { appendFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -14,7 +14,7 @@ export function releaseKey(release, harness) {
 }
 export function planDispatches({ now, head, harness, release, sourceRuns, visualRuns }) {
   if (!/^[a-f0-9]{40}$/.test(head)) throw new Error('Invalid revision');
-  const sourceKey = `${now.toISOString().slice(0, 10)}-${head.slice(0, 12)}`;
+  const sourceKey = `source-${head.slice(0, 12)}`;
   const visualKey = releaseKey(release, harness);
   const candidates = [
     { workflow: 'quality-cycle.yml', title: `Quality audit ${sourceKey}`, inputs: { audit_key: sourceKey }, runs: sourceRuns },
@@ -23,18 +23,18 @@ export function planDispatches({ now, head, harness, release, sourceRuns, visual
   // A failed completed run is still evidence. Do not spend four more machines
   // rediscovering it. Manual reruns remain available after infrastructure faults.
   return candidates.filter(({ workflow, title, runs }) => !runs.some((run) => {
-    const sameDailyPush = workflow === 'quality-cycle.yml' && run.event === 'push' && run.head_sha === head && run.created_at?.slice(0, 10) === now.toISOString().slice(0, 10);
-    return (run.display_title === title || sameDailyPush) && run.conclusion !== 'cancelled';
+    const sameSource = workflow === 'quality-cycle.yml' && run.head_sha === head;
+    return (run.display_title === title || sameSource) && run.conclusion !== 'cancelled';
   })).map(({ runs, ...item }) => item);
 }
 
-export async function dispatch({ token = process.env.GH_TOKEN, fetcher = fetch, dryRun = false } = {}) {
+export async function dispatch({ token = process.env.GH_TOKEN, fetcher = fetch } = {}) {
   if (!token) throw new Error('GitHub authentication unavailable');
-  const api = async (path, body) => {
+  const api = async (path) => {
     const response = await fetcher(`https://api.github.com/repos/${repository}/${path}`, {
-      method: body ? 'POST' : 'GET',
+      method: 'GET',
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' },
-      ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(30_000),
     });
     if (!response.ok) throw new Error(`GitHub request failed (${response.status})`);
     return response.status === 204 ? null : response.json();
@@ -51,16 +51,13 @@ export async function dispatch({ token = process.env.GH_TOKEN, fetcher = fetch, 
   if (harnessEntries.length !== harnessPaths.length) throw new Error('Incomplete harness');
   const harness = createHash('sha1').update(JSON.stringify(harnessEntries)).digest('hex');
   const plan = planDispatches({ now: new Date(), head: commit.sha, harness, release, sourceRuns: source.workflow_runs, visualRuns: visual.workflow_runs });
-  for (const item of plan) {
-    if (!dryRun) await api(`actions/workflows/${item.workflow}/dispatches`, { ref: branch, inputs: item.inputs });
-  }
-  return { schema: 1, branch, revision: commit.sha, dryRun, dispatches: plan };
+  return { schema: 1, branch, revision: commit.sha, readOnly: true, suggestedChecks: plan };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   try {
-    const result = await dispatch({ dryRun: process.argv.includes('--dry-run') });
+    const result = await dispatch();
     console.log(JSON.stringify(result, null, 2));
-    if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Deterministic scheduler: ${result.dispatches.length} check groups queued for ${branch}. Unchanged release evidence is reused. No AI calls, releases or source edits.\n`);
-  } catch { console.error('Quality scheduler failed; no credentials or response body are logged.'); process.exitCode = 1; }
+    if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Read-only planner: ${result.suggestedChecks.length} possible check groups for ${branch}. No workflows were queued. Deliberate approval is required before starting expensive checks.\n`);
+  } catch { console.error('Quality planner failed; no credentials or response body are logged.'); process.exitCode = 1; }
 }

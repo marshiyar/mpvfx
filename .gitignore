@@ -28,6 +28,7 @@ editor-reliability-plugin/
 .tmp/
 
 # Private exports
+*.[cC][sS][vV]
 /chat-history/
 /chat-exports/
 /conversation-exports/

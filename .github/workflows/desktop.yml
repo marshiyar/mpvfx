@@ -1,20 +1,6 @@
 name: Desktop builds
 
 on:
-  pull_request:
-    paths:
-      - "studio/**"
-      - "NOTICE"
-      - "THIRD_PARTY_NOTICES.md"
-      - ".github/workflows/desktop.yml"
-  push:
-    branches:
-      - main
-    paths:
-      - "studio/**"
-      - "NOTICE"
-      - "THIRD_PARTY_NOTICES.md"
-      - ".github/workflows/desktop.yml"
   workflow_dispatch:
 
 permissions:

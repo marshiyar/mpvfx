@@ -95,6 +95,10 @@ const protectedMediaExtensions = new Set([
 const allowedMedia = "studio/tests/e2e/fixtures/design-panel-qa/assets/test.mp4";
 const allowedDigest = "4662cef1ee4423640d4db8b8880ea889d6e0af6e4466d88f5ee15f2dc6d18030";
 for (const path of publicationFiles) {
+  if (extname(path).toLowerCase() === ".csv") {
+    fail("Private CSV files cannot be published (filename withheld)");
+    continue; // Refuse without reading private CSV contents.
+  }
   if (forbiddenPrefixes.some((prefix) => path.startsWith(prefix))) fail(`Private/local path is publishable: ${path}`);
   const name = basename(path);
   if ((name === ".env" || (name.startsWith(".env.") && name !== ".env.example")) || secretExtensions.has(extname(name))) {
