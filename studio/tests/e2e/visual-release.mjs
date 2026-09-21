@@ -153,7 +153,10 @@ try {
   const manifest = (await download("SHA256SUMS")).bytes.toString();
   const { target: installer, bytes } = await download(asset);
   result.sha256 = createHash("sha256").update(bytes).digest("hex");
-  const expected = manifest.split(/\r?\n/).find((line) => line.endsWith(`  ${asset}`))?.split(/\s+/)[0];
+  const checksums = manifest.trim().split(/\r?\n/).map((line) => line.match(/^([a-f0-9]{64})\s+\*?(?:\.\/)?(.+)$/));
+  assert.ok(checksums.every(Boolean), "SHA256SUMS entries must be valid");
+  const expected = checksums.find((entry) => entry[2] === asset)?.[1];
+  assert.ok(expected, "Published checksum must name the exact installer");
   assert.equal(result.sha256, expected, "Published asset checksum");
   result.passed.push("published-installer-checksum");
   if (platform === "win32") {
@@ -206,7 +209,7 @@ try {
   const picker = page.waitForFileChooser();
   await click('[data-diagnostic-action="import-media"]');
   await (await picker).accept([source]);
-  const card = await page.waitForSelector(select('[role="button"][aria-label^="visual-source.mp4"]'), { timeout: 45_000 });
+  const card = await page.waitForSelector(select('[role="button"][aria-label^="visual-source —"]'), { timeout: 45_000 });
   await card.click({ button: "right" });
   await buttonText("Add at playhead");
   await page.waitForSelector(select('[data-clip="true"]'), { timeout: 45_000 });
