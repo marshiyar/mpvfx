@@ -97,6 +97,7 @@ describe("local diagnostic evidence", () => {
     const { log } = logger();
     for (let i = 0; i < 500; i++) log.record("ui.noisy", { i });
     log.record("electron.render_process_gone", { reason: "crashed" }, "fatal");
+    expect(log.status().recording).toBe(true);
     const report = JSON.parse(gunzipSync(await log.exportBundle()).toString());
     expect(report.events.some((e: any) => e.event === "diagnostics.dropped" && e.data.count > 0)).toBe(true);
     expect(report.events.some((e: any) => e.event === "electron.render_process_gone" && e.level === "fatal")).toBe(true);

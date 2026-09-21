@@ -78,7 +78,9 @@ export function createDiagnostics(options: Options) {
       }
       append();
       prune();
-      if (durable) { const fd = openSync(file(), "r"); try { fsyncSync(fd); } finally { closeSync(fd); } }
+      // Windows FlushFileBuffers requires a handle opened for writing. A
+      // read-only descriptor makes fatal/clean-exit flushes fail with EPERM.
+      if (durable) { const fd = openSync(file(), "a", 0o600); try { fsyncSync(fd); } finally { closeSync(fd); } }
     } catch { failed = true; pending = []; }
   }
   function enqueue(event: string, data: unknown, level: DiagnosticLevel, context: DiagnosticContext) {
