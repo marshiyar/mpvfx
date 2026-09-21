@@ -1,6 +1,8 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { trackStudioEvent } from "../utils/studioTelemetry";
 import { CrashFeedbackPrompt } from "./feedback/CrashFeedbackPrompt";
+import { DiagnosticsControl } from "./DiagnosticsControl";
+import { recordLocalDiagnostic } from "../diagnostics/client";
 
 interface Props {
   children: ReactNode;
@@ -18,6 +20,7 @@ export class StudioErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
+    recordLocalDiagnostic("react.error_boundary", { error, componentStack: info.componentStack }, "error");
     console.error("[Studio] Uncaught error:", error, info.componentStack);
     trackStudioEvent("crash", {
       error_message: error.message,
@@ -56,6 +59,7 @@ export class StudioErrorBoundary extends Component<Props, State> {
             they were doing when it did. This is also the one screen where they
             have nothing else to get on with. */}
         <div className="mt-6">
+          <div className="mb-4 max-w-[400px]"><DiagnosticsControl /></div>
           <CrashFeedbackPrompt />
         </div>
       </div>

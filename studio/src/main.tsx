@@ -4,7 +4,9 @@ import { StudioApp } from "./App";
 import { StudioErrorBoundary } from "./components/StudioErrorBoundary";
 import { trackStudioEvent } from "./utils/studioTelemetry";
 import "./styles/studio.css";
+import { initializeLocalDiagnostics } from "./diagnostics/client";
 
+initializeLocalDiagnostics();
 trackStudioEvent("session_start");
 
 function errorProps(value: unknown): {

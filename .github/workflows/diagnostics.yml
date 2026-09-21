@@ -1,0 +1,43 @@
+name: Native diagnostics
+
+on:
+  pull_request:
+    paths: ["studio/**", ".github/workflows/diagnostics.yml"]
+  push:
+    branches: [main]
+    paths: ["studio/**", ".github/workflows/diagnostics.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostics:
+    name: Diagnostics on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel, windows-2025, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: studio
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: studio/.nvmrc
+          cache: npm
+          cache-dependency-path: studio/package-lock.json
+      - run: npm ci
+      - run: npm run test:diagnostics
+      - run: npm run desktop:build
+      - name: Native Electron crash and report check
+        if: runner.os != 'Linux'
+        run: npm run test:diagnostics-native
+      - name: Native Electron crash and report check in Xvfb
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum npm run test:diagnostics-native

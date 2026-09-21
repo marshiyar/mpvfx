@@ -98,12 +98,16 @@ describe("Windows browser packaging guard", () => {
   const guardedTargets = [
     ...launchers,
     "node_modules/@hyperframes/engine/dist/services/browserManager.js",
+    "node_modules/@hyperframes/engine/dist/utils/psnrFilterAvailability.js",
+    "node_modules/@hyperframes/engine/dist/utils/psnr.js",
   ];
   const unpatched = [
     "opts.detached ??= true;",
     'childProcess.execSync(`taskkill /pid ${this.#browserProcess.pid} /T /F`);',
     'execSync("nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits", {});',
     'spawn(getFfprobeBinary(), args, { stdio: ["ignore", "pipe", "pipe"] });',
+    'execFileP(getFfmpegBinary(), ["-hide_banner", "-filters"], {});',
+    'execFileP(getFfmpegBinary(), [], { maxBuffer: 4 * 1024 * 1024 });',
   ].join("\n");
   function createFixture() {
     const root = mkdtempSync(join(tmpdir(), "mpvfx-browser-policy-"));

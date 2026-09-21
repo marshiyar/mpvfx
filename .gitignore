@@ -46,6 +46,9 @@ editor-reliability-plugin/
 *.verification-tmp
 *.stderr
 *.stdout
+*.jsonl
+*.dmp
+*diagnostics*.json.gz
 
 # Local secrets and logs
 .env
@@ -117,6 +120,7 @@ studio/data/cache/
 studio/data/renders/
 studio/scripts/*
 !studio/scripts/apply-windows-browser-patch.cjs
+!studio/scripts/verify-packaged-privacy.cjs
 **/knip.jsonc
 **/ffmpeg-runtime-manifest.json
 *.puppeteer-cache

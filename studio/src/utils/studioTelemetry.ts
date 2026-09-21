@@ -2,6 +2,7 @@ import { resolveStudioDistinctId } from "../telemetry/distinctId";
 import { browserTelemetryAllowed } from "../telemetry/policy";
 import { canaryEventProperties } from "../telemetry/canary";
 import { configuredTelemetryEndpoint } from "../telemetry/endpoint";
+import { recordLocalDiagnostic } from "../diagnostics/client";
 const FLUSH_INTERVAL_MS = 30_000;
 const FLUSH_TIMEOUT_MS = 5_000;
 
@@ -54,6 +55,7 @@ function getSessionProperties(): EventProperties {
 declare const __STUDIO_VERSION__: string;
 
 export function trackStudioEvent(event: string, properties: EventProperties = {}): void {
+  recordLocalDiagnostic(`action.${event}`, properties);
   if (!isEnabled()) return;
 
   queue.push({

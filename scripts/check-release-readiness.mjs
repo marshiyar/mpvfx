@@ -3,6 +3,9 @@ import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { basename, dirname, extname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
+
+const { assertPublicContent, assertPublicPath } = createRequire(import.meta.url)("../studio/scripts/verify-packaged-privacy.cjs");
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const failures = [];
@@ -51,6 +54,9 @@ if (pkg.license !== "Apache-2.0") fail("studio/package.json license must be Apac
 if (Object.hasOwn(pkg, "publishConfig")) fail("Remove npm publishConfig from the private application");
 if (lock.packages?.[""]?.name !== "mpvfx") fail("package-lock root name is not mpvfx");
 if (lock.packages?.[""]?.license !== "Apache-2.0") fail("package-lock root license must be Apache-2.0");
+if (pkg.version !== lock.version || pkg.version !== lock.packages?.[""]?.version) {
+  fail("Application and lockfile versions must match before release");
+}
 
 const license = read("LICENSE");
 for (const marker of ["Apache License", "Version 2.0, January 2004", "http://www.apache.org/licenses/"]) {
@@ -102,6 +108,14 @@ for (const path of publicationFiles) {
   }
   const absolute = pathOf(path);
   const stat = lstatSync(absolute);
+  if (stat.isSymbolicLink()) fail(`Publishable symbolic link requires review: ${path}`);
+  try {
+    if (name !== ".env.example") assertPublicPath(path);
+    if (stat.isFile() && stat.size <= 50 * 1024 * 1024) {
+      const content = readFileSync(absolute);
+      if (!content.includes(0)) assertPublicContent(content.toString("utf8"), path);
+    }
+  } catch (error) { fail(error.message); }
   if (stat.size > 50 * 1024 * 1024) fail(`Publishable file exceeds GitHub's safe size boundary: ${path}`);
   if (protectedMediaExtensions.has(extname(path).toLowerCase())) {
     if (path !== allowedMedia) fail(`Personal or unreviewed media file is publishable: ${path}`);

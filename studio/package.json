@@ -1,7 +1,7 @@
 {
   "name": "mpvfx",
   "productName": "MpVFX",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Standalone media-first nonlinear video editor",
   "private": true,
   "license": "Apache-2.0",
@@ -54,6 +54,8 @@
     "release:check": "node ../scripts/check-release-readiness.mjs && node ../scripts/generate-third-party-notices.mjs --check",
     "notices:update": "node ../scripts/generate-third-party-notices.mjs",
     "test:media-crop": "node tests/e2e/media-crop-geometry.mjs",
+    "test:diagnostics": "node ./node_modules/vitest/vitest.mjs run diagnostics src/diagnostics src/utils/studioDebug.test.ts src/telemetry/policy.test.ts",
+    "test:diagnostics-native": "node tests/e2e/diagnostics.mjs",
     "report:sdk-cutover": "CHOKIDAR_USEPOLLING=1 vite-node src/utils/sdkCutoverPolicy.report.ts",
     "test:timeline-default": "npm run test:timeline-virtualization"
   },

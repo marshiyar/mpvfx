@@ -5,6 +5,18 @@ practical during the pre-release period.
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-09-20
+
+- Added local diagnostic timelines for editor actions, errors, exports, helper processes,
+  GPU state, memory, CPU use, and stalls on macOS, Windows, and Linux.
+- Added local native crash recording, recovery evidence after interrupted sessions, and a
+  **Diagnostics → Save report** control. Reports omit native memory dumps and redact private data.
+- Prevented Windows console windows from Chromium, FFmpeg, FFprobe, GPU detection, and
+  render-quality helpers during export.
+- Added native export, crash, restart, and report checks for every released platform.
+- Restricted installer contents to runtime files and added credential and private-file
+  checks before repository publication and installer release.
+
 - Removed the external-agent WebMCP tools and selection-context publishing. Retained local
   selection refresh, video editing, playback, and interface animations.
 

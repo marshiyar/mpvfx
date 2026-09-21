@@ -105,7 +105,7 @@ export function initializeLocalDiagnostics(): void {
     try {
       const response = await Reflect.apply(originalFetch, window, args);
       const durationMs = Math.round(performance.now() - start);
-      if (observe && (!response.ok || durationMs > 1000 || method !== "GET")) recordLocalDiagnostic("request.finished", { route: diagnosticRoute(url), method, status: response.status, durationMs }, response.ok ? "info" : "warn");
+      if (observe && (!response.ok || durationMs > 1000 || method !== "GET")) recordLocalDiagnostic("request.finished", { route: diagnosticRoute(url), requestId: response.headers.get("X-MpVFX-Request-Id"), method, status: response.status, durationMs }, response.ok ? "info" : "warn");
       return response;
     } catch (error) {
       if (observe) recordLocalDiagnostic("request.failed", { route: diagnosticRoute(url), method, durationMs: Math.round(performance.now() - start), error }, "error");

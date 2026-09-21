@@ -28,13 +28,23 @@ const mediaProbeReplacements = [[
   'getFfprobeBinary(), args, { stdio: ["ignore", "pipe", "pipe"] }',
   'getFfprobeBinary(), args, { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] }',
 ]];
+const qualityProbeReplacements = [[
+  'getFfmpegBinary(), ["-hide_banner", "-filters"], {',
+  'getFfmpegBinary(), ["-hide_banner", "-filters"], { windowsHide: true,',
+]];
+const pixelComparisonReplacements = [[
+  '{ maxBuffer: 4 * 1024 * 1024 }',
+  '{ windowsHide: true, maxBuffer: 4 * 1024 * 1024 }',
+]];
 const targets = [
   { relativePath: "node_modules/@puppeteer/browsers/lib/launch.js", replacements: browserReplacements },
   ...producerTargets.map((relativePath) => ({
     relativePath,
-    replacements: [...browserReplacements, ...gpuProbeReplacements, ...mediaProbeReplacements],
+    replacements: [...browserReplacements, ...gpuProbeReplacements, ...mediaProbeReplacements, ...qualityProbeReplacements, ...pixelComparisonReplacements],
   })),
   { relativePath: "node_modules/@hyperframes/engine/dist/services/browserManager.js", replacements: gpuProbeReplacements },
+  { relativePath: "node_modules/@hyperframes/engine/dist/utils/psnrFilterAvailability.js", replacements: qualityProbeReplacements },
+  { relativePath: "node_modules/@hyperframes/engine/dist/utils/psnr.js", replacements: pixelComparisonReplacements },
 ];
 
 function patchBrowserLauncherSource(source, name = "browser launcher", replacements = browserReplacements) {

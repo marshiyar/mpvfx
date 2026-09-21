@@ -496,6 +496,7 @@ export function TimelineToolbar({
                     type="button"
                     disabled={!canSplit}
                     aria-label="Split at playhead"
+                    data-diagnostic-action="split-clip"
                     onClick={() => {
                       if (canSplit && el) onSplitElement(el, currentTime);
                     }}

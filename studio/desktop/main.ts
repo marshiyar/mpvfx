@@ -7,6 +7,8 @@ import { prepareEditorRendererSession } from "./rendererCache";
 import { applyDesktopRuntimeEnvironment } from "./runtimeBinaries";
 import { createWindowOptions, installWindowGuards } from "./windowPolicy";
 import { assertBundledMediaBinariesAvailable } from "../vite.bundled-media-binaries";
+import { startDesktopDiagnostics } from "./diagnostics";
+import { recordDiagnostic } from "../diagnostics/context";
 
 app.setName("MpVFX");
 app.setAppUserModelId("com.mpvfx.editor");
@@ -14,6 +16,11 @@ app.setAppUserModelId("com.mpvfx.editor");
 let mainWindow: BrowserWindow | null = null;
 let quittingAfterCleanup = false;
 let controller: ReturnType<typeof createDesktopAppController> | null = null;
+let diagnostics: ReturnType<typeof startDesktopDiagnostics> | null = null;
+const userDataPath = process.env.MPVFX_USER_DATA_DIR
+  ? resolve(process.env.MPVFX_USER_DATA_DIR)
+  : app.getPath("userData");
+if (process.env.MPVFX_USER_DATA_DIR) app.setPath("userData", userDataPath);
 
 function configurePermissions(): void {
   session.defaultSession.setPermissionCheckHandler(() => false);
@@ -24,6 +31,7 @@ function configurePermissions(): void {
 
 function createEditorWindow(): BrowserWindow {
   const editorWindow = new BrowserWindow(createWindowOptions());
+  diagnostics?.attachWindow(editorWindow);
   mainWindow = editorWindow;
   editorWindow.setMenu(null);
   editorWindow.once("ready-to-show", () => editorWindow.show());
@@ -41,9 +49,6 @@ function createEditorWindow(): BrowserWindow {
 async function startDesktopApplication(): Promise<void> {
   configurePermissions();
   const appPath = app.getAppPath();
-  const userDataPath = process.env.MPVFX_USER_DATA_DIR
-    ? resolve(process.env.MPVFX_USER_DATA_DIR)
-    : app.getPath("userData");
   const paths = resolveDesktopDataPaths(userDataPath, process.platform);
   ensureDesktopProject(paths);
   const mediaBinaries = resolveInstalledMediaBinaryPaths();
@@ -68,6 +73,7 @@ async function startDesktopApplication(): Promise<void> {
         projectsDir: paths.projects,
         studioDir: appPath,
         version: app.getVersion(),
+        diagnostics: diagnostics?.log,
       }),
     prepareRenderer: () => prepareEditorRendererSession(session.defaultSession),
     createWindow: createEditorWindow,
@@ -78,6 +84,7 @@ async function startDesktopApplication(): Promise<void> {
 }
 
 function showFatalStartupError(error: unknown): void {
+  recordDiagnostic("app.startup_failed", { error }, "fatal");
   const message = error instanceof Error ? error.message : String(error);
   dialog.showErrorBox("MpVFX could not start", message);
 }
@@ -86,6 +93,7 @@ const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
   app.quit();
 } else {
+  diagnostics = startDesktopDiagnostics(userDataPath);
   app.on("second-instance", () => {
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
@@ -107,10 +115,12 @@ if (!hasSingleInstanceLock) {
     if (quittingAfterCleanup) return;
     event.preventDefault();
     quittingAfterCleanup = true;
+    recordDiagnostic("app.shutdown_requested");
     void (controller?.close() ?? Promise.resolve())
       .catch((error) => console.error("[MpVFX] Shutdown cleanup failed:", error))
       .finally(() => app.quit());
   });
+  app.on("will-quit", () => diagnostics?.close());
 
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.once(signal, () => app.quit());
@@ -122,6 +132,7 @@ if (!hasSingleInstanceLock) {
     .catch(async (error) => {
       showFatalStartupError(error);
       await controller?.close().catch(() => {});
+      diagnostics?.close(false);
       app.exit(1);
     });
 }

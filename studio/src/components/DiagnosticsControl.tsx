@@ -6,10 +6,18 @@ export function DiagnosticsControl() {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  useEffect(() => { let mounted = true; void getDiagnosticStatus().then((next) => { if (mounted) setStatus(next); }); return () => { mounted = false; }; }, []);
+  useEffect(() => {
+    let mounted = true;
+    const refresh = () => void getDiagnosticStatus().then((next) => {
+      if (mounted) setStatus((previous) => next ?? (previous ? { ...previous, recording: false } : null));
+    });
+    refresh();
+    const timer = setInterval(refresh, 10_000);
+    return () => { mounted = false; clearInterval(timer); };
+  }, []);
   if (!status) return null;
   return <div className="shrink-0 border-t border-neutral-800/50 p-2 text-xs text-neutral-400">
-    <button type="button" data-diagnostic-action="diagnostics-toggle" aria-expanded={open} onClick={() => { setOpen(!open); void getDiagnosticStatus().then(setStatus); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-neutral-800 hover:text-neutral-200">
+    <button type="button" data-diagnostic-action="diagnostics-toggle" aria-expanded={open} onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-neutral-800 hover:text-neutral-200">
       <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${status.recording ? "bg-emerald-500" : "bg-amber-500"}`} />
       {status.recording ? "Diagnostics · recording locally" : "Diagnostics · recording unavailable"}
     </button>

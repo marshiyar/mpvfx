@@ -17,6 +17,11 @@ function loadFunction(relativePath: string, declaration: string, bindings: Recor
   const start = source.indexOf(declaration);
   if (start < 0) throw new Error(`Missing ${declaration} in ${relativePath}`);
   const expression = parseExpressionAt(source, start, { ecmaVersion: "latest" });
+  const text = source.slice(expression.start, expression.end);
+  if (bindings.execFileP) {
+    for (const name of text.match(/\bpromisify\d*\b/g) ?? []) bindings[name] = () => bindings.execFileP;
+    for (const name of text.match(/\bexecFile\d*\b/g) ?? []) bindings[name] = bindings.execFileP;
+  }
   return runInNewContext(`(${source.slice(expression.start, expression.end)})`, bindings);
 }
 
@@ -44,6 +49,38 @@ describe.each([
       _cachedVramMb: null, execSync, execSync2: execSync,
     }) as () => number | null;
     expect(probe()).toBeNull();
+  });
+});
+
+describe.each([
+  "node_modules/@hyperframes/engine/dist/utils/psnrFilterAvailability.js",
+  ...producerBundles,
+])("background quality filter probe: %s", (relativePath) => {
+  it("discovers PSNR support without opening a console", async () => {
+    const execFileP = vi.fn(async () => ({ stdout: " T.. psnr VV->V Calculate PSNR\n" }));
+    const probe = loadFunction(relativePath, "async function probe(", { execFileP, getFfmpegBinary: () => "ffmpeg.exe" });
+    await expect(probe()).resolves.toBe(true);
+    expect(execFileP).toHaveBeenCalledWith("ffmpeg.exe", ["-hide_banner", "-filters"], expect.objectContaining({ windowsHide: true, timeout: 5000 }));
+  });
+});
+
+describe.each([
+  "node_modules/@hyperframes/engine/dist/utils/psnr.js",
+  ...producerBundles,
+])("background pixel comparison: %s", (relativePath) => {
+  it("preserves the comparison result and cleanup while hiding FFmpeg", async () => {
+    const execFileP = vi.fn(async () => ({ stderr: "PSNR average:42.5 min:40 max:45" }));
+    const rm = vi.fn(async () => {});
+    const bindings: Record<string, unknown> = { execFileP, getFfmpegBinary: () => "ffmpeg.exe", tmpdir: () => "/tmp", join: (...parts: string[]) => parts.join("/"), mkdtemp: async () => "/tmp/verify", writeFile: async () => {}, rm };
+    const source = readFileSync(resolve(studioRoot, relativePath), "utf8");
+    const start = source.indexOf("async function psnrDb(");
+    const expression = parseExpressionAt(source, start, { ecmaVersion: "latest" });
+    const text = source.slice(expression.start, expression.end);
+    for (const base of ["tmpdir", "join", "mkdtemp", "writeFile", "rm"]) for (const name of text.match(new RegExp(`\\b${base}\\d*\\b`, "g")) ?? []) bindings[name] = bindings[base];
+    const compare = loadFunction(relativePath, "async function psnrDb(", bindings);
+    await expect(compare(Buffer.from("a"), Buffer.from("b"))).resolves.toBe(42.5);
+    expect(execFileP).toHaveBeenCalledWith("ffmpeg.exe", expect.arrayContaining(["psnr"]), expect.objectContaining({ windowsHide: true }));
+    expect(rm).toHaveBeenCalledWith("/tmp/verify", { recursive: true, force: true });
   });
 });
 

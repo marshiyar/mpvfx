@@ -1,20 +1,26 @@
 import childProcess, { type ChildProcess } from "node:child_process";
 import { syncBuiltinESMExports } from "node:module";
 import { performance } from "node:perf_hooks";
+import { promisify } from "node:util";
 import { diagnosticContext, recordDiagnostic, withDiagnosticContext } from "./context";
 
 /** Install before loading producer/engine modules. Do not consume pipes or change error handling. */
 export function installProcessDiagnostics(): () => void {
   const originalSpawn = childProcess.spawn;
+  const originalExecFile = childProcess.execFile;
+  const originalExec = childProcess.exec;
   const originalExecSync = childProcess.execSync;
   const originalExecFileSync = childProcess.execFileSync;
   const originalSpawnSync = childProcess.spawnSync;
   let nextId = 0;
-  const executableName = (command: unknown) => typeof command === "string" ? command.split(/[\\/]/).pop()?.split(/\s/)[0]?.slice(0, 80) : "unknown";
+  const observed = new WeakSet<ChildProcess>();
+  const executableName = (command: unknown) => typeof command === "string" ? command.split(/[\\/]/).pop()?.slice(0, 80) : "unknown";
 
   // Wrapping the process emitter observes lifecycle without adding an `error`
   // listener (which would otherwise swallow previously-fatal unhandled errors).
   function observe(child: ChildProcess, command: unknown, options: any, started: number) {
+    if (observed.has(child)) return child;
+    observed.add(child);
     const context = diagnosticContext();
     const processId = ++nextId;
     let stderrTail = "", stderrBytes = 0, lastSample = 0;
@@ -65,6 +71,29 @@ export function installProcessDiagnostics(): () => void {
       throw error;
     }
   } as typeof childProcess.spawn;
+  childProcess.execFile = function (...args: any[]) {
+    const started = performance.now();
+    const child = Reflect.apply(originalExecFile, childProcess, args);
+    return observe(child, args[0], Array.isArray(args[1]) ? args[2] : args[1], started);
+  } as typeof childProcess.execFile;
+  childProcess.exec = function (...args: any[]) {
+    const started = performance.now();
+    const child = Reflect.apply(originalExec, childProcess, args);
+    return observe(child, "shell", args[1], started);
+  } as typeof childProcess.exec;
+  // Node gives exec/execFile a custom promise result and a .child handle. A
+  // plain wrapper would silently turn {stdout, stderr} into only stdout.
+  for (const wrapped of [childProcess.execFile, childProcess.exec]) {
+    Object.defineProperty(wrapped, promisify.custom, { configurable: true, value: (...args: any[]) => {
+      const { promise, resolve, reject } = Promise.withResolvers<{ stdout: unknown; stderr: unknown }>();
+      const result = promise as typeof promise & { child: ChildProcess };
+      result.child = Reflect.apply(wrapped, childProcess, [...args, (error: any, stdout: unknown, stderr: unknown) => {
+        if (error !== null) { error.stdout = stdout; error.stderr = stderr; reject(error); }
+        else resolve({ stdout, stderr });
+      }]);
+      return result;
+    } });
+  }
 
   function wrapSync(original: (...args: any[]) => any, commandIsShell: boolean) {
     return function (...args: any[]) {
@@ -87,6 +116,8 @@ export function installProcessDiagnostics(): () => void {
   syncBuiltinESMExports();
   return () => {
     childProcess.spawn = originalSpawn;
+    childProcess.execFile = originalExecFile;
+    childProcess.exec = originalExec;
     childProcess.execSync = originalExecSync;
     childProcess.execFileSync = originalExecFileSync;
     childProcess.spawnSync = originalSpawnSync;

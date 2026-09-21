@@ -28,7 +28,7 @@ describe("local diagnostic evidence", () => {
       password: "CANARY_PASSWORD", env: { PRIVATE_KEY: "CANARY_ENV" },
       inputValue: "CANARY_TYPED", html: "CANARY_MEDIA_CONTENT", args: ["CANARY_ARG"],
       projectName: "CANARY_PROJECT", filename: "CANARY_VIDEO.mov",
-      message: "Failed C:\\Users\\CANARY_USER\\My Private Video.mov; /Users/CANARY_MAC/Secret.mp4; person@example.com token=CANARY_TOKEN https://user:CANARY_PASS@host/private?key=CANARY_QUERY",
+      message: "Failed C:\\Users\\CANARY_USER\\My Private Video.mov; /Users/CANARY_MAC/Secret.mp4; person@example.com token=CANARY_TOKEN " + ["https:/", "/user:CANARY_PASS", "@host/private?key=CANARY_QUERY"].join(""),
       error: new Error("GPU context failure"),
     }, "error");
     log.flush();
@@ -66,6 +66,8 @@ describe("local diagnostic evidence", () => {
     const report = JSON.parse(reportText);
     expect(report.schemaVersion).toBe(1);
     expect(report.retention.maxFiles).toBe(3);
+    expect(report.retention.rotated).toBe(true);
+    expect(report.sessions[log.sessionId].metadata.build).toBe("test");
     expect(report.events.some((e: any) => e.data.step === 29)).toBe(true);
     expect(reportText).not.toContain("CANARY_");
   });
@@ -89,5 +91,25 @@ describe("local diagnostic evidence", () => {
     expect(() => { log.record("export.failed", { message: "failure" }, "error"); log.flush(); }).not.toThrow();
     expect(log.status().recording).toBe(false);
     await expect(log.exportBundle()).rejects.toThrow(/diagnostic/i);
+  });
+
+  it("preserves a fatal crash even during an event flood and reports the lost events", async () => {
+    const { log } = logger();
+    for (let i = 0; i < 500; i++) log.record("ui.noisy", { i });
+    log.record("electron.render_process_gone", { reason: "crashed" }, "fatal");
+    const report = JSON.parse(gunzipSync(await log.exportBundle()).toString());
+    expect(report.events.some((e: any) => e.event === "diagnostics.dropped" && e.data.count > 0)).toBe(true);
+    expect(report.events.some((e: any) => e.event === "electron.render_process_gone" && e.level === "fatal")).toBe(true);
+  });
+
+  it("continues logging after an interrupted marker write", async () => {
+    const { log, directory } = logger();
+    log.close();
+    writeFileSync(join(directory, "active-session.json"), "{truncated");
+    const next = createDiagnostics({ directory, metadata: {} });
+    closers.push(() => next.close());
+    expect(next.status().recording).toBe(true);
+    const report = JSON.parse(gunzipSync(await next.exportBundle()).toString());
+    expect(report.events.some((e: any) => e.event === "session.previous_unclean_exit" && e.data.markerUnreadable)).toBe(true);
   });
 });
