@@ -16,7 +16,7 @@ permissions:
 
 concurrency:
   group: quality-audit-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   audit:

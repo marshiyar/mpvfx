@@ -12,10 +12,13 @@ changes signing settings, collects production telemetry, or uploads local user d
   attribution boundaries, automation privacy tests, diagnostics/helper regressions,
   typecheck, build, and an audit of the already-public dependency lockfile.
   It retains a small status report and public advisory IDs for seven days.
+  A newer push supersedes an in-progress audit of the same branch.
 - **Released desktop visual verification** runs when the published release assets
   or its verification inputs change. It covers Windows x64, macOS ARM and Intel,
   and Ubuntu x64. The scheduler reuses completed failures as evidence instead of
   repeatedly paying for the same four-machine run. Manual reruns remain possible.
+  Manual dispatch also offers a Windows-only run for Windows capture changes;
+  this partial check does not replace the scheduler's complete platform matrix.
 - A daily Codex review reads `node scripts/automation/review.mjs` first. This
   command emits a short, schema-checked inbox without raw CI logs and compares it
   with a local ignored review receipt. A reviewer acknowledges the exact fingerprint
