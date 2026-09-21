@@ -14,6 +14,8 @@ practical during the pre-release period.
 - Prevented Windows console windows from Chromium, FFmpeg, FFprobe, GPU detection, and
   render-quality helpers during export.
 - Added native export, crash, restart, and report checks for every released platform.
+- Kept crash recovery responsive on macOS, corrected durable log flushing on Windows,
+  and repaired Linux's lossless PNG-to-ProRes streaming input.
 - Restricted installer contents to runtime files and added credential and private-file
   checks before repository publication and installer release.
 

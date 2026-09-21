@@ -33,7 +33,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "vite build && tsup",
-    "desktop:compile": "node scripts/apply-windows-browser-patch.cjs && tsup --config tsup.desktop.config.ts",
+    "desktop:compile": "node scripts/apply-windows-browser-patch.cjs && node scripts/apply-streaming-png-patch.cjs && tsup --config tsup.desktop.config.ts",
     "desktop:build": "npm run build && npm run desktop:compile",
     "desktop:dev": "npm run desktop:build && electron .",
     "desktop:package": "node scripts/check-desktop-packaging-node.mjs && npm run desktop:build && electron-forge package",
@@ -42,7 +42,7 @@
     "desktop:make:mac:x64": "node scripts/check-desktop-packaging-node.mjs && npm run desktop:build && electron-forge make --platform=darwin --arch=x64",
     "desktop:make:windows": "node scripts/check-desktop-packaging-node.mjs && npm run desktop:build && electron-forge make --platform=win32 --arch=x64",
     "desktop:make:linux": "node scripts/check-desktop-packaging-node.mjs && npm run desktop:build && electron-forge make --platform=linux --arch=x64",
-    "postinstall": "node scripts/install-redistributable-ffmpeg.mjs && node scripts/apply-exact-keyframe-writer-patch.mjs && node scripts/apply-export-capture-geometry-patch.mjs && node scripts/apply-windows-browser-patch.cjs",
+    "postinstall": "node scripts/install-redistributable-ffmpeg.mjs && node scripts/apply-exact-keyframe-writer-patch.mjs && node scripts/apply-export-capture-geometry-patch.mjs && node scripts/apply-windows-browser-patch.cjs && node scripts/apply-streaming-png-patch.cjs",
     "typecheck": "tsc --noEmit && tsc --project tsconfig.desktop.json --noEmit",
     "knip": "knip",
     "knip:production": "knip --production",

@@ -5,6 +5,7 @@ const {
 const { assertPackagedRenderer } = require("./scripts/verify-packaged-renderer.cjs");
 const { assertPackagedLegalResources } = require("./scripts/verify-packaged-legal.cjs");
 const { assertWindowsBrowserLaunchPolicy } = require("./scripts/apply-windows-browser-patch.cjs");
+const { assertStreamingPngPolicy } = require("./scripts/apply-streaming-png-patch.cjs");
 const { PRIVATE_FILE_PATTERN, PRIVATE_DIRECTORY_PATTERN, assertPackagedPrivacy, removePackagedFinderMetadata } = require("./scripts/verify-packaged-privacy.cjs");
 const {
   assertPackagedRuntimeDependencies,
@@ -54,6 +55,7 @@ module.exports = {
     ) => {
       assertPreparedMediaBinaries(buildPath, platform, arch);
       assertWindowsBrowserLaunchPolicy(buildPath);
+      assertStreamingPngPolicy(buildPath);
     },
     postPackage: async (_forgeConfig, packageResult) => {
       removePackagedFinderMetadata(packageResult);

@@ -121,6 +121,7 @@ studio/data/renders/
 studio/scripts/*
 !studio/scripts/apply-windows-browser-patch.cjs
 !studio/scripts/verify-packaged-privacy.cjs
+!studio/scripts/apply-streaming-png-patch.cjs
 **/knip.jsonc
 **/ffmpeg-runtime-manifest.json
 *.puppeteer-cache

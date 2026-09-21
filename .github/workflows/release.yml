@@ -99,7 +99,7 @@ jobs:
         run: npm ci --prefix studio
 
       - name: Verify diagnostics and Windows helper policies
-        run: npm --prefix studio run test:watch -- --run diagnostics src/diagnostics desktop/windowsBrowserLaunch.test.ts desktop/windowsRenderHelpers.test.ts desktop/publicationPrivacy.test.ts src/telemetry/policy.test.ts
+        run: npm --prefix studio run test:watch -- --run diagnostics src/diagnostics desktop/windowsBrowserLaunch.test.ts desktop/windowsRenderHelpers.test.ts desktop/streamingPngInput.test.ts desktop/publicationPrivacy.test.ts src/telemetry/policy.test.ts
 
       - name: Typecheck release
         run: npm --prefix studio run typecheck

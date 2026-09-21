@@ -91,14 +91,17 @@ export function startDesktopDiagnostics(userDataDir: string) {
     recordDiagnostic("electron.render_process_gone", { webContentsId: contents.id, ...details }, details.reason === "clean-exit" ? "info" : "fatal");
     setTimeout(nativeDumpInventory, 2000).unref();
   });
-  const captureGpu = async () => {
+  const captureGpu = async (detail: "basic" | "complete" = "complete") => {
     try {
-      const gpu = { featureStatus: app.getGPUFeatureStatus(), info: await app.getGPUInfo("complete") };
+      const gpu = { detail, featureStatus: app.getGPUFeatureStatus(), info: await app.getGPUInfo(detail) };
       log.updateMetadata({ gpu });
       recordDiagnostic("system.gpu", gpu);
     }
     catch (error) { recordDiagnostic("system.gpu_unavailable", { error }, "warn"); }
   };
+  // Some drivers/virtual machines never emit gpu-info-update. Always obtain a
+  // basic snapshot at readiness; event-driven complete snapshots enrich it later.
+  void app.whenReady().then(() => captureGpu("basic"));
   let gpuCapturePending = false;
   app.on("gpu-info-update", () => {
     if (gpuCapturePending) return;
