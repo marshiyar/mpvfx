@@ -120,7 +120,14 @@ public class DesktopEvidence {
                   var area=screenArea; area.Offset(-bounds.Left,-bounds.Top);
                   graphics.SetClip(area); graphics.ExcludeClip(covered);
                   bool console=window.className == "ConsoleWindowClass" || window.className == "CASCADIA_HOSTING_WINDOW_CLASS" || window.className == "VirtualConsoleClass";
-                  if(window.appOwned && !console) graphics.CopyFromScreen(screenArea.Left,screenArea.Top,area.Left,area.Top,area.Size);
+                  if(window.appOwned && !console) {
+                    // DrawImage honors the GDI+ clip; raw BitBlt/CopyFromScreen
+                    // must not be trusted to apply it when obtaining an HDC.
+                    using(var pixels=new Bitmap(area.Width,area.Height)) {
+                      using(var grab=Graphics.FromImage(pixels)) grab.CopyFromScreen(screenArea.Left,screenArea.Top,0,0,area.Size);
+                      graphics.DrawImageUnscaled(pixels,area.Left,area.Top);
+                    }
+                  }
                   else graphics.FillRectangle(console ? Brushes.DarkRed : Brushes.DimGray,area);
                   covered.Union(area);
                 }
