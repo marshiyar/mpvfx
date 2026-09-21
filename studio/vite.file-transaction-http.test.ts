@@ -199,6 +199,23 @@ describe("durable file transaction HTTP controller", () => {
     expect(await readFile(join(root, "project.json"), "utf8")).toBe("project-before");
   });
 
+  it.each(["EPERM", "PRIVATE_CANARY"])("reports only allowlisted filesystem failure codes (%s)", async (code) => {
+    const controller = createDurableFileTransactionHttpController({
+      resolveProject: async () => {
+        throw Object.assign(new Error("PRIVATE_CANARY /private/project.json"), { code });
+      },
+    });
+    const response = await controller.handle({
+      method: "GET",
+      pathname: "/projects/project/file-transactions/pending-history",
+    });
+    expect(response?.status).toBe(500);
+    expect(await response!.json()).toEqual({
+      error: "Durable transaction service failed",
+      ...(code === "EPERM" ? { code: "EPERM" } : {}),
+    });
+  });
+
   it("rolls back a partially written commit before returning its same-process failure", async () => {
     const root = await makeProject();
     let failFirstCommit = true;

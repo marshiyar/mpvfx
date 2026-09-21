@@ -46,6 +46,9 @@ const JSON_HEADERS = {
   "Cache-Control": "no-store",
   "Content-Type": "application/json; charset=utf-8",
 };
+const FILESYSTEM_ERROR_CODES = new Set([
+  "EACCES", "EPERM", "EBUSY", "ENOSPC", "EIO", "ENOENT", "EEXIST", "EMFILE", "ENFILE",
+]);
 
 function json(body: unknown, status = 200, headers?: Record<string, string>): Response {
   return Response.json(body, { status, headers: { ...JSON_HEADERS, ...headers } });
@@ -64,7 +67,13 @@ function errorResponse(error: unknown): Response {
   ) {
     return json({ error: message }, 400);
   }
-  return json({ error: "Durable transaction service failed" }, 500);
+  // Preserve a bounded diagnostic classification without exposing paths,
+  // transaction contents, or arbitrary operating-system error messages.
+  const code = error && typeof error === "object" && "code" in error ? error.code : null;
+  return json({
+    error: "Durable transaction service failed",
+    ...(typeof code === "string" && FILESYSTEM_ERROR_CODES.has(code) ? { code } : {}),
+  }, 500);
 }
 
 function decodeSafeSegment(raw: string, kind: "project" | "transaction"): string {

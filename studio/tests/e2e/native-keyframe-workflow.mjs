@@ -33,7 +33,13 @@ const OUTPUT_DIR = join(
   "out/native-keyframe-verification",
   ELECTRON_MODE ? `${process.platform}-${process.arch}-electron` : "browser",
 );
+const DELAY_KEYFRAME_RESPONSE_MS = Number(
+  process.argv
+    .find((arg) => arg.startsWith("--delay-keyframe-response="))
+    ?.split("=")[1] ?? 0,
+);
 const PROJECT_ID = "native-keyframe-workflow";
+const AB_PROJECT_ID = `${PROJECT_ID}-ab`;
 const PROJECT_FILE = "index.html";
 const NATIVE_PROJECT_FILE = ".studio/project.json";
 const CHROMIUM_CANDIDATES = [
@@ -138,7 +144,50 @@ async function selectByDomId(page, id) {
   });
 }
 
+async function readWorkflowUiState(page) {
+  return page.evaluate(() => {
+    const roots = [document];
+    let playbackTime = null,
+      toolbar = null;
+    const keys = [];
+    for (let index = 0; index < roots.length; index += 1) {
+      for (const element of roots[index].querySelectorAll("*")) {
+        if (element.shadowRoot) roots.push(element.shadowRoot);
+        const label = element.getAttribute("aria-label");
+        if (label === "Playback time") playbackTime = element.textContent;
+        if (
+          label === "Add keyframe at playhead" ||
+          label === "Remove keyframe at playhead"
+        )
+          toolbar = label;
+        if (element.hasAttribute("data-keyframe-percentage"))
+          keys.push({
+            label,
+            percentage: element.getAttribute("data-keyframe-percentage"),
+            pressed: element.getAttribute("aria-pressed"),
+            selected: element.getAttribute("data-keyframe-selected"),
+            group: element.getAttribute("data-keyframe-group"),
+          });
+      }
+    }
+    return { playbackTime, toolbar, keys };
+  });
+}
+
+async function traceWorkflow(page, phase) {
+  const preview = await readNativeVideoState(page);
+  const ui = await readWorkflowUiState(page);
+  const record = {
+    phase,
+    time: preview?.nativePlayerTime,
+    transform: preview?.transform,
+    ...ui,
+  };
+  console.log(`KEYFRAME_PHASE ${JSON.stringify(record)}`);
+}
+
 async function requestSeek(page, time) {
+  await traceWorkflow(page, `seek-${time}-before`);
   if (
     await page.evaluate(
       () => typeof window.__playerStore?.getState === "function",
@@ -172,6 +221,7 @@ async function requestSeek(page, time) {
       Math.round(time * 30)
     );
   }, `Native player did not seek to ${time}s`);
+  await traceWorkflow(page, `seek-${time}-observed`);
 }
 
 async function captureUi(page, label) {
@@ -286,7 +336,7 @@ async function readNativeVideoState(page) {
   });
 }
 
-function projectSource() {
+function projectSource(projectId = PROJECT_ID) {
   return `<!doctype html>
 <html>
   <head>
@@ -301,7 +351,7 @@ function projectSource() {
   <body>
     <main
       id="root"
-      data-composition-id="${PROJECT_ID}"
+      data-composition-id="${projectId}"
       data-composition-file="index.html"
       data-duration="4"
       data-width="1920"
@@ -319,16 +369,16 @@ function projectSource() {
     </main>
     <script>
       window.__timelines = window.__timelines || {};
-      window.__timelines["${PROJECT_ID}"] = gsap.timeline({ paused: true });
+      window.__timelines["${projectId}"] = gsap.timeline({ paused: true });
     </script>
   </body>
 </html>`;
 }
 
-function nativeProject() {
+function nativeProject(projectId = PROJECT_ID) {
   return {
     schemaVersion: 1,
-    id: `project:${PROJECT_ID}`,
+    id: `project:${projectId}`,
     revision: 0,
     frameRate: { numerator: 30, denominator: 1 },
     canvas: { width: 1920, height: 1080, background: "#111111" },
@@ -407,7 +457,7 @@ async function main() {
     : scratchRoot;
   const projectDir = join(projectsRoot, PROJECT_ID);
   const sourcePath = join(projectDir, PROJECT_FILE);
-  const nativePath = join(projectDir, NATIVE_PROJECT_FILE);
+  let nativePath = join(projectDir, NATIVE_PROJECT_FILE);
   let browser;
   let serverProcess;
   let page;
@@ -551,8 +601,38 @@ async function main() {
     const failedResponses = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
     page.on("response", (response) => {
-      if (response.status() >= 500)
-        failedResponses.push(`${response.status()} ${response.url()}`);
+      const status = response.status();
+      const transaction = response
+        .url()
+        .match(
+          /\/file-transactions\/(commit|pending-history|[^/]+\/acknowledge)(?:\?|$)/,
+        )?.[1];
+      const action = transaction?.endsWith("/acknowledge")
+        ? "acknowledge"
+        : transaction;
+      if (status >= 500)
+        failedResponses.push(`${status} ${action ?? "server-response"}`);
+      if (transaction && status >= 400) {
+        void response
+          .json()
+          .catch(() => ({}))
+          .then((body) => {
+            const allowed = new Set([
+              "EACCES",
+              "EPERM",
+              "EBUSY",
+              "ENOSPC",
+              "EIO",
+              "ENOENT",
+              "EEXIST",
+              "EMFILE",
+              "ENFILE",
+            ]);
+            console.log(
+              `KEYFRAME_TRANSACTION_FAILURE ${JSON.stringify({ status, action, code: allowed.has(body.code) ? body.code : "unclassified" })}`,
+            );
+          });
+      }
     });
     await page.goto(`${studioUrl}/#project/${PROJECT_ID}`, {
       waitUntil: "domcontentloaded",
@@ -743,10 +823,27 @@ async function main() {
     console.log(
       "PASS native keyframes: source/outgoing UI edit persisted one sidecar revision",
     );
-    const fresh = nativeProject();
+    // The A/B workflow owns a separate project and undo/transaction history.
+    // Never replace a live project's sidecar revision underneath its session.
+    const abProjectDir = join(projectsRoot, AB_PROJECT_ID);
+    await mkdir(join(abProjectDir, ".studio"), { recursive: true });
+    await cp(join(projectDir, "assets"), join(abProjectDir, "assets"), {
+      recursive: true,
+    });
+    await cp(join(projectDir, "vendor"), join(abProjectDir, "vendor"), {
+      recursive: true,
+    });
+    await writeFile(
+      join(abProjectDir, PROJECT_FILE),
+      projectSource(AB_PROJECT_ID),
+    );
+    const fresh = nativeProject(AB_PROJECT_ID);
     fresh.sequence.tracks[0].clips[0].parameterTracks = [];
+    nativePath = join(abProjectDir, NATIVE_PROJECT_FILE);
     await writeFile(nativePath, `${JSON.stringify(fresh, null, 2)}\n`);
-    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.goto(`${studioUrl}/?workflow=ab#project/${AB_PROJECT_ID}`, {
+      waitUntil: "domcontentloaded",
+    });
     await selectByDomId(page, "native-video");
     await requestSeek(page, 0);
     const autoKeyframe = await page.waitForSelector(
@@ -764,7 +861,28 @@ async function main() {
       (await readSaved()).sequence.tracks[0].clips[0].parameterTracks.find(
         (track) => track.parameterId === parameter,
       );
-    const clickToolbar = async () => {
+    if (DELAY_KEYFRAME_RESPONSE_MS > 0) {
+      const delaySession = await page.createCDPSession();
+      await delaySession.send("Fetch.enable", {
+        patterns: [
+          {
+            urlPattern: "*/file-transactions/commit",
+            requestStage: "Response",
+          },
+        ],
+      });
+      delaySession.on("Fetch.requestPaused", (event) => {
+        setTimeout(
+          () =>
+            void delaySession
+              .send("Fetch.continueRequest", { requestId: event.requestId })
+              .catch(() => undefined),
+          DELAY_KEYFRAME_RESPONSE_MS,
+        );
+      });
+    }
+    const clickToolbar = async (time) => {
+      await traceWorkflow(page, "toolbar-before");
       const button = await page.waitForSelector(
         'pierce/button[aria-label="Add keyframe at playhead"]',
         {
@@ -777,10 +895,40 @@ async function main() {
         async () => (await readSaved()).revision === revision + 1,
         "Toolbar keyframe did not persist exactly once",
       );
+      await traceWorkflow(page, "toolbar-durable");
+      const trackGroups = new Set(
+        (await readSaved()).sequence.tracks[0].clips[0].parameterTracks.map(
+          (track) =>
+            track.parameterId.startsWith("transform.position.")
+              ? "position"
+              : track.parameterId === "transform.rotation"
+                ? "rotation"
+                : track.parameterId.startsWith("layout.")
+                  ? "size"
+                  : "scale",
+        ),
+      );
+      await waitUntil(async () => {
+        const state = await readNativeVideoState(page);
+        const ui = await readWorkflowUiState(page);
+        return (
+          Math.floor((state?.nativePlayerTime ?? -1) * 30 + 1e-6) ===
+            Math.round(time * 30) &&
+          ui.toolbar === "Remove keyframe at playhead" &&
+          [...trackGroups].every((group) =>
+            ui.keys.some(
+              (key) =>
+                key.group === group &&
+                Number(key.percentage) === (time / 4) * 100,
+            ),
+          )
+        );
+      }, "Saved toolbar keyframes did not reach the rendered timeline");
+      await traceWorkflow(page, "toolbar-rendered");
     };
-    await clickToolbar();
+    await clickToolbar(0);
     await requestSeek(page, 2);
-    await clickToolbar();
+    await clickToolbar(2);
 
     // The original report is a canvas workflow. Move and rotate the real
     // selection at B with auto-key off, then verify that A is untouched.
@@ -937,6 +1085,18 @@ async function main() {
           ),
         `${label} did not persist a key at B`,
       );
+      const expected = (await savedTrack(parameter)).keyframes.find(
+        (key) => key.frame === 60,
+      ).value;
+      await waitUntil(async () => {
+        const state = await readNativeVideoState(page);
+        return (
+          state?.nativeOwned?.split(/\s+/).includes(parameter) &&
+          (parameter === "layout.width"
+            ? state.width === expected
+            : state.transform.includes(`scale(${expected}, ${expected})`))
+        );
+      }, `${label} saved but did not reach the native preview at B`);
     };
     await editField("W", "320", "layout.width");
     await editField("Scale", "150", "transform.scale");
@@ -1015,7 +1175,7 @@ async function main() {
     // At an intermediate frame the general button must capture every animated
     // channel in one revision. Removing it must restore the original curves.
     await requestSeek(page, 1);
-    await clickToolbar();
+    await clickToolbar(1);
     const withMiddle = await readSaved();
     assert(
       withMiddle.sequence.tracks[0].clips[0].parameterTracks.every((track) =>
@@ -1038,6 +1198,24 @@ async function main() {
       "General toolbar left some middle keys behind",
     );
 
+    const waitForMiddleRendered = async (present) => {
+      await waitUntil(
+        async () => {
+          const ui = await readWorkflowUiState(page);
+          const middle = ui.keys.filter((key) => Number(key.percentage) === 25);
+          return present
+            ? ui.toolbar === "Remove keyframe at playhead" &&
+                ["position", "rotation", "scale", "size"].every((group) =>
+                  middle.some((key) => key.group === group),
+                )
+            : ui.toolbar === "Add keyframe at playhead" && middle.length === 0;
+        },
+        `Middle keyframes did not render as ${present ? "present" : "removed"}`,
+      );
+    };
+    await waitForMiddleRendered(false);
+    await traceWorkflow(page, "middle-removed-rendered");
+
     const modifier = process.platform === "darwin" ? "Meta" : "Control";
     await page.keyboard.down(modifier);
     await page.keyboard.press("z");
@@ -1049,6 +1227,8 @@ async function main() {
         ),
       "Undo did not restore all middle keys together",
     );
+    await waitForMiddleRendered(true);
+    await traceWorkflow(page, "undo-rendered");
     await page.keyboard.down(modifier);
     await page.keyboard.down("Shift");
     await page.keyboard.press("z");
@@ -1061,6 +1241,8 @@ async function main() {
         ),
       "Redo did not remove all middle keys together",
     );
+    await waitForMiddleRendered(false);
+    await traceWorkflow(page, "redo-rendered");
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await selectByDomId(page, "native-video");
@@ -1126,6 +1308,8 @@ async function main() {
       ),
     );
   } catch (error) {
+    if (page && !page.isClosed())
+      await traceWorkflow(page, "failure").catch(() => undefined);
     if (page && !page.isClosed())
       await captureUi(page, "failure").catch(() => undefined);
     await mkdir(OUTPUT_DIR, { recursive: true });
