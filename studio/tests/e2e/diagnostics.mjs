@@ -27,7 +27,11 @@ async function until(fn, timeout = 30_000) {
 }
 async function launch() {
   let stderr = "";
-  child = spawn(electron, ["--remote-debugging-port=0", ...(process.platform === "linux" ? ["--no-sandbox"] : []), ...(packaged ? [] : [studio])], { cwd: studio, env: { ...process.env, ELECTRON_RUN_AS_NODE: "", MPVFX_USER_DATA_DIR: runtime }, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+  // On Windows even an empty ELECTRON_RUN_AS_NODE enables Node-only mode.
+  // Remove the key, including any case variant, from the child environment.
+  const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toUpperCase() !== "ELECTRON_RUN_AS_NODE"));
+  environment.MPVFX_USER_DATA_DIR = runtime;
+  child = spawn(electron, ["--remote-debugging-port=0", ...(process.platform === "linux" ? ["--no-sandbox"] : []), ...(packaged ? [] : [studio])], { cwd: studio, env: environment, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
   child.stdout.on("data", (chunk) => { stderr = (stderr + String(chunk)).slice(-64_000); });
   child.stderr.on("data", (chunk) => { stderr = (stderr + String(chunk)).slice(-64_000); });
   const endpoint = await until(() => {
@@ -146,5 +150,5 @@ try {
   console.log(`DIAGNOSTICS_VERIFIED ${process.platform}/${process.arch}: click → disk → downloaded report, native renderer crash and restart recovery`);
 } finally {
   await stopAbruptly();
-  rmSync(runtime, { recursive: true, force: true });
+  rmSync(runtime, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 }
