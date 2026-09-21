@@ -22,5 +22,3 @@
 *.woff2 binary
 
 studio/package-lock.json linguist-generated=true
-third_party/stackexchange-video-qa/data/video-qa.jsonl linguist-vendored=true
-third_party/stackexchange-video-qa/sources.jsonl linguist-generated=true

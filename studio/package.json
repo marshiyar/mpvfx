@@ -33,7 +33,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "vite build && tsup",
-    "desktop:compile": "tsup --config tsup.desktop.config.ts",
+    "desktop:compile": "node scripts/apply-windows-browser-patch.cjs && tsup --config tsup.desktop.config.ts",
     "desktop:build": "npm run build && npm run desktop:compile",
     "desktop:dev": "npm run desktop:build && electron .",
     "desktop:package": "node scripts/check-desktop-packaging-node.mjs && npm run desktop:build && electron-forge package",
@@ -42,7 +42,7 @@
     "desktop:make:mac:x64": "node scripts/check-desktop-packaging-node.mjs && npm run desktop:build && electron-forge make --platform=darwin --arch=x64",
     "desktop:make:windows": "node scripts/check-desktop-packaging-node.mjs && npm run desktop:build && electron-forge make --platform=win32 --arch=x64",
     "desktop:make:linux": "node scripts/check-desktop-packaging-node.mjs && npm run desktop:build && electron-forge make --platform=linux --arch=x64",
-    "postinstall": "node scripts/install-redistributable-ffmpeg.mjs && node scripts/apply-exact-keyframe-writer-patch.mjs && node scripts/apply-export-capture-geometry-patch.mjs",
+    "postinstall": "node scripts/install-redistributable-ffmpeg.mjs && node scripts/apply-exact-keyframe-writer-patch.mjs && node scripts/apply-export-capture-geometry-patch.mjs && node scripts/apply-windows-browser-patch.cjs",
     "typecheck": "tsc --noEmit && tsc --project tsconfig.desktop.json --noEmit",
     "knip": "knip",
     "knip:production": "knip --production",
@@ -53,7 +53,7 @@
     "test:watch": "node ./node_modules/vitest/vitest.mjs",
     "release:check": "node ../scripts/check-release-readiness.mjs && node ../scripts/generate-third-party-notices.mjs --check",
     "notices:update": "node ../scripts/generate-third-party-notices.mjs",
-    "qa:attribution:update": "node ../scripts/update-stackexchange-attribution.mjs",
+    "test:media-crop": "node tests/e2e/media-crop-geometry.mjs",
     "report:sdk-cutover": "CHOKIDAR_USEPOLLING=1 vite-node src/utils/sdkCutoverPolicy.report.ts",
     "test:timeline-default": "npm run test:timeline-virtualization"
   },

@@ -59,6 +59,7 @@ yarn-error.log*
 *.key
 *.p12
 *.pfx
+*.p8
 *.jks
 *.keystore
 *.mobileprovision
@@ -114,7 +115,8 @@ studio/cache/
 **/*cache*/
 studio/data/cache/
 studio/data/renders/
-studio/scripts/
+studio/scripts/*
+!studio/scripts/apply-windows-browser-patch.cjs
 **/knip.jsonc
 **/ffmpeg-runtime-manifest.json
 *.puppeteer-cache

@@ -27,6 +27,9 @@ architecture, version, and configuration. Exact provenance and corresponding-sou
 - The separately stored Stack Overflow QA corpus is not an npm dependency. Its per-post authors,
   URLs, dates, license versions, and modification notices are in
   `third_party/stackexchange-video-qa/sources.jsonl`.
+- The background-removal weight is downloaded on demand and is not in the source or application
+  package. Its checksum, lineage, and unresolved asset-specific licensing are recorded in
+  `docs/REMOTE_ASSETS.md`.
 
 ## Runtime and production dependencies
 
@@ -38,7 +41,6 @@ architecture, version, and configuration. Exact provenance and corresponding-sou
 | [@babel/types](https://www.npmjs.com/package/@babel%2Ftypes) | 7.29.8 | MIT |
 | [@chenglou/pretext](https://www.npmjs.com/package/@chenglou%2Fpretext) | 0.0.5 | MIT |
 | [@derhuerst/http-basic](https://www.npmjs.com/package/@derhuerst%2Fhttp-basic) | 8.2.4 | MIT |
-| [@emnapi/runtime](https://www.npmjs.com/package/@emnapi%2Fruntime) | 1.11.3 | MIT |
 | [@esbuild/aix-ppc64](https://www.npmjs.com/package/@esbuild%2Faix-ppc64) | 0.25.12 | MIT |
 | [@esbuild/aix-ppc64](https://www.npmjs.com/package/@esbuild%2Faix-ppc64) | 0.28.1 | MIT |
 | [@esbuild/android-arm](https://www.npmjs.com/package/@esbuild%2Fandroid-arm) | 0.25.12 | MIT |
@@ -124,19 +126,9 @@ architecture, version, and configuration. Exact provenance and corresponding-sou
 | [@hyperframes/sdk](https://www.npmjs.com/package/@hyperframes%2Fsdk) | 0.8.20 | Apache-2.0 |
 | [@hyperframes/studio-server](https://www.npmjs.com/package/@hyperframes%2Fstudio-server) | 0.8.20 | Apache-2.0 |
 | [@hyperframes/studio-server](https://www.npmjs.com/package/@hyperframes%2Fstudio-server) | 0.8.21 | Apache-2.0 |
-| [@img/colour](https://www.npmjs.com/package/@img%2Fcolour) | 1.1.0 | MIT |
-| [@isaacs/fs-minipass](https://www.npmjs.com/package/@isaacs%2Ffs-minipass) | 4.0.1 | ISC |
 | [@jridgewell/sourcemap-codec](https://www.npmjs.com/package/@jridgewell%2Fsourcemap-codec) | 1.6.0 | MIT |
-| [@mcp-b/global](https://www.npmjs.com/package/@mcp-b%2Fglobal) | 5.1.0 | MIT |
-| [@mcp-b/transports](https://www.npmjs.com/package/@mcp-b%2Ftransports) | 5.1.0 | MIT |
-| [@mcp-b/webmcp-polyfill](https://www.npmjs.com/package/@mcp-b%2Fwebmcp-polyfill) | 5.1.0 | MIT |
-| [@mcp-b/webmcp-ts-sdk](https://www.npmjs.com/package/@mcp-b%2Fwebmcp-ts-sdk) | 5.1.0 | MIT |
-| [@mcp-b/webmcp-types](https://www.npmjs.com/package/@mcp-b%2Fwebmcp-types) | 5.1.0 | MIT |
-| [@modelcontextprotocol/core](https://www.npmjs.com/package/@modelcontextprotocol%2Fcore) | 2.0.0 | MIT |
-| [@modelcontextprotocol/server](https://www.npmjs.com/package/@modelcontextprotocol%2Fserver) | 2.0.0 | MIT |
 | [@phosphor-icons/react](https://www.npmjs.com/package/@phosphor-icons%2Freact) | 2.1.10 | MIT |
 | [@puppeteer/browsers](https://www.npmjs.com/package/@puppeteer%2Fbrowsers) | 3.2.1 | Apache-2.0 |
-| [@standard-schema/spec](https://www.npmjs.com/package/@standard-schema%2Fspec) | 1.1.0 | MIT |
 | [@tanstack/react-virtual](https://www.npmjs.com/package/@tanstack%2Freact-virtual) | 3.14.10 | MIT |
 | [@tanstack/virtual-core](https://www.npmjs.com/package/@tanstack%2Fvirtual-core) | 3.17.8 | MIT |
 | [@types/dom-mediacapture-transform](https://www.npmjs.com/package/@types%2Fdom-mediacapture-transform) | 0.1.12 | MIT |
@@ -150,13 +142,11 @@ architecture, version, and configuration. Exact provenance and corresponding-sou
 | [argparse](https://www.npmjs.com/package/argparse) | 2.0.1 | Python-2.0 |
 | [ast-types](https://www.npmjs.com/package/ast-types) | 0.16.3 | MIT |
 | [boolbase](https://www.npmjs.com/package/boolbase) | 2.0.0 | ISC |
-| [boolean](https://www.npmjs.com/package/boolean) | 3.2.0 | MIT |
 | [bpm-detective](https://www.npmjs.com/package/bpm-detective) | 2.0.5 | MIT |
 | [buffer-crc32](https://www.npmjs.com/package/buffer-crc32) | 0.2.13 | MIT |
 | [buffer-from](https://www.npmjs.com/package/buffer-from) | 1.1.2 | MIT |
 | [caseless](https://www.npmjs.com/package/caseless) | 0.12.0 | Apache-2.0 |
 | [chokidar](https://www.npmjs.com/package/chokidar) | 4.0.3 | MIT |
-| [chownr](https://www.npmjs.com/package/chownr) | 3.0.0 | BlueOak-1.0.0 |
 | [chromium-bidi](https://www.npmjs.com/package/chromium-bidi) | 17.0.2 | Apache-2.0 |
 | [cliui](https://www.npmjs.com/package/cliui) | 9.0.1 | ISC |
 | [concat-stream](https://www.npmjs.com/package/concat-stream) | 2.0.0 | MIT |
@@ -165,10 +155,6 @@ architecture, version, and configuration. Exact provenance and corresponding-sou
 | [cssesc](https://www.npmjs.com/package/cssesc) | 3.0.0 | MIT |
 | [cssom](https://www.npmjs.com/package/cssom) | 0.5.0 | MIT |
 | [debug](https://www.npmjs.com/package/debug) | 4.4.3 | MIT |
-| [define-data-property](https://www.npmjs.com/package/define-data-property) | 1.1.4 | MIT |
-| [define-properties](https://www.npmjs.com/package/define-properties) | 1.2.1 | MIT |
-| [detect-libc](https://www.npmjs.com/package/detect-libc) | 2.1.2 | Apache-2.0 |
-| [detect-node](https://www.npmjs.com/package/detect-node) | 2.1.0 | MIT |
 | [devtools-protocol](https://www.npmjs.com/package/devtools-protocol) | 0.0.1666840 | BSD-3-Clause |
 | [dom-serializer](https://www.npmjs.com/package/dom-serializer) | 2.0.0 | MIT |
 | [dom-serializer](https://www.npmjs.com/package/dom-serializer) | 3.1.1 | MIT |
@@ -183,43 +169,30 @@ architecture, version, and configuration. Exact provenance and corresponding-sou
 | [entities](https://www.npmjs.com/package/entities) | 7.0.1 | BSD-2-Clause |
 | [entities](https://www.npmjs.com/package/entities) | 8.0.0 | BSD-2-Clause |
 | [env-paths](https://www.npmjs.com/package/env-paths) | 2.2.1 | MIT |
-| [es-define-property](https://www.npmjs.com/package/es-define-property) | 1.0.1 | MIT |
-| [es-errors](https://www.npmjs.com/package/es-errors) | 1.3.0 | MIT |
-| [es6-error](https://www.npmjs.com/package/es6-error) | 4.1.1 | MIT |
 | [esbuild](https://www.npmjs.com/package/esbuild) | 0.25.12 | MIT |
 | [esbuild](https://www.npmjs.com/package/esbuild) | 0.28.1 | MIT |
 | [escalade](https://www.npmjs.com/package/escalade) | 3.2.0 | MIT |
-| [escape-string-regexp](https://www.npmjs.com/package/escape-string-regexp) | 4.0.0 | MIT |
 | [esprima](https://www.npmjs.com/package/esprima) | 4.0.1 | BSD-2-Clause |
 | [fd-slicer](https://www.npmjs.com/package/fd-slicer) | 1.1.0 | MIT |
 | [ffmpeg-static](https://www.npmjs.com/package/ffmpeg-static) | 5.3.0 | GPL-3.0-or-later |
 | [get-caller-file](https://www.npmjs.com/package/get-caller-file) | 2.0.5 | ISC |
 | [get-east-asian-width](https://www.npmjs.com/package/get-east-asian-width) | 1.6.0 | MIT |
-| [global-agent](https://www.npmjs.com/package/global-agent) | 3.0.0 | BSD-3-Clause |
-| [globalthis](https://www.npmjs.com/package/globalthis) | 1.0.4 | MIT |
-| [gopd](https://www.npmjs.com/package/gopd) | 1.2.0 | MIT |
 | [gsap](https://www.npmjs.com/package/gsap) | 3.15.0 | Standard 'no charge' license: https://gsap.com/standard-license. |
-| [has-property-descriptors](https://www.npmjs.com/package/has-property-descriptors) | 1.0.2 | MIT |
 | [hono](https://www.npmjs.com/package/hono) | 4.13.5 | MIT |
 | [html-escaper](https://www.npmjs.com/package/html-escaper) | 3.0.3 | MIT |
 | [htmlparser2](https://www.npmjs.com/package/htmlparser2) | 10.1.0 | MIT |
 | [http-response-object](https://www.npmjs.com/package/http-response-object) | 3.0.2 | MIT |
 | [https-proxy-agent](https://www.npmjs.com/package/https-proxy-agent) | 5.0.1 | MIT |
 | [inherits](https://www.npmjs.com/package/inherits) | 2.0.4 | ISC |
-| [json-stringify-safe](https://www.npmjs.com/package/json-stringify-safe) | 5.0.1 | ISC |
 | [lilconfig](https://www.npmjs.com/package/lilconfig) | 3.1.3 | MIT |
 | [linkedom](https://www.npmjs.com/package/linkedom) | 0.18.13 | ISC |
 | [magic-string](https://www.npmjs.com/package/magic-string) | 0.30.21 | MIT |
-| [matcher](https://www.npmjs.com/package/matcher) | 3.0.0 | MIT |
 | [mediabunny](https://www.npmjs.com/package/mediabunny) | 1.55.5 | MPL-2.0 |
-| [minipass](https://www.npmjs.com/package/minipass) | 7.1.3 | BlueOak-1.0.0 |
-| [minizlib](https://www.npmjs.com/package/minizlib) | 3.1.0 | MIT |
 | [mitt](https://www.npmjs.com/package/mitt) | 3.0.1 | MIT |
 | [modern-tar](https://www.npmjs.com/package/modern-tar) | 0.8.4 | MIT |
 | [ms](https://www.npmjs.com/package/ms) | 2.1.3 | MIT |
 | [nanoid](https://www.npmjs.com/package/nanoid) | 3.3.18 | MIT |
 | [nth-check](https://www.npmjs.com/package/nth-check) | 3.0.1 | BSD-2-Clause |
-| [object-keys](https://www.npmjs.com/package/object-keys) | 1.1.1 | MIT |
 | [parse-cache-control](https://www.npmjs.com/package/parse-cache-control) | 1.0.1 | BSD-3-Clause |
 | [pend](https://www.npmjs.com/package/pend) | 1.2.0 | MIT |
 | [picocolors](https://www.npmjs.com/package/picocolors) | 1.1.1 | ISC |
@@ -233,23 +206,16 @@ architecture, version, and configuration. Exact provenance and corresponding-sou
 | [readable-stream](https://www.npmjs.com/package/readable-stream) | 3.6.2 | MIT |
 | [readdirp](https://www.npmjs.com/package/readdirp) | 4.1.2 | MIT |
 | [recast](https://www.npmjs.com/package/recast) | 0.23.21 | MIT |
-| [roarr](https://www.npmjs.com/package/roarr) | 2.15.4 | BSD-3-Clause |
 | [safe-buffer](https://www.npmjs.com/package/safe-buffer) | 5.2.1 | MIT |
 | [scheduler](https://www.npmjs.com/package/scheduler) | 0.27.0 | MIT |
-| [semver](https://www.npmjs.com/package/semver) | 7.8.5 | ISC |
-| [semver-compare](https://www.npmjs.com/package/semver-compare) | 1.0.0 | MIT |
-| [serialize-error](https://www.npmjs.com/package/serialize-error) | 7.0.1 | MIT |
 | [source-map](https://www.npmjs.com/package/source-map) | 0.6.1 | BSD-3-Clause |
 | [source-map-js](https://www.npmjs.com/package/source-map-js) | 1.2.1 | BSD-3-Clause |
-| [sprintf-js](https://www.npmjs.com/package/sprintf-js) | 1.1.3 | BSD-3-Clause |
 | [string_decoder](https://www.npmjs.com/package/string_decoder) | 1.3.0 | MIT |
 | [string-width](https://www.npmjs.com/package/string-width) | 7.2.0 | MIT |
 | [string-width](https://www.npmjs.com/package/string-width) | 8.2.2 | MIT |
 | [strip-ansi](https://www.npmjs.com/package/strip-ansi) | 7.2.0 | MIT |
-| [tar](https://www.npmjs.com/package/tar) | 7.5.22 | BlueOak-1.0.0 |
 | [tiny-invariant](https://www.npmjs.com/package/tiny-invariant) | 1.3.3 | MIT |
 | [tslib](https://www.npmjs.com/package/tslib) | 2.8.1 | 0BSD |
-| [type-fest](https://www.npmjs.com/package/type-fest) | 0.13.1 | (MIT OR CC0-1.0) |
 | [typed-query-selector](https://www.npmjs.com/package/typed-query-selector) | 2.12.2 | MIT |
 | [typedarray](https://www.npmjs.com/package/typedarray) | 0.0.6 | MIT |
 | [uhyphen](https://www.npmjs.com/package/uhyphen) | 0.2.0 | ISC |
@@ -259,12 +225,10 @@ architecture, version, and configuration. Exact provenance and corresponding-sou
 | [wrap-ansi](https://www.npmjs.com/package/wrap-ansi) | 9.0.2 | MIT |
 | [ws](https://www.npmjs.com/package/ws) | 8.21.3 | MIT |
 | [y18n](https://www.npmjs.com/package/y18n) | 5.0.8 | ISC |
-| [yallist](https://www.npmjs.com/package/yallist) | 5.0.0 | BlueOak-1.0.0 |
 | [yargs](https://www.npmjs.com/package/yargs) | 18.1.0 | MIT |
 | [yargs-parser](https://www.npmjs.com/package/yargs-parser) | 22.0.0 | ISC |
 | [yauzl](https://www.npmjs.com/package/yauzl) | 2.10.0 | MIT |
 | [zod](https://www.npmjs.com/package/zod) | 3.25.76 | MIT |
-| [zod](https://www.npmjs.com/package/zod) | 4.5.4 | MIT |
 
 ## Development, build, and test dependencies
 
@@ -326,6 +290,10 @@ runtime dependencies.
 | [@electron/rebuild](https://www.npmjs.com/package/@electron%2Frebuild) | 3.7.2 | MIT |
 | [@electron/universal](https://www.npmjs.com/package/@electron%2Funiversal) | 2.0.3 | MIT |
 | [@electron/windows-sign](https://www.npmjs.com/package/@electron%2Fwindows-sign) | 1.2.2 | BSD-2-Clause |
+| [@emnapi/core](https://www.npmjs.com/package/@emnapi%2Fcore) | 1.11.2 | MIT |
+| [@emnapi/runtime](https://www.npmjs.com/package/@emnapi%2Fruntime) | 1.11.2 | MIT |
+| [@emnapi/runtime](https://www.npmjs.com/package/@emnapi%2Fruntime) | 1.11.3 | MIT |
+| [@emnapi/wasi-threads](https://www.npmjs.com/package/@emnapi%2Fwasi-threads) | 1.2.2 | MIT |
 | [@esbuild/aix-ppc64](https://www.npmjs.com/package/@esbuild%2Faix-ppc64) | 0.27.7 | MIT |
 | [@esbuild/android-arm](https://www.npmjs.com/package/@esbuild%2Fandroid-arm) | 0.27.7 | MIT |
 | [@esbuild/android-arm64](https://www.npmjs.com/package/@esbuild%2Fandroid-arm64) | 0.27.7 | MIT |
@@ -378,11 +346,51 @@ runtime dependencies.
 | [@malept/cross-spawn-promise](https://www.npmjs.com/package/@malept%2Fcross-spawn-promise) | 1.1.1 | Apache-2.0 |
 | [@malept/cross-spawn-promise](https://www.npmjs.com/package/@malept%2Fcross-spawn-promise) | 2.0.0 | Apache-2.0 |
 | [@napi-rs/lzma-linux-x64-gnu](https://www.npmjs.com/package/@napi-rs%2Flzma-linux-x64-gnu) | 1.5.1 | MIT |
+| [@napi-rs/wasm-runtime](https://www.npmjs.com/package/@napi-rs%2Fwasm-runtime) | 1.2.4 | MIT |
 | [@nodelib/fs.scandir](https://www.npmjs.com/package/@nodelib%2Ffs.scandir) | 2.1.5 | MIT |
 | [@nodelib/fs.stat](https://www.npmjs.com/package/@nodelib%2Ffs.stat) | 2.0.5 | MIT |
 | [@nodelib/fs.walk](https://www.npmjs.com/package/@nodelib%2Ffs.walk) | 1.2.8 | MIT |
 | [@npmcli/fs](https://www.npmjs.com/package/@npmcli%2Ffs) | 2.1.2 | ISC |
 | [@npmcli/move-file](https://www.npmjs.com/package/@npmcli%2Fmove-file) | 2.0.1 | MIT |
+| [@oxc-parser/binding-android-arm-eabi](https://www.npmjs.com/package/@oxc-parser%2Fbinding-android-arm-eabi) | 0.150.0 | MIT |
+| [@oxc-parser/binding-android-arm64](https://www.npmjs.com/package/@oxc-parser%2Fbinding-android-arm64) | 0.150.0 | MIT |
+| [@oxc-parser/binding-darwin-arm64](https://www.npmjs.com/package/@oxc-parser%2Fbinding-darwin-arm64) | 0.150.0 | MIT |
+| [@oxc-parser/binding-darwin-x64](https://www.npmjs.com/package/@oxc-parser%2Fbinding-darwin-x64) | 0.150.0 | MIT |
+| [@oxc-parser/binding-freebsd-x64](https://www.npmjs.com/package/@oxc-parser%2Fbinding-freebsd-x64) | 0.150.0 | MIT |
+| [@oxc-parser/binding-linux-arm-gnueabihf](https://www.npmjs.com/package/@oxc-parser%2Fbinding-linux-arm-gnueabihf) | 0.150.0 | MIT |
+| [@oxc-parser/binding-linux-arm-musleabihf](https://www.npmjs.com/package/@oxc-parser%2Fbinding-linux-arm-musleabihf) | 0.150.0 | MIT |
+| [@oxc-parser/binding-linux-arm64-gnu](https://www.npmjs.com/package/@oxc-parser%2Fbinding-linux-arm64-gnu) | 0.150.0 | MIT |
+| [@oxc-parser/binding-linux-arm64-musl](https://www.npmjs.com/package/@oxc-parser%2Fbinding-linux-arm64-musl) | 0.150.0 | MIT |
+| [@oxc-parser/binding-linux-ppc64-gnu](https://www.npmjs.com/package/@oxc-parser%2Fbinding-linux-ppc64-gnu) | 0.150.0 | MIT |
+| [@oxc-parser/binding-linux-riscv64-gnu](https://www.npmjs.com/package/@oxc-parser%2Fbinding-linux-riscv64-gnu) | 0.150.0 | MIT |
+| [@oxc-parser/binding-linux-riscv64-musl](https://www.npmjs.com/package/@oxc-parser%2Fbinding-linux-riscv64-musl) | 0.150.0 | MIT |
+| [@oxc-parser/binding-linux-s390x-gnu](https://www.npmjs.com/package/@oxc-parser%2Fbinding-linux-s390x-gnu) | 0.150.0 | MIT |
+| [@oxc-parser/binding-linux-x64-gnu](https://www.npmjs.com/package/@oxc-parser%2Fbinding-linux-x64-gnu) | 0.150.0 | MIT |
+| [@oxc-parser/binding-linux-x64-musl](https://www.npmjs.com/package/@oxc-parser%2Fbinding-linux-x64-musl) | 0.150.0 | MIT |
+| [@oxc-parser/binding-openharmony-arm64](https://www.npmjs.com/package/@oxc-parser%2Fbinding-openharmony-arm64) | 0.150.0 | MIT |
+| [@oxc-parser/binding-win32-arm64-msvc](https://www.npmjs.com/package/@oxc-parser%2Fbinding-win32-arm64-msvc) | 0.150.0 | MIT |
+| [@oxc-parser/binding-win32-ia32-msvc](https://www.npmjs.com/package/@oxc-parser%2Fbinding-win32-ia32-msvc) | 0.150.0 | MIT |
+| [@oxc-parser/binding-win32-x64-msvc](https://www.npmjs.com/package/@oxc-parser%2Fbinding-win32-x64-msvc) | 0.150.0 | MIT |
+| [@oxc-project/types](https://www.npmjs.com/package/@oxc-project%2Ftypes) | 0.150.0 | MIT |
+| [@oxc-resolver/binding-android-arm-eabi](https://www.npmjs.com/package/@oxc-resolver%2Fbinding-android-arm-eabi) | 11.24.2 | MIT |
+| [@oxc-resolver/binding-android-arm64](https://www.npmjs.com/package/@oxc-resolver%2Fbinding-android-arm64) | 11.24.2 | MIT |
+| [@oxc-resolver/binding-darwin-arm64](https://www.npmjs.com/package/@oxc-resolver%2Fbinding-darwin-arm64) | 11.24.2 | MIT |
+| [@oxc-resolver/binding-darwin-x64](https://www.npmjs.com/package/@oxc-resolver%2Fbinding-darwin-x64) | 11.24.2 | MIT |
+| [@oxc-resolver/binding-freebsd-x64](https://www.npmjs.com/package/@oxc-resolver%2Fbinding-freebsd-x64) | 11.24.2 | MIT |
+| [@oxc-resolver/binding-linux-arm-gnueabihf](https://www.npmjs.com/package/@oxc-resolver%2Fbinding-linux-arm-gnueabihf) | 11.24.2 | MIT |
+| [@oxc-resolver/binding-linux-arm-musleabihf](https://www.npmjs.com/package/@oxc-resolver%2Fbinding-linux-arm-musleabihf) | 11.24.2 | MIT |
+| [@oxc-resolver/binding-linux-arm64-gnu](https://www.npmjs.com/package/@oxc-resolver%2Fbinding-linux-arm64-gnu) | 11.24.2 | MIT |
+| [@oxc-resolver/binding-linux-arm64-musl](https://www.npmjs.com/package/@oxc-resolver%2Fbinding-linux-arm64-musl) | 11.24.2 | MIT |
+| [@oxc-resolver/binding-linux-ppc64-gnu](https://www.npmjs.com/package/@oxc-resolver%2Fbinding-linux-ppc64-gnu) | 11.24.2 | MIT |
+| [@oxc-resolver/binding-linux-riscv64-gnu](https://www.npmjs.com/package/@oxc-resolver%2Fbinding-linux-riscv64-gnu) | 11.24.2 | MIT |
+| [@oxc-resolver/binding-linux-riscv64-musl](https://www.npmjs.com/package/@oxc-resolver%2Fbinding-linux-riscv64-musl) | 11.24.2 | MIT |
+| [@oxc-resolver/binding-linux-s390x-gnu](https://www.npmjs.com/package/@oxc-resolver%2Fbinding-linux-s390x-gnu) | 11.24.2 | MIT |
+| [@oxc-resolver/binding-linux-x64-gnu](https://www.npmjs.com/package/@oxc-resolver%2Fbinding-linux-x64-gnu) | 11.24.2 | MIT |
+| [@oxc-resolver/binding-linux-x64-musl](https://www.npmjs.com/package/@oxc-resolver%2Fbinding-linux-x64-musl) | 11.24.2 | MIT |
+| [@oxc-resolver/binding-openharmony-arm64](https://www.npmjs.com/package/@oxc-resolver%2Fbinding-openharmony-arm64) | 11.24.2 | MIT |
+| [@oxc-resolver/binding-wasm32-wasi](https://www.npmjs.com/package/@oxc-resolver%2Fbinding-wasm32-wasi) | 11.24.2 | MIT |
+| [@oxc-resolver/binding-win32-arm64-msvc](https://www.npmjs.com/package/@oxc-resolver%2Fbinding-win32-arm64-msvc) | 11.24.2 | MIT |
+| [@oxc-resolver/binding-win32-x64-msvc](https://www.npmjs.com/package/@oxc-resolver%2Fbinding-win32-x64-msvc) | 11.24.2 | MIT |
 | [@rolldown/pluginutils](https://www.npmjs.com/package/@rolldown%2Fpluginutils) | 1.0.0-beta.27 | MIT |
 | [@rollup/rollup-android-arm-eabi](https://www.npmjs.com/package/@rollup%2Frollup-android-arm-eabi) | 4.63.1 | MIT |
 | [@rollup/rollup-android-arm64](https://www.npmjs.com/package/@rollup%2Frollup-android-arm64) | 4.63.1 | MIT |
@@ -412,6 +420,7 @@ runtime dependencies.
 | [@sindresorhus/is](https://www.npmjs.com/package/@sindresorhus%2Fis) | 4.6.0 | MIT |
 | [@szmarczak/http-timer](https://www.npmjs.com/package/@szmarczak%2Fhttp-timer) | 4.0.6 | MIT |
 | [@tootallnate/once](https://www.npmjs.com/package/@tootallnate%2Fonce) | 2.0.1 | MIT |
+| [@tybys/wasm-util](https://www.npmjs.com/package/@tybys%2Fwasm-util) | 0.10.4 | MIT |
 | [@types/appdmg](https://www.npmjs.com/package/@types%2Fappdmg) | 0.5.5 | MIT |
 | [@types/babel__core](https://www.npmjs.com/package/@types%2Fbabel__core) | 7.20.5 | MIT |
 | [@types/babel__generator](https://www.npmjs.com/package/@types%2Fbabel__generator) | 7.27.0 | MIT |
@@ -489,6 +498,7 @@ runtime dependencies.
 | [binary-extensions](https://www.npmjs.com/package/binary-extensions) | 2.3.0 | MIT |
 | [bl](https://www.npmjs.com/package/bl) | 4.1.0 | MIT |
 | [bluebird](https://www.npmjs.com/package/bluebird) | 3.7.2 | MIT |
+| [boolean](https://www.npmjs.com/package/boolean) | 3.2.0 | MIT |
 | [bplist-creator](https://www.npmjs.com/package/bplist-creator) | 0.0.8 | MIT |
 | [brace-expansion](https://www.npmjs.com/package/brace-expansion) | 1.1.18 | MIT |
 | [brace-expansion](https://www.npmjs.com/package/brace-expansion) | 2.1.4 | MIT |
@@ -546,6 +556,10 @@ runtime dependencies.
 | [deep-eql](https://www.npmjs.com/package/deep-eql) | 5.0.2 | MIT |
 | [defaults](https://www.npmjs.com/package/defaults) | 1.0.4 | MIT |
 | [defer-to-connect](https://www.npmjs.com/package/defer-to-connect) | 2.0.1 | MIT |
+| [define-data-property](https://www.npmjs.com/package/define-data-property) | 1.1.4 | MIT |
+| [define-properties](https://www.npmjs.com/package/define-properties) | 1.2.1 | MIT |
+| [detect-libc](https://www.npmjs.com/package/detect-libc) | 2.1.2 | Apache-2.0 |
+| [detect-node](https://www.npmjs.com/package/detect-node) | 2.1.0 | MIT |
 | [didyoumean](https://www.npmjs.com/package/didyoumean) | 1.2.2 | Apache-2.0 |
 | [dir-compare](https://www.npmjs.com/package/dir-compare) | 4.2.0 | MIT |
 | [dlv](https://www.npmjs.com/package/dlv) | 1.1.3 | MIT |
@@ -567,10 +581,14 @@ runtime dependencies.
 | [env-paths](https://www.npmjs.com/package/env-paths) | 3.0.0 | MIT |
 | [err-code](https://www.npmjs.com/package/err-code) | 2.0.3 | MIT |
 | [error-ex](https://www.npmjs.com/package/error-ex) | 1.3.4 | MIT |
+| [es-define-property](https://www.npmjs.com/package/es-define-property) | 1.0.1 | MIT |
+| [es-errors](https://www.npmjs.com/package/es-errors) | 1.3.0 | MIT |
 | [es-module-lexer](https://www.npmjs.com/package/es-module-lexer) | 1.7.0 | MIT |
 | [es-module-lexer](https://www.npmjs.com/package/es-module-lexer) | 2.3.2 | MIT |
+| [es6-error](https://www.npmjs.com/package/es6-error) | 4.1.1 | MIT |
 | [esbuild](https://www.npmjs.com/package/esbuild) | 0.27.7 | MIT |
 | [escape-string-regexp](https://www.npmjs.com/package/escape-string-regexp) | 1.0.5 | MIT |
+| [escape-string-regexp](https://www.npmjs.com/package/escape-string-regexp) | 4.0.0 | MIT |
 | [estree-walker](https://www.npmjs.com/package/estree-walker) | 3.0.3 | MIT |
 | [eta](https://www.npmjs.com/package/eta) | 3.5.0 | MIT |
 | [eventemitter3](https://www.npmjs.com/package/eventemitter3) | 5.0.4 | MIT |
@@ -585,6 +603,7 @@ runtime dependencies.
 | [fast-glob](https://www.npmjs.com/package/fast-glob) | 3.3.3 | MIT |
 | [fast-uri](https://www.npmjs.com/package/fast-uri) | 3.1.7 | BSD-3-Clause |
 | [fastq](https://www.npmjs.com/package/fastq) | 1.20.3 | ISC |
+| [fd-package-json](https://www.npmjs.com/package/fd-package-json) | 2.0.0 | MIT |
 | [fdir](https://www.npmjs.com/package/fdir) | 6.5.0 | MIT |
 | [filename-reserved-regex](https://www.npmjs.com/package/filename-reserved-regex) | 2.0.0 | MIT |
 | [filenamify](https://www.npmjs.com/package/filenamify) | 4.3.0 | MIT |
@@ -594,6 +613,7 @@ runtime dependencies.
 | [fix-dts-default-cjs-exports](https://www.npmjs.com/package/fix-dts-default-cjs-exports) | 1.0.1 | MIT |
 | [flora-colossus](https://www.npmjs.com/package/flora-colossus) | 2.0.0 | MIT |
 | [fmix](https://www.npmjs.com/package/fmix) | 0.1.0 | MIT |
+| [formatly](https://www.npmjs.com/package/formatly) | 0.7.1 | MIT |
 | [fraction.js](https://www.npmjs.com/package/fraction.js) | 5.3.4 | MIT |
 | [fs-extra](https://www.npmjs.com/package/fs-extra) | 10.1.0 | MIT |
 | [fs-extra](https://www.npmjs.com/package/fs-extra) | 11.4.0 | MIT |
@@ -615,15 +635,20 @@ runtime dependencies.
 | [get-package-info](https://www.npmjs.com/package/get-package-info) | 1.0.0 | MIT |
 | [get-stream](https://www.npmjs.com/package/get-stream) | 4.1.0 | MIT |
 | [get-stream](https://www.npmjs.com/package/get-stream) | 5.2.0 | MIT |
+| [get-tsconfig](https://www.npmjs.com/package/get-tsconfig) | 4.14.3 | MIT |
 | [glob](https://www.npmjs.com/package/glob) | 7.2.3 | ISC |
 | [glob](https://www.npmjs.com/package/glob) | 8.1.0 | ISC |
 | [glob-parent](https://www.npmjs.com/package/glob-parent) | 5.1.2 | ISC |
 | [glob-parent](https://www.npmjs.com/package/glob-parent) | 6.0.2 | ISC |
+| [global-agent](https://www.npmjs.com/package/global-agent) | 3.0.0 | BSD-3-Clause |
 | [global-dirs](https://www.npmjs.com/package/global-dirs) | 3.0.1 | MIT |
+| [globalthis](https://www.npmjs.com/package/globalthis) | 1.0.4 | MIT |
+| [gopd](https://www.npmjs.com/package/gopd) | 1.2.0 | MIT |
 | [got](https://www.npmjs.com/package/got) | 11.8.6 | MIT |
 | [graceful-fs](https://www.npmjs.com/package/graceful-fs) | 4.2.11 | ISC |
 | [happy-dom](https://www.npmjs.com/package/happy-dom) | 20.12.0 | MIT |
 | [has-flag](https://www.npmjs.com/package/has-flag) | 4.0.0 | MIT |
+| [has-property-descriptors](https://www.npmjs.com/package/has-property-descriptors) | 1.0.2 | MIT |
 | [hasown](https://www.npmjs.com/package/hasown) | 2.0.4 | MIT |
 | [hosted-git-info](https://www.npmjs.com/package/hosted-git-info) | 2.8.9 | ISC |
 | [html-encoding-sniffer](https://www.npmjs.com/package/html-encoding-sniffer) | 6.0.0 | MIT |
@@ -671,12 +696,14 @@ runtime dependencies.
 | [jsesc](https://www.npmjs.com/package/jsesc) | 3.1.0 | MIT |
 | [json-buffer](https://www.npmjs.com/package/json-buffer) | 3.0.1 | MIT |
 | [json-schema-traverse](https://www.npmjs.com/package/json-schema-traverse) | 1.0.0 | MIT |
+| [json-stringify-safe](https://www.npmjs.com/package/json-stringify-safe) | 5.0.1 | ISC |
 | [json5](https://www.npmjs.com/package/json5) | 2.2.3 | MIT |
 | [jsonfile](https://www.npmjs.com/package/jsonfile) | 4.0.0 | MIT |
 | [jsonfile](https://www.npmjs.com/package/jsonfile) | 6.2.1 | MIT |
 | [jsonpointer](https://www.npmjs.com/package/jsonpointer) | 5.0.1 | MIT |
 | [junk](https://www.npmjs.com/package/junk) | 3.1.0 | MIT |
 | [keyv](https://www.npmjs.com/package/keyv) | 4.5.4 | MIT |
+| [knip](https://www.npmjs.com/package/knip) | 6.37.0 | ISC |
 | [lines-and-columns](https://www.npmjs.com/package/lines-and-columns) | 1.2.4 | MIT |
 | [listr2](https://www.npmjs.com/package/listr2) | 7.0.2 | MIT |
 | [load-json-file](https://www.npmjs.com/package/load-json-file) | 2.0.0 | MIT |
@@ -695,6 +722,7 @@ runtime dependencies.
 | [macos-alias](https://www.npmjs.com/package/macos-alias) | 0.2.12 | MIT |
 | [make-fetch-happen](https://www.npmjs.com/package/make-fetch-happen) | 10.2.1 | ISC |
 | [map-age-cleaner](https://www.npmjs.com/package/map-age-cleaner) | 0.1.3 | MIT |
+| [matcher](https://www.npmjs.com/package/matcher) | 3.0.0 | MIT |
 | [mdn-data](https://www.npmjs.com/package/mdn-data) | 2.27.1 | CC0-1.0 |
 | [mem](https://www.npmjs.com/package/mem) | 4.3.0 | MIT |
 | [merge-stream](https://www.npmjs.com/package/merge-stream) | 2.0.0 | MIT |
@@ -739,10 +767,13 @@ runtime dependencies.
 | [npm-run-path](https://www.npmjs.com/package/npm-run-path) | 2.0.2 | MIT |
 | [object-assign](https://www.npmjs.com/package/object-assign) | 4.1.1 | MIT |
 | [object-hash](https://www.npmjs.com/package/object-hash) | 3.0.0 | MIT |
+| [object-keys](https://www.npmjs.com/package/object-keys) | 1.1.1 | MIT |
 | [once](https://www.npmjs.com/package/once) | 1.4.0 | ISC |
 | [onetime](https://www.npmjs.com/package/onetime) | 5.1.2 | MIT |
 | [ora](https://www.npmjs.com/package/ora) | 5.4.1 | MIT |
 | [os-tmpdir](https://www.npmjs.com/package/os-tmpdir) | 1.0.2 | MIT |
+| [oxc-parser](https://www.npmjs.com/package/oxc-parser) | 0.150.0 | MIT |
+| [oxc-resolver](https://www.npmjs.com/package/oxc-resolver) | 11.24.2 | MIT |
 | [p-cancelable](https://www.npmjs.com/package/p-cancelable) | 2.1.1 | MIT |
 | [p-defer](https://www.npmjs.com/package/p-defer) | 1.0.0 | MIT |
 | [p-finally](https://www.npmjs.com/package/p-finally) | 1.0.0 | MIT |
@@ -753,6 +784,7 @@ runtime dependencies.
 | [p-locate](https://www.npmjs.com/package/p-locate) | 5.0.0 | MIT |
 | [p-map](https://www.npmjs.com/package/p-map) | 4.0.0 | MIT |
 | [p-try](https://www.npmjs.com/package/p-try) | 1.0.0 | MIT |
+| [package-manager-detector](https://www.npmjs.com/package/package-manager-detector) | 1.8.0 | MIT |
 | [parse-author](https://www.npmjs.com/package/parse-author) | 2.0.0 | MIT |
 | [parse-color](https://www.npmjs.com/package/parse-color) | 1.0.0 | MIT |
 | [parse-json](https://www.npmjs.com/package/parse-json) | 2.2.0 | MIT |
@@ -803,6 +835,7 @@ runtime dependencies.
 | [resolve](https://www.npmjs.com/package/resolve) | 1.22.12 | MIT |
 | [resolve-alpn](https://www.npmjs.com/package/resolve-alpn) | 1.2.1 | MIT |
 | [resolve-from](https://www.npmjs.com/package/resolve-from) | 5.0.0 | MIT |
+| [resolve-pkg-maps](https://www.npmjs.com/package/resolve-pkg-maps) | 1.0.0 | MIT |
 | [responselike](https://www.npmjs.com/package/responselike) | 2.0.1 | MIT |
 | [restore-cursor](https://www.npmjs.com/package/restore-cursor) | 3.1.0 | MIT |
 | [restore-cursor](https://www.npmjs.com/package/restore-cursor) | 4.0.0 | MIT |
@@ -811,6 +844,7 @@ runtime dependencies.
 | [rfdc](https://www.npmjs.com/package/rfdc) | 1.4.1 | MIT |
 | [rimraf](https://www.npmjs.com/package/rimraf) | 2.6.3 | ISC |
 | [rimraf](https://www.npmjs.com/package/rimraf) | 3.0.2 | ISC |
+| [roarr](https://www.npmjs.com/package/roarr) | 2.15.4 | BSD-3-Clause |
 | [rollup](https://www.npmjs.com/package/rollup) | 4.63.1 | MIT |
 | [run-parallel](https://www.npmjs.com/package/run-parallel) | 1.2.0 | MIT |
 | [safer-buffer](https://www.npmjs.com/package/safer-buffer) | 2.1.2 | MIT |
@@ -818,6 +852,9 @@ runtime dependencies.
 | [schema-utils](https://www.npmjs.com/package/schema-utils) | 4.3.3 | MIT |
 | [semver](https://www.npmjs.com/package/semver) | 5.7.2 | ISC |
 | [semver](https://www.npmjs.com/package/semver) | 6.3.1 | ISC |
+| [semver](https://www.npmjs.com/package/semver) | 7.8.5 | ISC |
+| [semver-compare](https://www.npmjs.com/package/semver-compare) | 1.0.0 | MIT |
+| [serialize-error](https://www.npmjs.com/package/serialize-error) | 7.0.1 | MIT |
 | [shebang-command](https://www.npmjs.com/package/shebang-command) | 1.2.0 | MIT |
 | [shebang-command](https://www.npmjs.com/package/shebang-command) | 2.0.0 | MIT |
 | [shebang-regex](https://www.npmjs.com/package/shebang-regex) | 1.0.0 | MIT |
@@ -827,6 +864,7 @@ runtime dependencies.
 | [signal-exit](https://www.npmjs.com/package/signal-exit) | 4.1.0 | ISC |
 | [slice-ansi](https://www.npmjs.com/package/slice-ansi) | 5.0.0 | MIT |
 | [smart-buffer](https://www.npmjs.com/package/smart-buffer) | 4.2.0 | MIT |
+| [smol-toml](https://www.npmjs.com/package/smol-toml) | 1.8.0 | BSD-3-Clause |
 | [socks](https://www.npmjs.com/package/socks) | 2.8.10 | MIT |
 | [socks-proxy-agent](https://www.npmjs.com/package/socks-proxy-agent) | 7.0.0 | MIT |
 | [source-map](https://www.npmjs.com/package/source-map) | 0.7.6 | BSD-3-Clause |
@@ -835,6 +873,7 @@ runtime dependencies.
 | [spdx-exceptions](https://www.npmjs.com/package/spdx-exceptions) | 2.5.0 | CC-BY-3.0 |
 | [spdx-expression-parse](https://www.npmjs.com/package/spdx-expression-parse) | 3.0.1 | MIT |
 | [spdx-license-ids](https://www.npmjs.com/package/spdx-license-ids) | 3.0.23 | CC0-1.0 |
+| [sprintf-js](https://www.npmjs.com/package/sprintf-js) | 1.1.3 | BSD-3-Clause |
 | [ssri](https://www.npmjs.com/package/ssri) | 9.0.1 | ISC |
 | [stackback](https://www.npmjs.com/package/stackback) | 0.0.2 | MIT |
 | [std-env](https://www.npmjs.com/package/std-env) | 3.10.0 | MIT |
@@ -844,6 +883,7 @@ runtime dependencies.
 | [strip-ansi](https://www.npmjs.com/package/strip-ansi) | 6.0.1 | MIT |
 | [strip-bom](https://www.npmjs.com/package/strip-bom) | 3.0.0 | MIT |
 | [strip-eof](https://www.npmjs.com/package/strip-eof) | 1.0.0 | MIT |
+| [strip-json-comments](https://www.npmjs.com/package/strip-json-comments) | 5.0.3 | MIT |
 | [strip-literal](https://www.npmjs.com/package/strip-literal) | 3.1.0 | MIT |
 | [strip-outer](https://www.npmjs.com/package/strip-outer) | 1.0.1 | MIT |
 | [sucrase](https://www.npmjs.com/package/sucrase) | 3.35.1 | MIT |
@@ -881,11 +921,13 @@ runtime dependencies.
 | [trim-repeated](https://www.npmjs.com/package/trim-repeated) | 1.0.0 | MIT |
 | [ts-interface-checker](https://www.npmjs.com/package/ts-interface-checker) | 0.1.13 | Apache-2.0 |
 | [tsup](https://www.npmjs.com/package/tsup) | 8.5.1 | MIT |
+| [type-fest](https://www.npmjs.com/package/type-fest) | 0.13.1 | (MIT OR CC0-1.0) |
 | [type-fest](https://www.npmjs.com/package/type-fest) | 0.21.3 | (MIT OR CC0-1.0) |
 | [type-fest](https://www.npmjs.com/package/type-fest) | 1.4.0 | (MIT OR CC0-1.0) |
 | [typescript](https://www.npmjs.com/package/typescript) | 5.4.5 | Apache-2.0 |
 | [typescript](https://www.npmjs.com/package/typescript) | 5.9.3 | Apache-2.0 |
 | [ufo](https://www.npmjs.com/package/ufo) | 1.6.4 | MIT |
+| [unbash](https://www.npmjs.com/package/unbash) | 4.0.11 | ISC |
 | [undici](https://www.npmjs.com/package/undici) | 7.29.0 | MIT |
 | [undici](https://www.npmjs.com/package/undici) | 8.10.1 | MIT |
 | [undici-types](https://www.npmjs.com/package/undici-types) | 6.21.0 | MIT |
@@ -903,6 +945,7 @@ runtime dependencies.
 | [vite-node](https://www.npmjs.com/package/vite-node) | 3.2.4 | MIT |
 | [vitest](https://www.npmjs.com/package/vitest) | 3.2.7 | MIT |
 | [w3c-xmlserializer](https://www.npmjs.com/package/w3c-xmlserializer) | 5.0.0 | MIT |
+| [walk-up-path](https://www.npmjs.com/package/walk-up-path) | 4.0.0 | ISC |
 | [watchpack](https://www.npmjs.com/package/watchpack) | 2.5.2 | MIT |
 | [wcwidth](https://www.npmjs.com/package/wcwidth) | 1.0.1 | MIT |
 | [webidl-conversions](https://www.npmjs.com/package/webidl-conversions) | 3.0.1 | BSD-2-Clause |
@@ -928,12 +971,14 @@ runtime dependencies.
 | [xtend](https://www.npmjs.com/package/xtend) | 4.0.2 | MIT |
 | [yallist](https://www.npmjs.com/package/yallist) | 3.1.1 | ISC |
 | [yallist](https://www.npmjs.com/package/yallist) | 4.0.0 | ISC |
+| [yaml](https://www.npmjs.com/package/yaml) | 2.9.1 | ISC |
 | [yargs](https://www.npmjs.com/package/yargs) | 16.2.2 | MIT |
 | [yargs](https://www.npmjs.com/package/yargs) | 17.7.3 | MIT |
 | [yargs-parser](https://www.npmjs.com/package/yargs-parser) | 20.2.9 | ISC |
 | [yargs-parser](https://www.npmjs.com/package/yargs-parser) | 21.1.1 | ISC |
 | [yocto-queue](https://www.npmjs.com/package/yocto-queue) | 0.1.0 | MIT |
 | [yoctocolors-cjs](https://www.npmjs.com/package/yoctocolors-cjs) | 2.1.3 | MIT |
+| [zod](https://www.npmjs.com/package/zod) | 4.6.5 | MIT |
 | [zustand](https://www.npmjs.com/package/zustand) | 5.0.15 | MIT |
 
 ## Full terms

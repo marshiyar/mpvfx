@@ -4,6 +4,7 @@ const {
 } = require("./scripts/verify-packaged-media-binaries.cjs");
 const { assertPackagedRenderer } = require("./scripts/verify-packaged-renderer.cjs");
 const { assertPackagedLegalResources } = require("./scripts/verify-packaged-legal.cjs");
+const { assertWindowsBrowserLaunchPolicy } = require("./scripts/apply-windows-browser-patch.cjs");
 const {
   assertPackagedRuntimeDependencies,
 } = require("./scripts/verify-packaged-runtime-dependencies.cjs");
@@ -44,6 +45,7 @@ module.exports = {
       arch,
     ) => {
       assertPreparedMediaBinaries(buildPath, platform, arch);
+      assertWindowsBrowserLaunchPolicy(buildPath);
     },
     postPackage: async (_forgeConfig, packageResult) => {
       assertPackagedMediaBinaries(packageResult);

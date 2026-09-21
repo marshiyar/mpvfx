@@ -79,6 +79,9 @@ jobs:
       - name: Run tests
         run: npm --prefix studio test
 
+      - name: Verify media crop pixels in Chromium
+        run: npm --prefix studio run test:media-crop
+
   compile:
     name: Typecheck and compile
     runs-on: ubuntu-24.04

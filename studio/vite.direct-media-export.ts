@@ -375,7 +375,7 @@ async function defaultProbeMedia(
         "json",
         mediaPath,
       ],
-      { shell: false, stdio: ["ignore", "pipe", "pipe"] },
+      { shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] },
     );
     let stdout = "";
     let forceKillTimer: ReturnType<typeof setTimeout> | null = null;
@@ -623,7 +623,7 @@ async function runTranscodeAttempt(
     const child = spawnProcess(
       ffmpegPath,
       buildDirectTranscodeArgs(mediaPath, input, duration, sourceStart, gpuEncoder),
-      { shell: false, stdio: ["ignore", "ignore", "pipe"] },
+      { shell: false, windowsHide: true, stdio: ["ignore", "ignore", "pipe"] },
     );
     let stderr = "";
     let progressBuffer = "";

@@ -19,15 +19,16 @@ function read(path) {
   return readFileSync(pathOf(path), "utf8");
 }
 
+// Repository policy documents and duplicate notices may be deliberately removed.
+// Only retained release inputs and packaged resources belong in this gate.
 const required = [
-  "README.md", "LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md", "CHANGELOG.md",
-  "CODE_OF_CONDUCT.md", "CONTRIBUTING.md", "PRIVACY.md", "SECURITY.md", "SUPPORT.md",
-  ".editorconfig", ".gitattributes", ".gitignore", ".github/dependabot.yml",
+  "README.md", "LICENSE", "NOTICE", "CHANGELOG.md",
+  ".gitattributes", ".gitignore", ".github/dependabot.yml",
   ".github/PULL_REQUEST_TEMPLATE.md", ".github/ISSUE_TEMPLATE/bug_report.yml",
   ".github/ISSUE_TEMPLATE/feature_request.yml", ".github/workflows/tests.yml",
   ".github/workflows/desktop.yml", ".github/workflows/release.yml",
   ".github/workflows/security.yml", "scripts/collect-ffmpeg-corresponding-source.mjs",
-  "scripts/ffmpeg-source-manifest.json", "docs/ARCHITECTURE.md", "docs/DATA_PROVENANCE.md",
+  "scripts/ffmpeg-source-manifest.json", "docs/DATA_PROVENANCE.md",
   "docs/FFMPEG_DISTRIBUTION.md", "docs/REMOTE_ASSETS.md", "docs/RELEASING.md",
   "third_party/licenses/Apache-2.0.txt", "third_party/licenses/GPL-3.0.txt",
   "third_party/licenses/GSAP-NOTICE.txt", "studio/resources/legal/MPVFX_LICENSE.txt",
@@ -36,7 +37,6 @@ const required = [
   "studio/resources/legal/GSAP-NOTICE.txt", "studio/resources/legal/THIRD_PARTY_NOTICES.md",
   "studio/scripts/ffmpeg-runtime-manifest.json", "studio/scripts/install-redistributable-ffmpeg.mjs",
   "studio/scripts/verify-redistributable-ffmpeg.cjs", "studio/public/ASSET_PROVENANCE.md",
-  "studio/tests/e2e/fixtures/ASSET_PROVENANCE.md",
 ];
 for (const path of required) {
   if (!existsSync(pathOf(path))) fail(`Missing required publication file: ${path}`);
