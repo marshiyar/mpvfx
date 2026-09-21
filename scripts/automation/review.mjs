@@ -17,6 +17,20 @@ try {
       return { workflow, id: run.databaseId, commit: run.headSha, status: run.status, conclusion: run.conclusion, url: `https://github.com/${repo}/actions/runs/${run.databaseId}` };
     });
   });
+  for (const run of runs.filter((item) => item.workflow === 'visual-release.yml')) {
+    const data = JSON.parse(gh(['run', 'view', String(run.id), '--repo', repo, '--json', 'jobs']));
+    const targets = new Map([
+      ['Visual review on windows-2025', 'windows-x64'], ['Visual review on macos-15', 'macos-arm64'],
+      ['Visual review on macos-15-intel', 'macos-x64'], ['Visual review on ubuntu-24.04', 'linux-deb-x64'],
+    ]);
+    run.coverage = data.jobs.filter((job) => targets.has(job.name)).map((job) => ({
+      target: targets.get(job.name),
+      status: job.status === 'completed' ? 'completed' : 'pending',
+      outcome: ['success', 'failure', 'cancelled', 'timed_out'].includes(job.conclusion) ? job.conclusion : 'unknown',
+      evidencePrivacyPassed: job.steps.some((step) => step.name === 'Validate and stage public synthetic evidence' && step.conclusion === 'success'),
+    }));
+    run.completePlatformMatrix = run.coverage.length === targets.size && run.coverage.every((job) => job.status === 'completed');
+  }
   let audit = null;
   const source = runs.find((run) => run.workflow === 'quality-cycle.yml' && run.status === 'completed');
   if (source) {
@@ -42,7 +56,7 @@ try {
   }
   // Ignore changing run IDs/timings. Identical failures and public advisories
   // on the same source revision should not trigger repeated investigations.
-  const fingerprint = createHash('sha256').update(JSON.stringify({ runs: runs.map(({ workflow, commit, status, conclusion }) => ({ workflow, commit, status, conclusion })), audit })).digest('hex');
+  const fingerprint = createHash('sha256').update(JSON.stringify({ runs: runs.map(({ workflow, commit, status, conclusion, coverage }) => ({ workflow, commit, status, conclusion, coverage })), audit })).digest('hex');
   const stateFile = join(stateDir, 'seen.json');
   const seen = existsSync(stateFile) ? JSON.parse(readFileSync(stateFile, 'utf8')).fingerprint : null;
   const ackIndex = process.argv.indexOf('--ack');

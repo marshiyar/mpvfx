@@ -1,11 +1,6 @@
 name: Native diagnostics
 
 on:
-  pull_request:
-    paths: ["studio/**", ".github/workflows/diagnostics.yml"]
-  push:
-    branches: [main]
-    paths: ["studio/**", ".github/workflows/diagnostics.yml"]
   workflow_dispatch:
 
 permissions:

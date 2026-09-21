@@ -6,19 +6,23 @@ changes signing settings, collects production telemetry, or uploads local user d
 
 ## What runs
 
-- The default-branch **Daily quality scheduler** runs at 13:23 UTC. Its only write
-  permission is to queue two fixed workflows on `patches-windows`.
-- **Deterministic quality audit** runs on source pushes and daily: publication and
+- **Quality check planner** is manual and read-only. It has no schedule, no workflow
+  dispatch permission, and no code path that can start or rerun a GitHub job.
+  A new day alone does not invalidate an existing result.
+- **Deterministic quality audit** runs only when deliberately requested: publication and
   attribution boundaries, automation privacy tests, diagnostics/helper regressions,
   typecheck, build, and an audit of the already-public dependency lockfile.
   It retains a small status report and public advisory IDs for seven days.
   A newer push supersedes an in-progress audit of the same branch.
-- **Released desktop visual verification** runs when the published release assets
-  or its verification inputs change. It covers Windows x64, macOS ARM and Intel,
-  and Ubuntu x64. The scheduler reuses completed failures as evidence instead of
-  repeatedly paying for the same four-machine run. Manual reruns remain possible.
+- **Released desktop visual verification**, **Desktop builds**, and **Native diagnostics**
+  are manual. They cover Windows x64, macOS ARM and Intel, and Ubuntu x64. Changed
+  assets can justify a check; they do not automatically start four machines.
+  Completed failures remain evidence, rather than a reason to retry without a fix.
   Manual dispatch also offers a Windows-only run for Windows capture changes;
-  this partial check does not replace the scheduler's complete platform matrix.
+  this partial check is never presented as a complete platform matrix.
+- Pull requests and relevant pushes retain the small publication/attribution gate.
+  Full application tests and compilation require manual workflow dispatch. The
+  existing CodeQL security checks remain on relevant changes and their weekly schedule.
 - A daily Codex review reads `node scripts/automation/review.mjs` first. This
   command emits a short, schema-checked inbox without raw CI logs and compares it
   with a local ignored review receipt. A reviewer acknowledges the exact fingerprint
@@ -27,8 +31,9 @@ changes signing settings, collects production telemetry, or uploads local user d
 Shell scripts and GitHub Actions make no AI/model calls. GitHub compute and storage
 remain subject to the repository's plan. Scheduled Codex reasoning uses AI usage;
 deduplication and one bounded improvement per run keep it focused. The Codex
-heartbeat depends on its local host being available. GitHub scheduling is independent
-of that host, can be delayed, and can be disabled after prolonged repository inactivity.
+heartbeat depends on its local host being available. There is no daily GitHub runner
+started by the improvement loop. These are workload limits, not a configured billing
+cap or a claim that Actions usage is free.
 
 ## Privacy boundary
 
@@ -38,6 +43,9 @@ read, copy, photograph, archive, commit or upload personal media, other reposito
 user projects or recovery state, the developer's desktop, Keychain contents, signing
 material, account details, browser sessions, environment dumps, command arguments,
 raw diagnostics, native crash dumps, or agent conversations.
+CSV files are private by default, in any filename case. Git ignores them, publication
+checks reject even force-added CSVs, and the evidence upload allowlist excludes them.
+Never read or publish billing/spend CSV contents without explicit authorization.
 
 Test child processes inherit a small OS/runtime environment allowlist. The quality
 audit captures command output in memory and publishes only check IDs and outcomes;
@@ -76,6 +84,11 @@ required. Never repoint this harness at a real user's desktop or profile.
    state: content, hierarchy, legibility, scrolling, focus, hit targets, cancel/retry,
    preview and exported pixels. A pixel difference is a review signal, not a verdict
    about design quality. Never auto-accept snapshots or loosen assertions to get green.
+   Run focused checks locally first and reuse matching completed evidence. Scheduled
+   agents must not dispatch or rerun Actions, start native matrices, or push empty/fixup
+   commits just to retrigger CI. Batch a validated change before a single review push.
+   A manual native/installer/full-CI run requires approval for that specific workload;
+   missing approval means the affected platform remains unverified, not silently passed.
 6. For Windows GUI/process changes, require a visibly open native Windows app,
    installer behavior, and masked console-window monitoring. A Mac/browser check does
    not prove Windows. An unavailable environment stays explicitly unverified.
@@ -101,20 +114,43 @@ It is **not a clean release sign-off**. See
 | windows-installer | Open | Install creates working Start Menu shortcuts, shows deliberate branding, and update/uninstall lifecycle preserves user work. |
 | mov-thumbnail | Open | Completed ProRes MOV has a valid thumbnail independent of Chromium codec support; output remains correct. |
 | dependencies | Needs triage | Evaluate current structured audit IDs; fix reachable vulnerabilities with compatible changes and regression evidence. Never claim all dependencies safe from a successful build. |
+| existing-test-baseline | Needs triage | The scheduler PR's 22 broad-suite failing labels also occurred in the preceding main run. Reproduce and classify them; replace private fixture dependencies with generated public inputs rather than uploading user fixtures or weakening checks. |
 
 ## Operation and changes
 
 Run `node scripts/automation/cycle.mjs --plan` to inspect the checks without running
 them, or `node scripts/automation/cycle.mjs` for the audit. Use Node 22.23.2.
-Run `node scripts/automation/dispatch.mjs --dry-run` in an authenticated CI context
-to preview dispatches. Tokens belong only in the scheduler's environment, never in
+Run `node scripts/automation/dispatch.mjs` in an authenticated CI context
+to read a plan. It always performs GET requests only. Tokens belong only in its environment, never in
 commands, files, logs, prompts or screenshots.
 
-Pause **Daily quality scheduler** in GitHub Actions and the **MpVFX daily improvement**
-heartbeat in Codex to pause both lanes. A CI failure does not trigger a release. To
+Pause the **MpVFX daily improvement** heartbeat in Codex to stop daily AI reviews.
+The former automatic GitHub dispatcher is disabled and its schedule has been removed.
+A CI failure does not trigger a release. To
 switch development branches, change and review the fixed branch in `dispatch.mjs`
 and `review.mjs` and corresponding workflow triggers together. The scheduler and
 its tests also exist on `main`; keep those three controller files in sync through a
 focused PR instead of merging unrelated development changes.
 
-GitHub behavior: [scheduled workflow events](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule).
+## Initial activation evidence (2026-09-21)
+
+- [Scheduler PR #36](https://github.com/marshiyar/mpvfx/pull/36) is merged. It
+  restores required public documents without relaxing the existing publication
+  gate or changing the packaged privacy policy. The controller's five tests,
+  publication checks, CodeQL, compilation and four native installer builds pass.
+  The 22 failing broad-suite labels are a subset of the preceding main run's 24;
+  this is not a claim that the full app test suite passes.
+- [First hosted audit](https://github.com/marshiyar/mpvfx/actions/runs/35580201740)
+  passes all six source check groups. The dependency audit reports 20 unique
+  advisory IDs, including a critical advisory, and correctly makes the run fail.
+- [Native privacy run](https://github.com/marshiyar/mpvfx/actions/runs/35580763018)
+  passes the evidence gate on Windows, both macOS architectures, and Ubuntu.
+  The release's known export/installer/Cancel failures remain failures. Initial
+  Windows masking was too broad; a subsequent targeted run verifies the correction.
+- [First default-branch scheduler run](https://github.com/marshiyar/mpvfx/actions/runs/35581736457)
+  succeeded before cost controls were tightened. Its automatic dispatch capability
+  was subsequently removed, and redundant runs were cancelled. The Codex heartbeat
+  **MpVFX daily improvement** is active at 09:00 in the host's local time zone.
+
+These checks verify the automation boundary. They do not certify arbitrary images
+as private, resolve the release backlog, or validate the app on a physical Windows PC.

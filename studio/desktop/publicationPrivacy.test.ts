@@ -13,7 +13,7 @@ const verifier = () => require("../scripts/verify-packaged-privacy.cjs") as {
 describe("installer publication privacy", () => {
   it("excludes local state, diagnostic reports, credentials, and first-party source from Forge", () => {
     const { packagerConfig } = require("../forge.config.cjs");
-    for (const path of ["/.env", "/resources/signing.p8", "/resources/auth.p12", "/node_modules/example/.env.local", "/dist/session.jsonl", "/dist/native.dmp", "/resources/MpVFX-diagnostics-test.json.gz", "/diagnostics/logger.ts", "/.codex/session.json", "/desktop-dist/main.js.map", "/dist/index.js.map", "/out/report.json"]) {
+    for (const path of ["/private-export.csv", "/resources/private-export.CSV", "/.env", "/resources/signing.p8", "/resources/auth.p12", "/node_modules/example/.env.local", "/dist/session.jsonl", "/dist/native.dmp", "/resources/MpVFX-diagnostics-test.json.gz", "/diagnostics/logger.ts", "/.codex/session.json", "/desktop-dist/main.js.map", "/dist/index.js.map", "/out/report.json"]) {
       expect(packagerConfig.ignore.some((rule: RegExp) => rule.test(path)), path).toBe(true);
     }
     for (const path of ["/package.json", "/package-lock.json", "/desktop-dist/main.js", "/dist/index.html", "/dist/assets/index-example.js", "/node_modules/esbuild/package.json", "/resources/legal/PRIVACY.md"]) {

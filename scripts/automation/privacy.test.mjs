@@ -3,9 +3,15 @@ import { test } from 'node:test';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, symlinkSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { minimalEnvironment, publicResult, prepareEvidence } from './privacy.mjs';
 
 const hosted = { GITHUB_ACTIONS: 'true', RUNNER_ENVIRONMENT: 'github-hosted' };
+test('CSV exports stay outside version control in either case', () => {
+  for (const name of ['private-export.csv', 'private-export.CSV', 'studio/private-export.CsV']) {
+    assert.equal(spawnSync('git', ['check-ignore', '--no-index', '-q', name]).status, 0);
+  }
+});
 const result = () => ({ version: '0.0.2', platform: 'win32', architecture: 'x64', sha256: 'a'.repeat(64), buildFingerprint: 'b'.repeat(64), passed: ['published-installer-checksum'], failures: [], exports: [], screenshots: [] });
 function fixture(fn) {
   const root = mkdtempSync(join(tmpdir(), 'mpvfx-evidence-test-'));

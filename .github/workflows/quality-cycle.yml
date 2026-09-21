@@ -2,9 +2,6 @@ name: Deterministic quality audit
 run-name: Quality audit ${{ inputs.audit_key || github.sha }}
 
 on:
-  push:
-    branches: [patches-windows]
-    paths: ["studio/**", "scripts/automation/**", ".github/workflows/quality-cycle.yml"]
   workflow_dispatch:
     inputs:
       audit_key:

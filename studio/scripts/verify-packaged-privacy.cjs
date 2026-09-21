@@ -4,7 +4,7 @@ const { homedir } = require("node:os");
 
 // Shared by Forge's exclusion rules, the built-artifact check, and the Git
 // publication check. Report filenames/rule names only, never matched values.
-const PRIVATE_FILE_PATTERN = /(?:^|\/)(?:\.env(?:\.[^/]*)?|\.npmrc|\.netrc|\.DS_Store|[^/]*\.(?:pem|key|p8|p12|pfx|jks|keystore|mobileprovision|dmp|jsonl|log|stderr|stdout)|[^/]*diagnostics[^/]*\.json\.gz)$/i;
+const PRIVATE_FILE_PATTERN = /(?:^|\/)(?:\.env(?:\.[^/]*)?|\.npmrc|\.netrc|\.DS_Store|[^/]*\.(?:pem|key|p8|p12|pfx|jks|keystore|mobileprovision|dmp|jsonl|log|stderr|stdout|csv)|[^/]*diagnostics[^/]*\.json\.gz)$/i;
 const PRIVATE_DIRECTORY_PATTERN = /(?:^|\/)(?:\.git|\.agents|\.codex|\.claude|\.chatgpt|\.cursor|\.hyperframes|native-crashes|diagnostics-verification)(?:\/|$)/i;
 const TEXT_FILE_PATTERN = /\.(?:[cm]?[jt]sx?|json|html|css|md|txt|ya?ml|toml|ini|conf)$/i;
 const CREDENTIAL_PATTERNS = [
@@ -25,6 +25,7 @@ function assertPublicContent(content, label) {
 
 function assertPublicPath(path) {
   const normalized = path.replace(/\\/g, "/");
+  if (/\.csv$/i.test(normalized)) throw new Error("Private CSV files cannot be published (filename withheld)");
   if (PRIVATE_FILE_PATTERN.test(normalized) || PRIVATE_DIRECTORY_PATTERN.test(normalized)) {
     throw new Error(`Private file cannot be published: ${normalized}`);
   }
