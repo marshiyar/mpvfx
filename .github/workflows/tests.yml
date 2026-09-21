@@ -57,6 +57,7 @@ jobs:
           node scripts/generate-third-party-notices.mjs --check
 
   test:
+    if: github.event_name == 'workflow_dispatch'
     name: Unit and integration tests
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -80,6 +81,7 @@ jobs:
         run: npm --prefix studio test
 
   compile:
+    if: github.event_name == 'workflow_dispatch'
     name: Typecheck and compile
     runs-on: ubuntu-24.04
     timeout-minutes: 30

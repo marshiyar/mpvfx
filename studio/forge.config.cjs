@@ -20,6 +20,7 @@ module.exports = {
     },
     extraResource: [".puppeteer-cache/chrome-headless-shell", "resources/legal"],
     ignore: [
+      /\.csv$/i,
       /^\/(?:src|desktop|tests|fixtures|data|cache|renders|scripts)(?:\/|$)/,
       /^\/\.puppeteer-cache(?:\/|$)/,
       /^\/out(?:\/|$)/,
