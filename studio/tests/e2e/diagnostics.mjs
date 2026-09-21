@@ -8,6 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
 import puppeteer from "puppeteer-core";
 import { verifyIdleRendererMemory } from "./idle-renderer-memory.mjs";
+import { minimalEnvironment } from "../../../scripts/automation/privacy.mjs";
 
 const require = createRequire(import.meta.url);
 const studio = resolve(import.meta.dirname, "../..");
@@ -30,7 +31,7 @@ async function launch() {
   let stderr = "";
   // On Windows even an empty ELECTRON_RUN_AS_NODE enables Node-only mode.
   // Remove the key, including any case variant, from the child environment.
-  const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toUpperCase() !== "ELECTRON_RUN_AS_NODE"));
+  const environment = minimalEnvironment();
   environment.MPVFX_USER_DATA_DIR = runtime;
   child = spawn(electron, ["--remote-debugging-port=0", ...(process.platform === "linux" ? ["--no-sandbox"] : []), ...(packaged ? [] : [studio])], { cwd: studio, env: environment, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
   child.stdout.on("data", (chunk) => { stderr = (stderr + String(chunk)).slice(-64_000); });

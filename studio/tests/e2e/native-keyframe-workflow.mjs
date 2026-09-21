@@ -17,10 +17,17 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import puppeteer from "puppeteer-core";
+import { minimalEnvironment } from "../../../scripts/automation/privacy.mjs";
 
 const STUDIO_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const require = createRequire(import.meta.url);
 const SOURCE_GSAP = require.resolve("gsap/dist/gsap.min.js");
+const ELECTRON_MODE = process.argv.includes("--electron");
+const OUTPUT_DIR = join(
+  STUDIO_DIR,
+  "out/native-keyframe-verification",
+  ELECTRON_MODE ? `${process.platform}-${process.arch}-electron` : "browser",
+);
 const PROJECT_ID = "native-keyframe-workflow";
 const PROJECT_FILE = "index.html";
 const NATIVE_PROJECT_FILE = ".studio/project.json";
@@ -96,29 +103,123 @@ async function waitForHttp(url, serverProcess, serverOutput) {
 }
 
 async function selectByDomId(page, id) {
-  await page.evaluate((nextId) => {
-    void window.__studioTest.selectByDomId(nextId);
-  }, id);
-  await page.waitForFunction(
-    (nextId) =>
-      window.__playerStore
-        ?.getState()
-        .selectedElementId?.endsWith(`#${nextId}`),
-    { timeout: 10_000 },
-    id,
-  );
+  await waitUntil(async () => {
+    const preview = await readNativeVideoState(page);
+    return (
+      preview?.nativeClipId === "clip:native-video" &&
+      preview.nativePlayerPresent &&
+      preview.iframeReadyState === "complete"
+    );
+  }, "Native preview was not ready for selection");
+  if (
+    await page.evaluate(
+      () => typeof window.__studioTest?.selectByDomId === "function",
+    )
+  ) {
+    await page.evaluate(
+      (nextId) => window.__studioTest.selectByDomId(nextId),
+      id,
+    );
+  } else {
+    // Production intentionally has no test hooks. Select the actual timeline
+    // clip, which activates the same canvas selection and property inspector.
+    const clip = await page.waitForSelector(
+      `pierce/[data-clip="true"][data-el-id$="#${id}"]`,
+    );
+    await clip.click();
+  }
+  await page.waitForSelector('pierce/[data-dom-edit-selection-box="true"]', {
+    timeout: 10_000,
+  });
 }
 
 async function requestSeek(page, time) {
-  await page.evaluate(
-    (nextTime) => window.__playerStore.getState().requestSeek(nextTime),
-    time,
-  );
-  await page.waitForFunction(
-    (nextTime) =>
-      Math.abs(window.__playerStore.getState().currentTime - nextTime) < 0.001,
-    { timeout: 5_000 },
-    time,
+  if (
+    await page.evaluate(
+      () => typeof window.__playerStore?.getState === "function",
+    )
+  ) {
+    await page.evaluate(
+      (nextTime) => window.__playerStore.getState().requestSeek(nextTime),
+      time,
+    );
+  } else {
+    const clip = await page.waitForSelector(
+      'pierce/[data-clip="true"][data-el-id$="#native-video"]',
+    );
+    const ruler = await page.waitForSelector(
+      'pierce/[data-timeline-grid-cell="major"]',
+    );
+    const clipRect = await clip.boundingBox();
+    const rulerRect = await ruler.boundingBox();
+    assert(clipRect && rulerRect, "Timeline did not expose seek geometry");
+    // This generated fixture starts at 0 and lasts exactly 4 seconds. A quarter
+    // frame avoids floating point rounding below the requested frame boundary.
+    await page.mouse.click(
+      clipRect.x + (clipRect.width * (time + 1 / 120)) / 4,
+      rulerRect.y + 4,
+    );
+  }
+  await waitUntil(async () => {
+    const state = await readNativeVideoState(page);
+    return (
+      Math.floor((state?.nativePlayerTime ?? -1) * 30 + 1e-6) ===
+      Math.round(time * 30)
+    );
+  }, `Native player did not seek to ${time}s`);
+}
+
+async function captureUi(page, label) {
+  if (label !== "failure") {
+    await page.waitForFunction(
+      () => {
+        const roots = [document];
+        for (let index = 0; index < roots.length; index += 1) {
+          for (const element of roots[index].querySelectorAll("*")) {
+            if (element.shadowRoot) roots.push(element.shadowRoot);
+            if (
+              ["Preparing preview assets", "Loading composition"].includes(
+                element.textContent?.trim(),
+              ) &&
+              element.getBoundingClientRect().height > 0
+            )
+              return false;
+          }
+        }
+        return true;
+      },
+      { timeout: 15_000 },
+    );
+  }
+  await mkdir(OUTPUT_DIR, { recursive: true });
+  await page.screenshot({ path: join(OUTPUT_DIR, `${label}.png`) });
+  const hierarchy = await page.evaluate(() => {
+    const roots = [document];
+    const controls = [];
+    for (let index = 0; index < roots.length; index += 1) {
+      for (const element of roots[index].querySelectorAll("*")) {
+        if (element.shadowRoot) roots.push(element.shadowRoot);
+        if (!element.matches("button,input,select,[role],[aria-label]"))
+          continue;
+        const rect = element.getBoundingClientRect();
+        if (!rect.width || !rect.height) continue;
+        controls.push({
+          tag: element.tagName,
+          label: element.getAttribute("aria-label"),
+          text: element.innerText?.slice(0, 100),
+          value: element.value,
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height,
+        });
+      }
+    }
+    return controls;
+  });
+  await writeFile(
+    join(OUTPUT_DIR, `${label}-ui.json`),
+    JSON.stringify(hierarchy, null, 2),
   );
 }
 
@@ -295,11 +396,16 @@ async function main() {
   const scratchRoot = await mkdtemp(
     join(tmpdir(), "studio-native-keyframe-workflow-"),
   );
-  const projectDir = join(scratchRoot, PROJECT_ID);
+  await rm(OUTPUT_DIR, { recursive: true, force: true });
+  const projectsRoot = ELECTRON_MODE
+    ? join(scratchRoot, "projects")
+    : scratchRoot;
+  const projectDir = join(projectsRoot, PROJECT_ID);
   const sourcePath = join(projectDir, PROJECT_FILE);
   const nativePath = join(projectDir, NATIVE_PROJECT_FILE);
   let browser;
   let serverProcess;
+  let page;
   const serverOutput = [];
 
   try {
@@ -325,31 +431,90 @@ async function main() {
     const initialNative = nativeProject();
     await writeFile(nativePath, `${JSON.stringify(initialNative, null, 2)}\n`);
 
-    const port = await freePort();
-    const studioUrl = `http://127.0.0.1:${port}`;
-    serverProcess = spawn(
-      process.execPath,
-      [
-        join(dirname(require.resolve("vite/package.json")), "bin/vite.js"),
-        "--host",
-        "127.0.0.1",
-        "--port",
-        String(port),
-        "--strictPort",
-      ],
-      {
-        cwd: STUDIO_DIR,
-        env: { ...process.env, MPVFX_PROJECTS_DIR: scratchRoot },
-        stdio: ["ignore", "pipe", "pipe"],
-      },
-    );
-    serverProcess.stdout.on("data", (chunk) =>
-      serverOutput.push(chunk.toString()),
-    );
-    serverProcess.stderr.on("data", (chunk) =>
-      serverOutput.push(chunk.toString()),
-    );
-    await waitForHttp(studioUrl, serverProcess, serverOutput);
+    let studioUrl;
+    if (ELECTRON_MODE) {
+      // The unique profile isolates the application lock, projects, settings,
+      // cache, crash recorder and native window from the user's running editor.
+      const environment = minimalEnvironment();
+      environment.MPVFX_USER_DATA_DIR = scratchRoot;
+      serverProcess = spawn(
+        require("electron"),
+        [
+          "--remote-debugging-port=0",
+          ...(process.platform === "linux" ? ["--no-sandbox"] : []),
+          STUDIO_DIR,
+        ],
+        {
+          cwd: STUDIO_DIR,
+          env: environment,
+          windowsHide: true,
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      );
+      serverProcess.stdout.on("data", (chunk) =>
+        serverOutput.push(chunk.toString()),
+      );
+      serverProcess.stderr.on("data", (chunk) =>
+        serverOutput.push(chunk.toString()),
+      );
+      let endpoint;
+      await waitUntil(
+        async () => {
+          if (serverProcess.exitCode !== null)
+            throw new Error(
+              `Electron exited before startup: ${serverOutput.join("")}`,
+            );
+          endpoint = serverOutput
+            .join("")
+            .match(/DevTools listening on (ws:\/\/[^\s]+)/)?.[1];
+          return Boolean(endpoint);
+        },
+        "Electron did not publish a debugging endpoint",
+        30_000,
+      );
+      browser = await puppeteer.connect({
+        browserWSEndpoint: endpoint,
+        defaultViewport: null,
+        protocolTimeout: 30_000,
+      });
+      await waitUntil(
+        async () => {
+          page = (await browser.pages()).find((candidate) =>
+            /^http:\/\/127\.0\.0\.1:\d+/.test(candidate.url()),
+          );
+          return Boolean(page);
+        },
+        "Electron did not open its native editor window",
+        30_000,
+      );
+      studioUrl = new URL(page.url()).origin;
+    } else {
+      const port = await freePort();
+      studioUrl = `http://127.0.0.1:${port}`;
+      serverProcess = spawn(
+        process.execPath,
+        [
+          join(dirname(require.resolve("vite/package.json")), "bin/vite.js"),
+          "--host",
+          "127.0.0.1",
+          "--port",
+          String(port),
+          "--strictPort",
+        ],
+        {
+          cwd: STUDIO_DIR,
+          env: { ...minimalEnvironment(), MPVFX_PROJECTS_DIR: projectsRoot },
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      );
+      serverProcess.stdout.on("data", (chunk) =>
+        serverOutput.push(chunk.toString()),
+      );
+      serverProcess.stderr.on("data", (chunk) =>
+        serverOutput.push(chunk.toString()),
+      );
+      await waitForHttp(studioUrl, serverProcess, serverOutput);
+    }
     const sidecarResponse = await fetch(
       `${studioUrl}/api/projects/${PROJECT_ID}/files/${encodeURIComponent(NATIVE_PROJECT_FILE)}?optional=1`,
     );
@@ -363,13 +528,18 @@ async function main() {
       `Studio could not serve the seeded native sidecar (${sidecarResponse.status}): ${sidecarBody}`,
     );
 
-    browser = await puppeteer.launch({
-      executablePath: await availableExecutable(),
-      headless: true,
-      args: ["--no-sandbox"],
-    });
-    const page = await browser.newPage();
-    await page.setViewport({ width: 1600, height: 1000 });
+    if (!ELECTRON_MODE) {
+      browser = await puppeteer.launch({
+        executablePath: await availableExecutable(),
+        headless: true,
+        args: ["--no-sandbox"],
+      });
+      page = await browser.newPage();
+      await page.setViewport({ width: 1600, height: 1000 });
+    }
+    console.log(
+      `KEYFRAME_ENVIRONMENT ${process.platform}/${process.arch} ${ELECTRON_MODE ? "native Electron" : "browser"} ${await browser.version()}`,
+    );
     const pageErrors = [];
     const failedResponses = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
@@ -378,16 +548,14 @@ async function main() {
         failedResponses.push(`${response.status()} ${response.url()}`);
     });
     await page.goto(`${studioUrl}/#project/${PROJECT_ID}`, {
-      waitUntil: "networkidle0",
+      waitUntil: "domcontentloaded",
       timeout: 30_000,
     });
-    await page.waitForFunction(
-      () =>
-        typeof window.__studioTest?.selectByDomId === "function" &&
-        typeof window.__playerStore?.getState === "function",
+    await page.waitForSelector(
+      'pierce/[data-clip="true"][data-el-id$="#native-video"]',
       { timeout: 20_000 },
     );
-
+    await captureUi(page, "initial");
     await selectByDomId(page, "native-video");
     try {
       await page.waitForFunction(
@@ -458,59 +626,28 @@ async function main() {
         { cause: error },
       );
     }
-    const selectedKey = await page.evaluate(
-      () => window.__playerStore.getState().selectedElementId,
+    const reveal = await page.$(
+      'pierce/button[aria-label^="Show "][aria-label$=" lanes"]',
     );
-    assert(
-      selectedKey,
-      "Native media selection did not expose a timeline identity",
-    );
-    const expanded = await page.evaluate(
-      (key) => window.__playerStore.getState().expandedClipIds.has(key),
-      selectedKey,
-    );
-    if (!expanded) {
-      const reveal = await page.$(
-        'button[aria-label^="Show "][aria-label$=" lanes"]',
-      );
-      if (!reveal) {
-        const diagnostics = await page.evaluate(() => {
-          const state = window.__playerStore.getState();
-          return {
-            selectedElementId: state.selectedElementId,
-            elements: state.elements.map((element) => ({
-              id: element.id,
-              key: element.key,
-              domId: element.domId,
-              hfId: element.hfId,
-              sourceFile: element.sourceFile,
-              selector: element.selector,
-              selectorIndex: element.selectorIndex,
-            })),
-            expandedClipIds: [...state.expandedClipIds],
-            buttons: [...document.querySelectorAll("button")]
-              .map((button) => button.getAttribute("aria-label"))
-              .filter(Boolean),
-          };
-        });
-        throw new Error(
-          `Native keyframed clip did not expose a lane disclosure control: ${JSON.stringify(diagnostics)}`,
-        );
-      }
-      await reveal.click();
-    }
+    if (reveal) await reveal.click();
     await page.waitForSelector(
-      '[data-timeline-property-lane][data-property-group="rotation"]',
+      'pierce/[data-timeline-property-lane][data-property-group="rotation"]',
       {
         timeout: 15_000,
       },
     );
-    await page.waitForSelector('button[aria-label="rotation keyframe at 0s"]', {
-      timeout: 15_000,
-    });
-    await page.waitForSelector('button[aria-label="rotation keyframe at 2s"]', {
-      timeout: 15_000,
-    });
+    await page.waitForSelector(
+      'pierce/button[aria-label="rotation keyframe at 0s"]',
+      {
+        timeout: 15_000,
+      },
+    );
+    await page.waitForSelector(
+      'pierce/button[aria-label="rotation keyframe at 2s"]',
+      {
+        timeout: 15_000,
+      },
+    );
 
     // Frame 30 lies exactly halfway between frame 0 and frame 60 at 30 fps.
     await requestSeek(page, 1);
@@ -529,22 +666,10 @@ async function main() {
     );
 
     // Pause/play and repeated exact seeks must reproduce identical frame state.
-    await page.evaluate(() =>
-      window.__playerStore.getState().requestPlayback(true),
-    );
-    await page.waitForFunction(
-      () => window.__playerStore.getState().isPlaying,
-      { timeout: 5_000 },
-    );
-    await page.evaluate(() =>
-      window.__playerStore.getState().requestPlayback(false),
-    );
-    await page.waitForFunction(
-      () => !window.__playerStore.getState().isPlaying,
-      {
-        timeout: 5_000,
-      },
-    );
+    await page.click('pierce/button[aria-label="Play"]');
+    await page.waitForSelector('pierce/button[aria-label="Pause"]');
+    await page.click('pierce/button[aria-label="Pause"]');
+    await page.waitForSelector('pierce/button[aria-label="Play"]');
     await requestSeek(page, 1);
     const afterPause = await readNativeVideoState(page);
     assert(
@@ -556,17 +681,17 @@ async function main() {
     // it through Studio must persist only the native sidecar, bump one revision,
     // and immediately make the midpoint hold the source value.
     const sourceBefore = await readFile(sourcePath, "utf8");
-    const connector = await page.$("button[data-keyframe-ease-button]");
+    const connector = await page.$("pierce/button[data-keyframe-ease-button]");
     assert(
       connector,
       "Native rotation lane did not expose its outgoing interpolation control",
     );
     await connector.click();
-    await page.waitForSelector("[data-native-interpolation-editor]", {
+    await page.waitForSelector("pierce/[data-native-interpolation-editor]", {
       timeout: 10_000,
     });
     await page.select(
-      '[data-native-interpolation-editor] select[aria-label="Keyframe easing"]',
+      'pierce/[data-native-interpolation-editor] select[aria-label="Keyframe easing"]',
       "hold",
     );
 
@@ -614,12 +739,18 @@ async function main() {
     const fresh = nativeProject();
     fresh.sequence.tracks[0].clips[0].parameterTracks = [];
     await writeFile(nativePath, `${JSON.stringify(fresh, null, 2)}\n`);
-    await page.reload({ waitUntil: "networkidle0" });
+    await page.reload({ waitUntil: "domcontentloaded" });
     await selectByDomId(page, "native-video");
     await requestSeek(page, 0);
-    await page.evaluate(() =>
-      window.__playerStore.setState({ autoKeyframeEnabled: false }),
+    const autoKeyframe = await page.waitForSelector(
+      'pierce/button[aria-label="Auto-record manual edits as keyframes"]',
     );
+    if (
+      (await autoKeyframe.evaluate((button) =>
+        button.getAttribute("aria-pressed"),
+      )) === "true"
+    )
+      await autoKeyframe.click();
     const readSaved = async () =>
       JSON.parse(await readFile(nativePath, "utf8"));
     const savedTrack = async (parameter) =>
@@ -628,7 +759,7 @@ async function main() {
       );
     const clickToolbar = async () => {
       const button = await page.waitForSelector(
-        'button[aria-label="Add keyframe at playhead"]',
+        'pierce/button[aria-label="Add keyframe at playhead"]',
         {
           timeout: 5_000,
         },
@@ -647,7 +778,7 @@ async function main() {
     // The original report is a canvas workflow. Move and rotate the real
     // selection at B with auto-key off, then verify that A is untouched.
     const box = await page.waitForSelector(
-      '[data-dom-edit-selection-box="true"]',
+      'pierce/[data-dom-edit-selection-box="true"]',
     );
     const rect = await box.boundingBox();
     assert(rect, "No canvas selection bounds");
@@ -670,7 +801,35 @@ async function main() {
     );
 
     const rotate = await page.waitForSelector(
-      'button[aria-label="Rotate selection"]',
+      'pierce/button[aria-label="Rotate selection"]',
+    );
+    // Saving the drag completes before the overlay finishes following the new
+    // pose. Wait for the actual hit target to settle before grabbing rotation.
+    await rotate.evaluate(
+      (element) =>
+        new Promise((resolveReady) => {
+          let previous = "",
+            stableFrames = 0;
+          const observe = () => {
+            const rect = element.getBoundingClientRect();
+            const next = [rect.x, rect.y, rect.width, rect.height].join(",");
+            const target = element
+              .getRootNode()
+              .elementFromPoint(
+                rect.x + rect.width / 2,
+                rect.y + rect.height / 2,
+              );
+            stableFrames =
+              next === previous &&
+              (target === element || element.contains(target))
+                ? stableFrames + 1
+                : 0;
+            previous = next;
+            if (stableFrames >= 4) resolveReady();
+            else requestAnimationFrame(observe);
+          };
+          requestAnimationFrame(observe);
+        }),
     );
     const handle = await rotate.boundingBox();
     const moved = await box.boundingBox();
@@ -702,7 +861,9 @@ async function main() {
     );
 
     const editField = async (label, value, parameter) => {
-      const input = await page.waitForSelector(`input[aria-label="${label}"]`);
+      const input = await page.waitForSelector(
+        `pierce/input[aria-label="${label}"]`,
+      );
       const revision = (await readSaved()).revision;
       await input.click();
       await input.evaluate((node) => node.select());
@@ -747,12 +908,33 @@ async function main() {
       "Pose A width was not preserved",
     );
     const poseA = await readNativeVideoState(page);
+    await captureUi(page, "pose-a");
     await requestSeek(page, 1);
     await waitUntil(
       async () => (await readNativeVideoState(page))?.width === 480,
       "Midpoint size did not interpolate",
     );
     const poseMid = await readNativeVideoState(page);
+    for (const parameter of [
+      "transform.position.x",
+      "transform.position.y",
+      "transform.rotation",
+    ]) {
+      const valueB = tracks
+        .find((track) => track.parameterId === parameter)
+        .keyframes.find((key) => key.frame === 60).value;
+      const component =
+        parameter === "transform.rotation"
+          ? `rotate(${valueB / 2}deg)`
+          : parameter === "transform.position.x"
+            ? `translate3d(${valueB / 2}px,`
+            : `, ${valueB / 2}px, 0px)`;
+      assert(
+        poseMid.transform.includes(component),
+        `${parameter} did not interpolate halfway: ${poseMid.transform}`,
+      );
+    }
+    await captureUi(page, "pose-midpoint");
     assert(
       poseMid.transform.includes("scale(1.25, 1.25)"),
       `Midpoint scale did not interpolate: ${poseMid.transform}`,
@@ -763,6 +945,7 @@ async function main() {
       "Pose B width did not persist",
     );
     const poseB = await readNativeVideoState(page);
+    await captureUi(page, "pose-b");
     assert(
       poseA.transform !== poseMid.transform &&
         poseMid.transform !== poseB.transform,
@@ -780,7 +963,10 @@ async function main() {
       ),
       "General toolbar omitted an animated property",
     );
-    await page.click('button[aria-label="Remove keyframe at playhead"]');
+    const removeMiddle = await page.waitForSelector(
+      'pierce/button[aria-label="Remove keyframe at playhead"]',
+    );
+    await removeMiddle.click();
     await waitUntil(
       async () => (await readSaved()).revision === withMiddle.revision + 1,
       "Removing all middle keys was not one save",
@@ -816,7 +1002,7 @@ async function main() {
       "Redo did not remove all middle keys together",
     );
 
-    await page.reload({ waitUntil: "networkidle0" });
+    await page.reload({ waitUntil: "domcontentloaded" });
     await selectByDomId(page, "native-video");
     await requestSeek(page, 1);
     await waitUntil(
@@ -837,8 +1023,59 @@ async function main() {
     console.log(
       "PASS general toolbar: all animated channels added, removed, undone and redone atomically",
     );
+    assert(
+      failedResponses.length === 0,
+      `Server failures:\n${failedResponses.join("\n")}`,
+    );
+    await captureUi(page, "reopened-midpoint");
+    await writeFile(
+      join(OUTPUT_DIR, "result.json"),
+      JSON.stringify(
+        {
+          mode: ELECTRON_MODE ? "electron" : "browser",
+          platform: process.platform,
+          architecture: process.arch,
+          electronVersion: ELECTRON_MODE
+            ? require("electron/package.json").version
+            : null,
+          browser: await browser.version(),
+          appVersion: JSON.parse(
+            await readFile(join(STUDIO_DIR, "package.json"), "utf8"),
+          ).version,
+          passed: [
+            "visible-native-lanes",
+            "exact-midpoint",
+            "pause-reseek",
+            "outgoing-interpolation-persistence",
+            "canvas-position",
+            "canvas-rotation",
+            "inspector-width",
+            "inspector-scale",
+            "preserved-pose-a",
+            "all-channel-keyframe-add-remove",
+            "atomic-undo-redo",
+            "save-reopen",
+          ],
+          poseA,
+          poseMid,
+          poseB,
+          parameterTracks: tracks,
+        },
+        null,
+        2,
+      ),
+    );
+  } catch (error) {
+    if (page && !page.isClosed())
+      await captureUi(page, "failure").catch(() => undefined);
+    await mkdir(OUTPUT_DIR, { recursive: true });
+    await writeFile(join(OUTPUT_DIR, "application.log"), serverOutput.join(""));
+    throw error;
   } finally {
-    if (browser) await browser.close().catch(() => undefined);
+    if (browser) {
+      if (ELECTRON_MODE) browser.disconnect();
+      else await browser.close().catch(() => undefined);
+    }
     if (serverProcess && serverProcess.exitCode === null) {
       serverProcess.kill("SIGTERM");
       await Promise.race([
@@ -847,7 +1084,12 @@ async function main() {
       ]);
       if (serverProcess.exitCode === null) serverProcess.kill("SIGKILL");
     }
-    await rm(scratchRoot, { recursive: true, force: true });
+    await rm(scratchRoot, {
+      recursive: true,
+      force: true,
+      maxRetries: 10,
+      retryDelay: 200,
+    });
   }
 }
 
