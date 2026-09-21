@@ -36,8 +36,11 @@ describe("installer publication privacy", () => {
     try {
       const source = join(fixture, "input");
       mkdirSync(join(source, "dist"), { recursive: true });
+      mkdirSync(join(source, "dist/assets"), { recursive: true });
       writeFileSync(join(source, "package.json"), '{"name":"mpvfx"}');
       writeFileSync(join(source, "dist/index.html"), "<p>MpVFX</p>");
+      // A single directory level hides ASAR's Windows separator requirement.
+      writeFileSync(join(source, "dist/assets/index-test.js"), "console.info('MpVFX')");
       for (const platform of ["darwin", "win32", "linux"]) {
         const output = join(fixture, platform);
         const resources = platform === "darwin" ? join(output, "MpVFX.app/Contents/Resources") : join(output, "resources");

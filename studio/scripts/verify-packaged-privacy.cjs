@@ -1,5 +1,5 @@
 const { lstatSync, readFileSync, readdirSync, unlinkSync } = require("node:fs");
-const { join } = require("node:path");
+const { join, normalize } = require("node:path");
 const { homedir } = require("node:os");
 
 // Shared by Forge's exclusion rules, the built-artifact check, and the Git
@@ -46,8 +46,11 @@ function assertPackagedPrivacy(result) {
       if (!entry.startsWith("node_modules/") && entry !== "node_modules" && !firstParty.test(entry)) {
         throw new Error(`Unexpected non-runtime file in application archive: ${entry}`);
       }
-      if (!TEXT_FILE_PATTERN.test(entry) || statFile(archive, entry).files) continue;
-      const content = extractFile(archive, entry).toString("utf8");
+      // Policy uses portable separators; ASAR's lookup uses host-native path
+      // separators for nested directories (notably on Windows).
+      const lookup = normalize(entry);
+      if (!TEXT_FILE_PATTERN.test(entry) || statFile(archive, lookup).files) continue;
+      const content = extractFile(archive, lookup).toString("utf8");
       assertPublicContent(content, entry);
       if (firstParty.test(entry) && content.includes(`${homedir()}/`)) {
         throw new Error(`Local home path embedded in application: ${entry} (value withheld)`);
