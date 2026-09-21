@@ -134,7 +134,10 @@ export function startDesktopDiagnostics(userDataDir: string) {
     contents.on("render-process-gone", (_event, details) => {
       if (details.reason === "clean-exit") return;
       // Native UI remains usable even if the renderer and React error boundary died.
-      void dialog.showMessageBox({ type: "error", title: "MpVFX editor stopped", message: "The editor process stopped unexpectedly.", detail: "The local diagnostic log has been preserved. Save a report to help investigate, then reopen the editor.", buttons: ["Save diagnostic report", "Reload editor", "Close"], defaultId: 0, cancelId: 2 }).then(async ({ response }) => {
+      // Attach the dialog to this window. An application-modal alert without a
+      // parent can pause macOS's main loop, including report HTTP requests and
+      // diagnostic heartbeats, for as long as the recovery prompt is open.
+      void dialog.showMessageBox(window, { type: "error", title: "MpVFX editor stopped", message: "The editor process stopped unexpectedly.", detail: "The local diagnostic log has been preserved. Save a report to help investigate, then reopen the editor.", buttons: ["Save diagnostic report", "Reload editor", "Close"], defaultId: 0, cancelId: 2 }).then(async ({ response }) => {
         if (response === 0) await saveReport();
         if (response === 0 || response === 1) { if (!contents.isDestroyed()) contents.reload(); }
       });

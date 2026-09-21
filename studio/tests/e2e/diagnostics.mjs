@@ -34,7 +34,7 @@ async function launch() {
     if (child.exitCode !== null) throw new Error(`Electron exited ${child.exitCode}: ${stderr.slice(-2000)}`);
     return stderr.match(/DevTools listening on (ws:\/\/[^\s]+)/)?.[1];
   });
-  browser = await puppeteer.connect({ browserWSEndpoint: endpoint, defaultViewport: null });
+  browser = await puppeteer.connect({ browserWSEndpoint: endpoint, defaultViewport: null, protocolTimeout: 30_000 });
   const page = await until(async () => (await browser.pages()).find((p) => /^http:\/\/127\.0\.0\.1:\d+/.test(p.url())));
   await page.waitForSelector('[data-diagnostic-action="diagnostics-toggle"]', { timeout: 30_000 });
   return page;
@@ -47,7 +47,7 @@ async function stopAbruptly() {
   }
 }
 async function getReport(origin) {
-  const response = await fetch(`${origin}/api/diagnostics/export`);
+  const response = await fetch(`${origin}/api/diagnostics/export`, { signal: AbortSignal.timeout(10_000) });
   assert.equal(response.status, 200);
   return JSON.parse(gunzipSync(Buffer.from(await response.arrayBuffer())).toString());
 }
@@ -84,6 +84,7 @@ try {
     const pixel = (at) => [...execFileSync(ffmpeg, ["-v", "error", "-ss", String(at), "-i", rendered, "-frames:v", "1", "-vf", "scale=1:1", "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1"], { windowsHide: true })];
     const red = pixel(0.25), blue = pixel(0.75);
     assert.ok(red[0] > 180 && red[2] < 60 && blue[2] > 180 && blue[0] < 60, "Logging changed the two-cut rendered output");
+    console.log("DIAGNOSTICS_CHECK export pixels and correlated helpers passed");
   } finally { clearInterval(renderHeartbeat); }
   await page.click('[data-diagnostic-action="diagnostics-toggle"]');
   await page.waitForSelector('[data-diagnostic-action="diagnostics-export"]');
@@ -120,6 +121,7 @@ try {
   assert.equal(startup.data.appVersion, JSON.parse(readFileSync(join(studio, "package.json"), "utf8")).version);
   assert.match(startup.data.buildFingerprint, /^[a-f0-9]{64}$/);
   assert.ok(report.events.some((e) => e.event === "crash.recorder_ready" && e.data.uploadToServer === false));
+  console.log("DIAGNOSTICS_CHECK downloaded report, redaction, and local crash recorder passed");
   await page.screenshot({ path: join(output, `diagnostics-${process.platform}.png`) });
   // An actual renderer process crash, not a simulated JavaScript Error.
   void session.send("Page.crash").catch(() => {});
@@ -128,8 +130,10 @@ try {
     return next.events.some((e) => e.event === "electron.render_process_gone" && e.data.reason !== "clean-exit") ? next : null;
   });
   assert.ok(crashed.events.some((e) => e.event === "client.ui.click"));
+  console.log("DIAGNOSTICS_CHECK report remains accessible while the native crash recovery dialog is open");
   const previousSession = crashed.sessionId;
   await until(() => readdirSync(join(runtime, "diagnostics/native-crashes"), { recursive: true }).some((file) => String(file).endsWith(".dmp")));
+  console.log("DIAGNOSTICS_CHECK native minidump recorded locally");
   await stopAbruptly();
   const restartedPage = await launch();
   const restarted = await getReport(new URL(restartedPage.url()).origin);
