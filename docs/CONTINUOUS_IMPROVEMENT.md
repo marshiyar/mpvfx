@@ -146,7 +146,8 @@ focused PR instead of merging unrelated development changes.
 - [Native privacy run](https://github.com/marshiyar/mpvfx/actions/runs/35580763018)
   passes the evidence gate on Windows, both macOS architectures, and Ubuntu.
   The release's known export/installer/Cancel failures remain failures. Initial
-  Windows masking was too broad; a subsequent targeted run verifies the correction.
+  Windows masking was too broad; the [targeted correction run](https://github.com/marshiyar/mpvfx/actions/runs/35581448164)
+  passed the privacy gate and its editor/crash-dialog images were visually inspected.
 - [First default-branch scheduler run](https://github.com/marshiyar/mpvfx/actions/runs/35581736457)
   succeeded before cost controls were tightened. Its automatic dispatch capability
   was subsequently removed, and redundant runs were cancelled. The Codex heartbeat

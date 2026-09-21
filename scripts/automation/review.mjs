@@ -11,7 +11,8 @@ function gh(args) { return execFileSync('gh', args, { cwd: root, encoding: 'utf8
 try {
   const workflows = ['quality-cycle.yml', 'visual-release.yml', 'quality-schedule.yml'];
   const runs = workflows.flatMap((workflow) => {
-    const data = JSON.parse(gh(['run', 'list', '--repo', repo, '--workflow', workflow, '--branch', workflow === 'quality-schedule.yml' ? 'main' : branch, '--limit', '1', '--json', 'databaseId,headSha,status,conclusion']));
+    const recent = JSON.parse(gh(['run', 'list', '--repo', repo, '--workflow', workflow, '--branch', workflow === 'quality-schedule.yml' ? 'main' : branch, '--limit', '5', '--json', 'databaseId,headSha,status,conclusion']));
+    const data = recent.filter((run) => run.conclusion !== 'cancelled').slice(0, 1);
     return data.map((run) => {
       if (!Number.isSafeInteger(run.databaseId) || !/^[a-f0-9]{40}$/.test(run.headSha) || !['completed', 'in_progress', 'queued', 'waiting', 'pending', 'requested'].includes(run.status) || !['', 'success', 'failure', 'cancelled', 'timed_out', 'action_required', 'neutral', 'skipped', 'stale', 'startup_failure'].includes(run.conclusion)) throw new Error('Invalid run metadata');
       return { workflow, id: run.databaseId, commit: run.headSha, status: run.status, conclusion: run.conclusion, url: `https://github.com/${repo}/actions/runs/${run.databaseId}` };
@@ -29,7 +30,7 @@ try {
       outcome: ['success', 'failure', 'cancelled', 'timed_out'].includes(job.conclusion) ? job.conclusion : 'unknown',
       evidencePrivacyPassed: job.steps.some((step) => step.name === 'Validate and stage public synthetic evidence' && step.conclusion === 'success'),
     }));
-    run.completePlatformMatrix = run.coverage.length === targets.size && run.coverage.every((job) => job.status === 'completed');
+    run.completePlatformMatrix = run.coverage.length === targets.size && run.coverage.every((job) => job.status === 'completed' && ['success', 'failure'].includes(job.outcome) && job.evidencePrivacyPassed);
   }
   let audit = null;
   const source = runs.find((run) => run.workflow === 'quality-cycle.yml' && run.status === 'completed');
