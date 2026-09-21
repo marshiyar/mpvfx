@@ -109,7 +109,7 @@ It is **not a clean release sign-off**. See
 
 | ID | State | Acceptance evidence needed |
 | --- | --- | --- |
-| linux-mov-png | Open | MOV succeeds through both streamed and disk PNG frame paths; decoded red/blue pixels and audio are correct. |
+| linux-mov-png | Repair proposed; native Linux pending | MOV succeeds through both streamed and disk PNG frame paths; decoded red/blue pixels and audio are correct. See the saved-frame repair below. |
 | small-window-cancel | Open | At 1024×768 native windows, render progress and Cancel are visible/reachable; clicking Cancel sends the request and stops the job; retry works. |
 | windows-installer | Open | Install creates working Start Menu shortcuts, shows deliberate branding, and update/uninstall lifecycle preserves user work. |
 | mov-thumbnail | Open | Completed ProRes MOV has a valid thumbnail independent of Chromium codec support; output remains correct. |
@@ -155,3 +155,20 @@ focused PR instead of merging unrelated development changes.
 
 These checks verify the automation boundary. They do not certify arbitrary images
 as private, resolve the release backlog, or validate the app on a physical Windows PC.
+
+## Saved PNG export repair (2026-09-21)
+
+Review branch `codex/linux-png-sequence` extends the existing Linux PNG workaround
+to saved captures, including chunk start numbers and frame limits. It decodes the
+generated PNGs with the existing engine decoder and pipes RGBA to the same FFmpeg
+encoder. Back-pressure bounds frame memory; no additional raw-video file is written.
+Missing, corrupt or mismatched frames fail the export, and cancellation/deadlines
+still terminate and reap the helper process. Packaging verifies the repair in the
+engine and all three producer bundles.
+
+The local regression first failed with PNG decoding disabled at the helper boundary.
+After the repair, the pinned macOS ARM FFmpeg produced ProRes with the expected
+red/blue/green frame order, alpha, rational frame rate, selected chunk and synthetic
+audio. Failure, blocked-pipe cancellation and timeout checks also pass. This tests
+the Linux argument path on a macOS host; a native Linux app export, installer and
+visual run remain unverified. No hosted workflow was dispatched for this repair.

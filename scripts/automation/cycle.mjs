@@ -13,7 +13,7 @@ const checks = [
   ['automation-privacy', node, ['--test', 'scripts/automation/privacy.test.mjs', 'scripts/automation/dispatch.test.mjs']],
   ['publication', node, ['scripts/check-release-readiness.mjs']],
   ['attribution', node, ['scripts/generate-third-party-notices.mjs', '--check']],
-  ['diagnostics-regressions', npm, ['--prefix', 'studio', 'run', 'test:watch', '--', '--run', 'diagnostics', 'src/diagnostics', 'src/telemetry/policy.test.ts', 'src/utils/studioDebug.test.ts', 'desktop/publicationPrivacy.test.ts', 'desktop/githubWorkflows.test.ts', 'desktop/windowsRenderHelpers.test.ts', 'desktop/windowsBrowserLaunch.test.ts', 'desktop/streamingPngInput.test.ts']],
+  ['diagnostics-regressions', npm, ['--prefix', 'studio', 'run', 'test:watch', '--', '--run', 'diagnostics', 'src/diagnostics', 'src/telemetry/policy.test.ts', 'src/utils/studioDebug.test.ts', 'desktop/publicationPrivacy.test.ts', 'desktop/githubWorkflows.test.ts', 'desktop/windowsRenderHelpers.test.ts', 'desktop/windowsBrowserLaunch.test.ts', 'desktop/streamingPngInput.test.ts', 'desktop/pngSequenceInput.test.ts']],
   ['typecheck', npm, ['--prefix', 'studio', 'run', 'typecheck']],
   ['build', npm, ['--prefix', 'studio', 'run', 'build']],
 ];
