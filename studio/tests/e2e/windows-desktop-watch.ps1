@@ -41,6 +41,8 @@ public class DesktopEvidence {
   [DllImport("user32.dll")] static extern bool UnhookWinEvent(IntPtr hook);
   [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
   [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd, int command);
+  [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out Rect rectangle, int size);
+  [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out int value, int size);
   public List<Observation> observations = new List<Observation>();
   public int frames; public long durationMs; public bool eventHookActive; public int sampleIntervalMs = 100;
   public int screenWidth; public int screenHeight;
@@ -101,22 +103,28 @@ public class DesktopEvidence {
           using(var bitmap=new Bitmap(bounds.Width,bounds.Height)) {
             using(var graphics=Graphics.FromImage(bitmap)) {
               graphics.Clear(Color.FromArgb(32,32,32));
-              // Copy only MpVFX/installer window regions. Never publish the
-              // desktop, runner console, browser, or unrelated notifications.
-              foreach(var window in windows) {
-                bool console=window.className == "ConsoleWindowClass" || window.className == "CASCADIA_HOSTING_WINDOW_CLASS" || window.className == "VirtualConsoleClass";
-                var area=Rectangle.Intersect(bounds,new Rectangle(window.left,window.top,Math.Max(0,window.width),Math.Max(0,window.height)));
-                if(area.Width == 0 || area.Height == 0 || IsIconic(new IntPtr(window.handle))) continue;
-                if(window.appOwned && !console) graphics.CopyFromScreen(area.Left,area.Top,area.Left-bounds.Left,area.Top-bounds.Top,area.Size);
-              }
-              // An unrelated foreground window can overlap the app region.
-              // Mask every other window after copying, including console text.
-              foreach(var window in windows) {
-                bool console=window.className == "ConsoleWindowClass" || window.className == "CASCADIA_HOSTING_WINDOW_CLASS" || window.className == "VirtualConsoleClass";
-                if((window.appOwned && !console) || IsIconic(new IntPtr(window.handle)) || window.className == "Progman" || window.className == "WorkerW") continue;
-                var area=Rectangle.Intersect(bounds,new Rectangle(window.left,window.top,Math.Max(0,window.width),Math.Max(0,window.height)));
-                area.Offset(-bounds.Left,-bounds.Top);
-                graphics.FillRectangle(console ? Brushes.DarkRed : Brushes.DimGray,area);
+              // EnumWindows returns topmost first. Only capture the visible
+              // part of an app window; mask unrelated windows above it, while
+              // leaving windows behind the app out of the screenshot entirely.
+              using(var covered=new Region()) {
+                covered.MakeEmpty();
+                foreach(var window in windows) {
+                  var handle=new IntPtr(window.handle); int cloaked=0; Rect frame;
+                  DwmGetWindowAttribute(handle,14,out cloaked,4);
+                  if(cloaked != 0 || IsIconic(handle) || window.className == "Progman" || window.className == "WorkerW") continue;
+                  // WindowRect includes invisible resize borders. DWM's visible
+                  // frame prevents copying wallpaper or neighboring pixels.
+                  if(DwmGetWindowAttribute(handle,9,out frame,Marshal.SizeOf(typeof(Rect))) != 0) continue;
+                  var screenArea=Rectangle.Intersect(bounds,new Rectangle(frame.left,frame.top,Math.Max(0,frame.right-frame.left),Math.Max(0,frame.bottom-frame.top)));
+                  if(screenArea.Width == 0 || screenArea.Height == 0) continue;
+                  var area=screenArea; area.Offset(-bounds.Left,-bounds.Top);
+                  graphics.SetClip(area); graphics.ExcludeClip(covered);
+                  bool console=window.className == "ConsoleWindowClass" || window.className == "CASCADIA_HOSTING_WINDOW_CLASS" || window.className == "VirtualConsoleClass";
+                  if(window.appOwned && !console) graphics.CopyFromScreen(screenArea.Left,screenArea.Top,area.Left,area.Top,area.Size);
+                  else graphics.FillRectangle(console ? Brushes.DarkRed : Brushes.DimGray,area);
+                  covered.Union(area);
+                }
+                graphics.ResetClip();
               }
             }
             bitmap.Save(Path.Combine(directory,filename),ImageFormat.Png);
