@@ -32,7 +32,7 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
       - name: Run keyframe and diagnostics regressions
-        run: npm exec -- vitest run diagnostics src/diagnostics src/hooks/gsap src/hooks/useGsap src/hooks/useAnimatedPropertyCommit.test.tsx src/hooks/useProjectAnimatedPropertyCommit.test.tsx src/hooks/useEnableKeyframes.test.ts src/project/native src/components/TimelineToolbar.test.tsx src/contexts/DomEditContext.test.tsx src/hooks/useDomEditSession.test.tsx
+        run: npm exec -- vitest run diagnostics src/diagnostics vite.file-transaction src/hooks/gsap src/hooks/useGsap src/hooks/useAnimatedPropertyCommit.test.tsx src/hooks/useProjectAnimatedPropertyCommit.test.tsx src/hooks/useEnableKeyframes.test.ts src/project/native src/components/TimelineToolbar.test.tsx src/contexts/DomEditContext.test.tsx src/hooks/useDomEditSession.test.tsx
       - name: Typecheck the current source
         if: ${{ !cancelled() }}
         run: npm run typecheck

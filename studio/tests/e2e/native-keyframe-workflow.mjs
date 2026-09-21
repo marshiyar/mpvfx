@@ -23,6 +23,11 @@ const STUDIO_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const require = createRequire(import.meta.url);
 const SOURCE_GSAP = require.resolve("gsap/dist/gsap.min.js");
 const ELECTRON_MODE = process.argv.includes("--electron");
+const VIEWPORT = process.argv
+  .find((arg) => arg.startsWith("--viewport="))
+  ?.match(/^--viewport=(\d+)x(\d+)$/)
+  ?.slice(1)
+  .map(Number);
 const OUTPUT_DIR = join(
   STUDIO_DIR,
   "out/native-keyframe-verification",
@@ -487,6 +492,8 @@ async function main() {
         "Electron did not open its native editor window",
         30_000,
       );
+      if (VIEWPORT)
+        await page.setViewport({ width: VIEWPORT[0], height: VIEWPORT[1] });
       studioUrl = new URL(page.url()).origin;
     } else {
       const port = await freePort();
@@ -800,40 +807,93 @@ async function main() {
       "Canvas move did not edit B",
     );
 
+    await page.bringToFront();
     const rotate = await page.waitForSelector(
       'pierce/button[aria-label="Rotate selection"]',
     );
-    // Saving the drag completes before the overlay finishes following the new
-    // pose. Wait for the actual hit target to settle before grabbing rotation.
-    await rotate.evaluate(
-      (element) =>
-        new Promise((resolveReady) => {
-          let previous = "",
-            stableFrames = 0;
-          const observe = () => {
-            const rect = element.getBoundingClientRect();
-            const next = [rect.x, rect.y, rect.width, rect.height].join(",");
-            const target = element
-              .getRootNode()
-              .elementFromPoint(
+    await rotate.scrollIntoView();
+    await rotate.dispose();
+    // React can replace the overlay after the drag's disk save. Re-query the
+    // live button on every bounded sample instead of waiting in requestAnimationFrame
+    // on a retained (possibly detached) ElementHandle or a backgrounded renderer.
+    let previousGeometry,
+      stableSamples = 0,
+      rotationGeometry;
+    try {
+      await waitUntil(
+        async () => {
+          rotationGeometry = await page.evaluate(() => {
+            const roots = [document];
+            let handle, selection;
+            for (let index = 0; index < roots.length; index += 1) {
+              for (const element of roots[index].querySelectorAll("*")) {
+                if (element.shadowRoot) roots.push(element.shadowRoot);
+                if (element.matches('button[aria-label="Rotate selection"]'))
+                  handle = element;
+                if (element.matches('[data-dom-edit-selection-box="true"]'))
+                  selection = element;
+              }
+            }
+            if (!handle?.isConnected || !selection?.isConnected) return null;
+            const bounds = (element) => {
+              const rect = element.getBoundingClientRect();
+              return {
+                x: rect.x,
+                y: rect.y,
+                width: rect.width,
+                height: rect.height,
+              };
+            };
+            const rect = bounds(handle);
+            let target = document.elementFromPoint(
+              rect.x + rect.width / 2,
+              rect.y + rect.height / 2,
+            );
+            while (target?.shadowRoot) {
+              const next = target.shadowRoot.elementFromPoint(
                 rect.x + rect.width / 2,
                 rect.y + rect.height / 2,
               );
-            stableFrames =
-              next === previous &&
-              (target === element || element.contains(target))
-                ? stableFrames + 1
-                : 0;
-            previous = next;
-            if (stableFrames >= 4) resolveReady();
-            else requestAnimationFrame(observe);
-          };
-          requestAnimationFrame(observe);
-        }),
-    );
-    const handle = await rotate.boundingBox();
-    const moved = await box.boundingBox();
-    assert(handle && moved, "No rotate handle geometry");
+              if (!next || next === target) break;
+              target = next;
+            }
+            return {
+              handle: rect,
+              selection: bounds(selection),
+              hittable: target === handle || handle.contains(target),
+              hitTag: target?.tagName ?? null,
+              hitLabel: target?.getAttribute("aria-label") ?? null,
+              documentHidden: document.hidden,
+            };
+          });
+          const current = rotationGeometry;
+          const isStable =
+            current?.hittable &&
+            current.handle.width > 0 &&
+            current.handle.height > 0 &&
+            previousGeometry &&
+            ["handle", "selection"].every((part) =>
+              ["x", "y", "width", "height"].every(
+                (key) =>
+                  Math.abs(current[part][key] - previousGeometry[part][key]) <
+                  0.1,
+              ),
+            );
+          stableSamples = isStable ? stableSamples + 1 : 0;
+          previousGeometry = current;
+          return stableSamples >= 4;
+        },
+        "Rotation handle did not become a stable live hit target",
+        10_000,
+      );
+    } catch (error) {
+      throw new Error(
+        `Rotation handle readiness failed: ${JSON.stringify(rotationGeometry)}`,
+        { cause: error },
+      );
+    }
+    const handle = rotationGeometry.handle;
+    const moved = rotationGeometry.selection;
     const center = {
       x: moved.x + moved.width / 2,
       y: moved.y + moved.height / 2,

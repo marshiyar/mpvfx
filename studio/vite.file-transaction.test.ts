@@ -48,7 +48,15 @@ describe("durable file transactions", () => {
     expect(await store.listReceipts()).toEqual([]);
   });
 
-  it.each(["../outside", "/tmp/outside", ".hyperframes/recovery.json"])(
+  it.each([
+    "../outside",
+    "/tmp/outside",
+    ".hyperframes/recovery.json",
+    ".studio/../outside",
+    ".studio//project.json",
+    ".studio/./project.json",
+    ".studio\\project.json",
+  ])(
     "rejects unsafe transaction target %s without touching project files",
     async (path) => {
       const root = await projectRoot();
