@@ -74,9 +74,8 @@ async function launch() {
   page = await until(async () => (await browser.pages()).find((p) => /^http:\/\/127\.0\.0\.1:\d+/.test(p.url())), "editor page");
   await page.waitForSelector('[data-diagnostic-action="diagnostics-toggle"]');
   const client = await page.createCDPSession();
-  // Test the real OS window at the normal size, then the supported minimum.
-  const { windowId } = await client.send("Browser.getWindowForTarget");
-  await client.send("Browser.setWindowBounds", { windowId, bounds: { left: 20, top: 30, width: 1440, height: 900, windowState: "normal" } });
+  // Electron owns the native window; Chromium's Browser window-management
+  // commands are not implemented by its debugging endpoint.
   await page.bringToFront();
   return client;
 }
@@ -248,11 +247,12 @@ try {
   await render("mp4", 3, true);
   await render("mp4", 4);
   result.passed.push("ui-mp4-and-mov-export-with-verified-pixels", "ui-cancel-and-repeat-export");
-  mark("minimum-window");
-  const { windowId } = await client.send("Browser.getWindowForTarget");
-  await client.send("Browser.setWindowBounds", { windowId, bounds: { width: 1024, height: 640 } });
-  await screenshot("08-minimum-window");
-  await client.send("Browser.setWindowBounds", { windowId, bounds: { width: 1440, height: 900 } });
+  mark("minimum-viewport");
+  const originalViewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight, deviceScaleFactor: devicePixelRatio }));
+  await page.setViewport({ width: 1024, height: 640, deviceScaleFactor: 1 });
+  await screenshot("08-minimum-viewport");
+  await page.setViewport(originalViewport);
+  result.limitations.push("The 1024×640 layout uses viewport emulation; native OS window resizing is not exercised.");
   mark("diagnostic-report");
   await click('[data-diagnostic-action="diagnostics-toggle"]');
   await screenshot("09-diagnostics");
