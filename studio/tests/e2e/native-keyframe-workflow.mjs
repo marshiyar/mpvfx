@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { promisify } from "node:util";
+import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import {
   access,
@@ -17,11 +19,8 @@ import { fileURLToPath } from "node:url";
 import puppeteer from "puppeteer-core";
 
 const STUDIO_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const SOURCE_MEDIA = join(
-  STUDIO_DIR,
-  "tests/e2e/fixtures/design-panel-qa/assets/test.mp4",
-);
-const SOURCE_GSAP = join(STUDIO_DIR, "fixtures/vendor/gsap.min.js");
+const require = createRequire(import.meta.url);
+const SOURCE_GSAP = require.resolve("gsap/dist/gsap.min.js");
 const PROJECT_ID = "native-keyframe-workflow";
 const PROJECT_FILE = "index.html";
 const NATIVE_PROJECT_FILE = ".studio/project.json";
@@ -29,6 +28,7 @@ const CHROMIUM_CANDIDATES = [
   process.env.CHROME_PATH,
   "/Applications/Chromium.app/Contents/MacOS/Chromium",
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  require("puppeteer").executablePath(),
 ].filter(Boolean);
 
 function assert(condition, message) {
@@ -44,7 +44,9 @@ async function availableExecutable() {
       // Try the next supported local browser.
     }
   }
-  throw new Error("Set CHROME_PATH to a Chromium-compatible browser executable");
+  throw new Error(
+    "Set CHROME_PATH to a Chromium-compatible browser executable",
+  );
 }
 
 async function freePort() {
@@ -56,7 +58,8 @@ async function freePort() {
       const port = typeof address === "object" && address ? address.port : null;
       server.close((error) => {
         if (error) reject(error);
-        else if (port === null) reject(new Error("Could not allocate a test port"));
+        else if (port === null)
+          reject(new Error("Could not allocate a test port"));
         else resolvePort(port);
       });
     });
@@ -76,7 +79,9 @@ async function waitForHttp(url, serverProcess, serverOutput) {
   await waitUntil(
     async () => {
       if (serverProcess.exitCode !== null) {
-        throw new Error(`Studio exited before startup:\n${serverOutput.join("")}`);
+        throw new Error(
+          `Studio exited before startup:\n${serverOutput.join("")}`,
+        );
       }
       try {
         const response = await fetch(url);
@@ -95,16 +100,23 @@ async function selectByDomId(page, id) {
     void window.__studioTest.selectByDomId(nextId);
   }, id);
   await page.waitForFunction(
-    (nextId) => window.__playerStore?.getState().selectedElementId?.endsWith(`#${nextId}`),
+    (nextId) =>
+      window.__playerStore
+        ?.getState()
+        .selectedElementId?.endsWith(`#${nextId}`),
     { timeout: 10_000 },
     id,
   );
 }
 
 async function requestSeek(page, time) {
-  await page.evaluate((nextTime) => window.__playerStore.getState().requestSeek(nextTime), time);
+  await page.evaluate(
+    (nextTime) => window.__playerStore.getState().requestSeek(nextTime),
+    time,
+  );
   await page.waitForFunction(
-    (nextTime) => Math.abs(window.__playerStore.getState().currentTime - nextTime) < 0.001,
+    (nextTime) =>
+      Math.abs(window.__playerStore.getState().currentTime - nextTime) < 0.001,
     { timeout: 5_000 },
     time,
   );
@@ -121,10 +133,21 @@ async function readNativeVideoState(page) {
           if (target) {
             const nativePlayer = iframe.contentWindow?.__studioNativePlayer;
             const nativeCandidates = [
-              ...(iframe.contentDocument?.querySelectorAll("[data-studio-clip-id]") ?? []),
+              ...(iframe.contentDocument?.querySelectorAll(
+                "[data-studio-clip-id]",
+              ) ?? []),
             ];
             return {
               transform: target.style.transform,
+              width: Number.parseFloat(
+                iframe.contentWindow.getComputedStyle(target).width,
+              ),
+              height: Number.parseFloat(
+                iframe.contentWindow.getComputedStyle(target).height,
+              ),
+              opacity: Number.parseFloat(
+                iframe.contentWindow.getComputedStyle(target).opacity,
+              ),
               visibility: target.style.visibility,
               nativeClipId: target.getAttribute("data-studio-clip-id"),
               nativeOwned: target.getAttribute("data-studio-native-owned"),
@@ -136,8 +159,10 @@ async function readNativeVideoState(page) {
               nativePlayerDuration: nativePlayer?.getDuration?.(),
               nativePlayerPlaying: nativePlayer?.isPlaying?.(),
               nativeCandidateCount: nativeCandidates.length,
-              targetUsesLiveDocument: target.ownerDocument === iframe.contentDocument,
-              targetIsLiveHTMLElement: target instanceof iframe.contentWindow.HTMLElement,
+              targetUsesLiveDocument:
+                target.ownerDocument === iframe.contentDocument,
+              targetIsLiveHTMLElement:
+                target instanceof iframe.contentWindow.HTMLElement,
               candidateIds: nativeCandidates.map((candidate) =>
                 candidate.getAttribute("data-studio-clip-id"),
               ),
@@ -202,7 +227,12 @@ function nativeProject() {
     frameRate: { numerator: 30, denominator: 1 },
     canvas: { width: 1920, height: 1080, background: "#111111" },
     assets: [
-      { id: "asset:native-video", kind: "video", name: "test.mp4", durationFrames: 120 },
+      {
+        id: "asset:native-video",
+        kind: "video",
+        name: "test.mp4",
+        durationFrames: 120,
+      },
     ],
     sequence: {
       id: "sequence:main",
@@ -262,7 +292,9 @@ function nativeProject() {
 }
 
 async function main() {
-  const scratchRoot = await mkdtemp(join(tmpdir(), "studio-native-keyframe-workflow-"));
+  const scratchRoot = await mkdtemp(
+    join(tmpdir(), "studio-native-keyframe-workflow-"),
+  );
   const projectDir = join(scratchRoot, PROJECT_ID);
   const sourcePath = join(projectDir, PROJECT_FILE);
   const nativePath = join(projectDir, NATIVE_PROJECT_FILE);
@@ -274,7 +306,20 @@ async function main() {
     await mkdir(join(projectDir, "assets"), { recursive: true });
     await mkdir(join(projectDir, "vendor"), { recursive: true });
     await mkdir(join(projectDir, ".studio"), { recursive: true });
-    await cp(SOURCE_MEDIA, join(projectDir, "assets/test.mp4"));
+    await promisify(execFile)(require("ffmpeg-static"), [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      "color=c=blue:s=640x360:r=30:d=4",
+      "-c:v",
+      "libx264",
+      "-pix_fmt",
+      "yuv420p",
+      join(projectDir, "assets/test.mp4"),
+    ]);
     await cp(SOURCE_GSAP, join(projectDir, "vendor/gsap.min.js"));
     await writeFile(sourcePath, projectSource());
     const initialNative = nativeProject();
@@ -283,16 +328,27 @@ async function main() {
     const port = await freePort();
     const studioUrl = `http://127.0.0.1:${port}`;
     serverProcess = spawn(
-      "npm",
-      ["run", "dev", "--", "--port", String(port), "--strictPort"],
+      process.execPath,
+      [
+        join(dirname(require.resolve("vite/package.json")), "bin/vite.js"),
+        "--host",
+        "127.0.0.1",
+        "--port",
+        String(port),
+        "--strictPort",
+      ],
       {
         cwd: STUDIO_DIR,
         env: { ...process.env, MPVFX_PROJECTS_DIR: scratchRoot },
         stdio: ["ignore", "pipe", "pipe"],
       },
     );
-    serverProcess.stdout.on("data", (chunk) => serverOutput.push(chunk.toString()));
-    serverProcess.stderr.on("data", (chunk) => serverOutput.push(chunk.toString()));
+    serverProcess.stdout.on("data", (chunk) =>
+      serverOutput.push(chunk.toString()),
+    );
+    serverProcess.stderr.on("data", (chunk) =>
+      serverOutput.push(chunk.toString()),
+    );
     await waitForHttp(studioUrl, serverProcess, serverOutput);
     const sidecarResponse = await fetch(
       `${studioUrl}/api/projects/${PROJECT_ID}/files/${encodeURIComponent(NATIVE_PROJECT_FILE)}?optional=1`,
@@ -302,7 +358,8 @@ async function main() {
       ? JSON.parse(JSON.parse(sidecarBody).content)
       : null;
     assert(
-      sidecarResponse.ok && servedSidecar?.id === "project:native-keyframe-workflow",
+      sidecarResponse.ok &&
+        servedSidecar?.id === "project:native-keyframe-workflow",
       `Studio could not serve the seeded native sidecar (${sidecarResponse.status}): ${sidecarBody}`,
     );
 
@@ -317,7 +374,8 @@ async function main() {
     const failedResponses = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
     page.on("response", (response) => {
-      if (response.status() >= 500) failedResponses.push(`${response.status()} ${response.url()}`);
+      if (response.status() >= 500)
+        failedResponses.push(`${response.status()} ${response.url()}`);
     });
     await page.goto(`${studioUrl}/#project/${PROJECT_ID}`, {
       waitUntil: "networkidle0",
@@ -342,8 +400,10 @@ async function main() {
                 if (
                   iframe.contentDocument
                     ?.querySelector("#native-video")
-                    ?.getAttribute("data-studio-clip-id") === "clip:native-video"
-                ) return true;
+                    ?.getAttribute("data-studio-clip-id") ===
+                  "clip:native-video"
+                )
+                  return true;
               } catch {
                 // Ignore unrelated cross-origin frames.
               }
@@ -371,11 +431,14 @@ async function main() {
               const root = roots[index];
               for (const iframe of root.querySelectorAll("iframe")) {
                 try {
-                  const video = iframe.contentDocument?.querySelector("#native-video");
+                  const video =
+                    iframe.contentDocument?.querySelector("#native-video");
                   if (video) {
                     return {
                       nativeClipId: video.getAttribute("data-studio-clip-id"),
-                      nativeOwned: video.getAttribute("data-studio-native-owned"),
+                      nativeOwned: video.getAttribute(
+                        "data-studio-native-owned",
+                      ),
                     };
                   }
                 } catch {
@@ -398,13 +461,18 @@ async function main() {
     const selectedKey = await page.evaluate(
       () => window.__playerStore.getState().selectedElementId,
     );
-    assert(selectedKey, "Native media selection did not expose a timeline identity");
+    assert(
+      selectedKey,
+      "Native media selection did not expose a timeline identity",
+    );
     const expanded = await page.evaluate(
       (key) => window.__playerStore.getState().expandedClipIds.has(key),
       selectedKey,
     );
     if (!expanded) {
-      const reveal = await page.$('button[aria-label^="Show "][aria-label$=" lanes"]');
+      const reveal = await page.$(
+        'button[aria-label^="Show "][aria-label$=" lanes"]',
+      );
       if (!reveal) {
         const diagnostics = await page.evaluate(() => {
           const state = window.__playerStore.getState();
@@ -431,9 +499,12 @@ async function main() {
       }
       await reveal.click();
     }
-    await page.waitForSelector('[data-timeline-property-lane][data-property-group="rotation"]', {
-      timeout: 15_000,
-    });
+    await page.waitForSelector(
+      '[data-timeline-property-lane][data-property-group="rotation"]',
+      {
+        timeout: 15_000,
+      },
+    );
     await page.waitForSelector('button[aria-label="rotation keyframe at 0s"]', {
       timeout: 15_000,
     });
@@ -444,7 +515,10 @@ async function main() {
     // Frame 30 lies exactly halfway between frame 0 and frame 60 at 30 fps.
     await requestSeek(page, 1);
     const midpoint = await readNativeVideoState(page);
-    assert(midpoint?.nativeClipId === "clip:native-video", "Native sidecar did not bind the media clip");
+    assert(
+      midpoint?.nativeClipId === "clip:native-video",
+      "Native sidecar did not bind the media clip",
+    );
     assert(
       midpoint.nativeOwned?.split(/\s+/).includes("transform.rotation"),
       `Native runtime did not claim the rotation channel: ${JSON.stringify(midpoint)}`,
@@ -455,10 +529,22 @@ async function main() {
     );
 
     // Pause/play and repeated exact seeks must reproduce identical frame state.
-    await page.evaluate(() => window.__playerStore.getState().requestPlayback(true));
-    await page.waitForFunction(() => window.__playerStore.getState().isPlaying, { timeout: 5_000 });
-    await page.evaluate(() => window.__playerStore.getState().requestPlayback(false));
-    await page.waitForFunction(() => !window.__playerStore.getState().isPlaying, { timeout: 5_000 });
+    await page.evaluate(() =>
+      window.__playerStore.getState().requestPlayback(true),
+    );
+    await page.waitForFunction(
+      () => window.__playerStore.getState().isPlaying,
+      { timeout: 5_000 },
+    );
+    await page.evaluate(() =>
+      window.__playerStore.getState().requestPlayback(false),
+    );
+    await page.waitForFunction(
+      () => !window.__playerStore.getState().isPlaying,
+      {
+        timeout: 5_000,
+      },
+    );
     await requestSeek(page, 1);
     const afterPause = await readNativeVideoState(page);
     assert(
@@ -470,44 +556,287 @@ async function main() {
     // it through Studio must persist only the native sidecar, bump one revision,
     // and immediately make the midpoint hold the source value.
     const sourceBefore = await readFile(sourcePath, "utf8");
-    const connector = await page.$('button[data-keyframe-ease-button]');
-    assert(connector, "Native rotation lane did not expose its outgoing interpolation control");
+    const connector = await page.$("button[data-keyframe-ease-button]");
+    assert(
+      connector,
+      "Native rotation lane did not expose its outgoing interpolation control",
+    );
     await connector.click();
-    await page.waitForSelector('[data-native-interpolation-editor]', { timeout: 10_000 });
-    const holdButton = await page.$(
-      '[data-native-interpolation-editor] [role="group"][aria-label="Interpolation"] button:nth-of-type(1)',
+    await page.waitForSelector("[data-native-interpolation-editor]", {
+      timeout: 10_000,
+    });
+    await page.select(
+      '[data-native-interpolation-editor] select[aria-label="Keyframe easing"]',
+      "hold",
     );
-    assert(holdButton, "Native interpolation editor did not expose Hold");
-    await holdButton.click();
 
-    await waitUntil(
-      async () => {
-        const saved = JSON.parse(await readFile(nativePath, "utf8"));
-        return (
-          saved.revision === 1 &&
-          saved.sequence.tracks[0].clips[0].parameterTracks[0].keyframes[0].outgoing.type ===
-            "hold"
-        );
-      },
-      "Native outgoing interpolation edit never reached durable project state",
-    );
+    await waitUntil(async () => {
+      const saved = JSON.parse(await readFile(nativePath, "utf8"));
+      return (
+        saved.revision === 1 &&
+        saved.sequence.tracks[0].clips[0].parameterTracks[0].keyframes[0]
+          .outgoing.type === "hold"
+      );
+    }, "Native outgoing interpolation edit never reached durable project state");
     assert(
       (await readFile(sourcePath, "utf8")) === sourceBefore,
       "Native interpolation edit unexpectedly rewrote compatibility HTML",
     );
     await requestSeek(page, 1);
     await waitUntil(
-      async () => (await readNativeVideoState(page))?.transform.includes("rotate(0deg)"),
+      async () =>
+        (await readNativeVideoState(page))?.transform.includes("rotate(0deg)"),
       "Committed Hold interpolation did not refresh the native preview",
     );
 
     const saved = JSON.parse(await readFile(nativePath, "utf8"));
-    assert(saved.revision === 1, `Expected one durable native revision, found ${saved.revision}`);
-    assert(pageErrors.length === 0, `Browser page errors:\n${pageErrors.join("\n")}`);
-    assert(failedResponses.length === 0, `Server failures:\n${failedResponses.join("\n")}`);
-    console.log("PASS native keyframes: visible non-GSAP lanes and exact frame-30 interpolation");
-    console.log("PASS native keyframes: deterministic pause/reseek on the bound media clip");
-    console.log("PASS native keyframes: source/outgoing UI edit persisted one sidecar revision");
+    assert(
+      saved.revision === 1,
+      `Expected one durable native revision, found ${saved.revision}`,
+    );
+    assert(
+      pageErrors.length === 0,
+      `Browser page errors:\n${pageErrors.join("\n")}`,
+    );
+    assert(
+      failedResponses.length === 0,
+      `Server failures:\n${failedResponses.join("\n")}`,
+    );
+    console.log(
+      "PASS native keyframes: visible non-GSAP lanes and exact frame-30 interpolation",
+    );
+    console.log(
+      "PASS native keyframes: deterministic pause/reseek on the bound media clip",
+    );
+    console.log(
+      "PASS native keyframes: source/outgoing UI edit persisted one sidecar revision",
+    );
+    const fresh = nativeProject();
+    fresh.sequence.tracks[0].clips[0].parameterTracks = [];
+    await writeFile(nativePath, `${JSON.stringify(fresh, null, 2)}\n`);
+    await page.reload({ waitUntil: "networkidle0" });
+    await selectByDomId(page, "native-video");
+    await requestSeek(page, 0);
+    await page.evaluate(() =>
+      window.__playerStore.setState({ autoKeyframeEnabled: false }),
+    );
+    const readSaved = async () =>
+      JSON.parse(await readFile(nativePath, "utf8"));
+    const savedTrack = async (parameter) =>
+      (await readSaved()).sequence.tracks[0].clips[0].parameterTracks.find(
+        (track) => track.parameterId === parameter,
+      );
+    const clickToolbar = async () => {
+      const button = await page.waitForSelector(
+        'button[aria-label="Add keyframe at playhead"]',
+        {
+          timeout: 5_000,
+        },
+      );
+      const revision = (await readSaved()).revision;
+      await button.click();
+      await waitUntil(
+        async () => (await readSaved()).revision === revision + 1,
+        "Toolbar keyframe did not persist exactly once",
+      );
+    };
+    await clickToolbar();
+    await requestSeek(page, 2);
+    await clickToolbar();
+
+    // The original report is a canvas workflow. Move and rotate the real
+    // selection at B with auto-key off, then verify that A is untouched.
+    const box = await page.waitForSelector(
+      '[data-dom-edit-selection-box="true"]',
+    );
+    const rect = await box.boundingBox();
+    assert(rect, "No canvas selection bounds");
+    await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(
+      rect.x + rect.width / 2 + 30,
+      rect.y + rect.height / 2 + 15,
+      {
+        steps: 12,
+      },
+    );
+    await page.mouse.up();
+    await waitUntil(
+      async () =>
+        (await savedTrack("transform.position.x"))?.keyframes.some(
+          (key) => key.frame === 60 && key.value !== 0,
+        ),
+      "Canvas move did not edit B",
+    );
+
+    const rotate = await page.waitForSelector(
+      'button[aria-label="Rotate selection"]',
+    );
+    const handle = await rotate.boundingBox();
+    const moved = await box.boundingBox();
+    assert(handle && moved, "No rotate handle geometry");
+    const center = {
+      x: moved.x + moved.width / 2,
+      y: moved.y + moved.height / 2,
+    };
+    const start = {
+      x: handle.x + handle.width / 2,
+      y: handle.y + handle.height / 2,
+    };
+    const vector = { x: start.x - center.x, y: start.y - center.y };
+    const angle = Math.PI / 4;
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.mouse.move(
+      center.x + vector.x * Math.cos(angle) - vector.y * Math.sin(angle),
+      center.y + vector.x * Math.sin(angle) + vector.y * Math.cos(angle),
+      { steps: 12 },
+    );
+    await page.mouse.up();
+    await waitUntil(
+      async () =>
+        (await savedTrack("transform.rotation"))?.keyframes.some(
+          (key) => key.frame === 60 && Math.abs(key.value) > 20,
+        ),
+      "Canvas rotation did not create an animated B pose",
+    );
+
+    const editField = async (label, value, parameter) => {
+      const input = await page.waitForSelector(`input[aria-label="${label}"]`);
+      const revision = (await readSaved()).revision;
+      await input.click();
+      await input.evaluate((node) => node.select());
+      await input.type(value);
+      await input.press("Enter");
+      await waitUntil(
+        async () =>
+          (await readSaved()).revision > revision &&
+          (await savedTrack(parameter))?.keyframes.some(
+            (key) => key.frame === 60,
+          ),
+        `${label} did not persist a key at B`,
+      );
+    };
+    await editField("W", "320", "layout.width");
+    await editField("Scale", "150", "transform.scale");
+    const edited = await readSaved();
+    const tracks = edited.sequence.tracks[0].clips[0].parameterTracks;
+    const expectedA = {
+      "transform.position.x": 0,
+      "transform.position.y": 0,
+      "transform.rotation": 0,
+      "layout.width": 640,
+      "transform.scale": 1,
+    };
+    for (const [parameter, baseline] of Object.entries(expectedA)) {
+      const track = tracks.find((item) => item.parameterId === parameter);
+      assert(
+        track?.keyframes.find((key) => key.frame === 0)?.value === baseline,
+        `${parameter} changed key A`,
+      );
+      assert(
+        track.keyframes.some(
+          (key) => key.frame === 60 && key.value !== baseline,
+        ),
+        `${parameter} did not change key B`,
+      );
+    }
+    await requestSeek(page, 0);
+    await waitUntil(
+      async () => (await readNativeVideoState(page))?.width === 640,
+      "Pose A width was not preserved",
+    );
+    const poseA = await readNativeVideoState(page);
+    await requestSeek(page, 1);
+    await waitUntil(
+      async () => (await readNativeVideoState(page))?.width === 480,
+      "Midpoint size did not interpolate",
+    );
+    const poseMid = await readNativeVideoState(page);
+    assert(
+      poseMid.transform.includes("scale(1.25, 1.25)"),
+      `Midpoint scale did not interpolate: ${poseMid.transform}`,
+    );
+    await requestSeek(page, 2);
+    await waitUntil(
+      async () => (await readNativeVideoState(page))?.width === 320,
+      "Pose B width did not persist",
+    );
+    const poseB = await readNativeVideoState(page);
+    assert(
+      poseA.transform !== poseMid.transform &&
+        poseMid.transform !== poseB.transform,
+      "Transform poses did not interpolate",
+    );
+
+    // At an intermediate frame the general button must capture every animated
+    // channel in one revision. Removing it must restore the original curves.
+    await requestSeek(page, 1);
+    await clickToolbar();
+    const withMiddle = await readSaved();
+    assert(
+      withMiddle.sequence.tracks[0].clips[0].parameterTracks.every((track) =>
+        track.keyframes.some((key) => key.frame === 30),
+      ),
+      "General toolbar omitted an animated property",
+    );
+    await page.click('button[aria-label="Remove keyframe at playhead"]');
+    await waitUntil(
+      async () => (await readSaved()).revision === withMiddle.revision + 1,
+      "Removing all middle keys was not one save",
+    );
+    assert(
+      (await readSaved()).sequence.tracks[0].clips[0].parameterTracks.every(
+        (track) => !track.keyframes.some((key) => key.frame === 30),
+      ),
+      "General toolbar left some middle keys behind",
+    );
+
+    const modifier = process.platform === "darwin" ? "Meta" : "Control";
+    await page.keyboard.down(modifier);
+    await page.keyboard.press("z");
+    await page.keyboard.up(modifier);
+    await waitUntil(
+      async () =>
+        (await readSaved()).sequence.tracks[0].clips[0].parameterTracks.every(
+          (track) => track.keyframes.some((key) => key.frame === 30),
+        ),
+      "Undo did not restore all middle keys together",
+    );
+    await page.keyboard.down(modifier);
+    await page.keyboard.down("Shift");
+    await page.keyboard.press("z");
+    await page.keyboard.up("Shift");
+    await page.keyboard.up(modifier);
+    await waitUntil(
+      async () =>
+        (await readSaved()).sequence.tracks[0].clips[0].parameterTracks.every(
+          (track) => !track.keyframes.some((key) => key.frame === 30),
+        ),
+      "Redo did not remove all middle keys together",
+    );
+
+    await page.reload({ waitUntil: "networkidle0" });
+    await selectByDomId(page, "native-video");
+    await requestSeek(page, 1);
+    await waitUntil(
+      async () => (await readNativeVideoState(page))?.width === 480,
+      "Reopened project lost interpolation",
+    );
+    assert(
+      (await readNativeVideoState(page)).transform === poseMid.transform,
+      "Reopened project changed the interpolated transform",
+    );
+    assert(
+      pageErrors.length === 0,
+      `Browser page errors:\n${pageErrors.join("\n")}`,
+    );
+    console.log(
+      "PASS native A/B workflow: canvas move and rotate, inspector width and scale, preserved A, interpolated midpoint, saved and reopened B",
+    );
+    console.log(
+      "PASS general toolbar: all animated channels added, removed, undone and redone atomically",
+    );
   } finally {
     if (browser) await browser.close().catch(() => undefined);
     if (serverProcess && serverProcess.exitCode === null) {

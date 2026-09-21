@@ -34,6 +34,10 @@ import {
   writeTargetSelector,
 } from "./gsapShared";
 import { activeKeyframePercentageForAnimation } from "./activeKeyframeIdentity";
+import { gsapKeyframeEditTarget } from "./gsapKeyframeEditTarget";
+import { newPropertyKeyframes } from "./gsapNewPropertyKeyframes";
+import { computeDraggedGsapPosition } from "./draggedGsapPosition";
+import { readNativePropertyBaselines } from "../project/nativePropertyBaseline";
 import {
   findGsapPositionAnimation,
   pickClosestToPlayhead,
@@ -143,7 +147,10 @@ export async function resolveGroupTween(
   // 1. Already-split group tween — pick the one closest to the current
   // playhead so a drag at t=6s edits the tween at 4s, not the one at 1.5s.
   const groupAnims = animations.filter((a) => a.propertyGroup === group);
-  const groupAnim = pickClosestToPlayhead(groupAnims);
+  const groupAnim =
+    groupAnims.find(
+      (animation) => activeKeyframePercentageForAnimation(selection, animation) != null,
+    ) ?? pickClosestToPlayhead(groupAnims);
   if (groupAnim) return { anim: groupAnim, animations };
 
   // 2. Legacy mixed tween — split it, then re-fetch
@@ -321,6 +328,36 @@ export async function tryGsapDragIntercept(
       posAnim && isInstantHold(posAnim) && posAnim.targetSelector === selector
         ? posAnim
         : findExistingPositionWrite(resolvedAnimations, selector, selection.element);
+    const template = resolvedAnimations.find(
+      (animation) =>
+        animation.keyframes &&
+        resolveEditableTweenDuration(animation, selection) > 0 &&
+        gsapKeyframeEditTarget(selection, animation) != null,
+    );
+    if (template) {
+      const { newX, newY, baseGsapX, baseGsapY } = computeDraggedGsapPosition(
+        selection.element,
+        offset,
+        gsapPos,
+      );
+      await commitMutation(
+        selection,
+        newPropertyKeyframes(
+          selection,
+          template,
+          { x: newX, y: newY },
+          { x: baseGsapX, y: baseGsapY },
+        ),
+        { label: "Keyframe position", softReload: !existingSet, skipReload: !!existingSet },
+      );
+      if (existingSet)
+        await commitMutation(
+          selection,
+          { type: "delete", animationId: existingSet.id },
+          { label: "Keyframe position", softReload: true },
+        );
+      return { status: "persisted" };
+    }
     await commitStaticGsapPosition(selection, offset, gsapPos, selector, existingSet, {
       commitMutation,
       fetchAnimations: fetchFallbackAnimations,
@@ -348,12 +385,13 @@ export async function tryGsapDragIntercept(
   }
 
   const cbs = { commitMutation, fetchAnimations: fetchFallbackAnimations };
-  // Alt-drag already means "shift the whole path" — the global auto-keyframe
-  // toggle (#1808) just makes that the default while it's off, so a manual
-  // edit on an already-animated element nudges the animation instead of
-  // inserting/updating a keyframe at the playhead.
+  // Alt explicitly shifts the whole path. Auto-key off only does so between
+  // keys; an authored or selected diamond always owns an ordinary edit.
   const autoKeyframeEnabled = usePlayerStore.getState().autoKeyframeEnabled;
-  if (options?.altKey || !autoKeyframeEnabled) {
+  if (
+    options?.altKey ||
+    (!autoKeyframeEnabled && gsapKeyframeEditTarget(selection, posAnim) == null)
+  ) {
     await commitWholePathOffset(selection, posAnim, offset, gsapPos, iframe, selector, cbs);
   } else {
     await commitGsapPositionFromDrag(selection, posAnim, offset, gsapPos, iframe, selector, cbs);
@@ -432,6 +470,39 @@ export async function tryGsapRotationIntercept(
   if (!anim || isInstantHold(anim)) {
     const existingSet =
       anim ?? findRotationSetAnimation(resolvedAnimations, selector, selection.element);
+    const template = resolvedAnimations.find(
+      (animation) =>
+        animation.keyframes &&
+        resolveEditableTweenDuration(animation, selection) > 0 &&
+        gsapKeyframeEditTarget(selection, animation) != null,
+    );
+    if (template) {
+      const measured = readNativePropertyBaselines({
+        computedStyles: selection.computedStyles,
+        boundingBox: selection.boundingBox ?? { width: 0, height: 0 },
+      });
+      const baseline =
+        typeof existingSet?.properties.rotation === "number"
+          ? existingSet.properties.rotation
+          : (measured.rotation ?? 0);
+      await commitMutation(
+        selection,
+        newPropertyKeyframes(
+          selection,
+          template,
+          { rotation: newRotation },
+          { rotation: baseline },
+        ),
+        { label: "Keyframe rotation", softReload: !existingSet, skipReload: !!existingSet },
+      );
+      if (existingSet)
+        await commitMutation(
+          selection,
+          { type: "delete", animationId: existingSet.id },
+          { label: "Keyframe rotation", softReload: true },
+        );
+      return { status: "persisted" };
+    }
     await commitStaticGsapRotation(selection, newRotation, selector, existingSet, {
       commitMutation,
       fetchAnimations: fetchFallbackAnimations,
@@ -441,10 +512,10 @@ export async function tryGsapRotationIntercept(
 
   const pct = computeCurrentPercentage(selection, anim);
 
-  // With auto-keyframe off (#1808), a rotation tween already exists for this
-  // element (checked above) so nudge it as a whole rather than adding a
-  // keyframe at the playhead.
-  if (!usePlayerStore.getState().autoKeyframeEnabled) {
+  if (
+    !usePlayerStore.getState().autoKeyframeEnabled &&
+    gsapKeyframeEditTarget(selection, anim) == null
+  ) {
     await commitWholePropertyOffset(
       selection,
       anim,

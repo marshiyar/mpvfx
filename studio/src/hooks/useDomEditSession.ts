@@ -22,9 +22,7 @@ import { membersForDelete } from "./domEditDeleteMembers";
 import type { RecordEditInput } from "./domEditDeleteMembers";
 import type { UseProjectAnimatedPropertyCommitOptions } from "./useProjectAnimatedPropertyCommit";
 import { useNativeProjectKeyframeCommands } from "./useNativeProjectKeyframeCommands";
-import {
-  createNativeProjectRepository,
-} from "../project/nativeProjectPersistence";
+import { createNativeProjectRepository } from "../project/nativeProjectPersistence";
 import type { NativeKeyframeProjectCommit } from "../player/components/deleteSelectedKeyframes";
 // Re-exported: the delete rule lives in its own module now, and callers (and its
 // own test) have always imported it from here.
@@ -479,6 +477,7 @@ export function useDomEditSession({
     handleUpdateArcSegment,
     handleUnroll,
     commitMutation,
+    commitMutationBatch,
   } = useGsapAwareEditing({
     domEditSelection,
     selectedGsapAnimations,
@@ -626,5 +625,6 @@ export function useDomEditSession({
     invalidateGsapCache: bumpGsapCache,
     previewIframeRef,
     commitMutation,
+    commitMutationBatch,
   };
 }

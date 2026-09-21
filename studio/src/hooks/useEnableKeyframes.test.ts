@@ -500,6 +500,50 @@ describe("useEnableKeyframes — flat tween transaction", () => {
 });
 
 describe("useEnableKeyframes — frame-identity toggle", () => {
+  it("captures position, rotation and opacity together in one toolbar transaction", async () => {
+    usePlayerStore.setState({ currentTime: 1 });
+    const selection = makeElementSelection();
+    const animations = ["x", "rotation", "opacity"].map((property) =>
+      anim({
+        id: property,
+        duration: 2,
+        keyframes: {
+          format: "object-array",
+          keyframes: [
+            { percentage: 0, properties: { [property]: 0 } },
+            { percentage: 100, properties: { [property]: 1 } },
+          ],
+        },
+      }),
+    );
+    const commitMutationBatch = vi.fn(async () => undefined);
+    const enable = renderEnableKeyframes({
+      domEditSelection: selection,
+      selectedGsapAnimations: animations,
+      previewIframeRef: {
+        current: {
+          contentWindow: { gsap: { getProperty: () => 2 } },
+        } as unknown as HTMLIFrameElement,
+      },
+      handleGsapAddAnimation: vi.fn(),
+      handleGsapConvertToKeyframes: vi.fn(),
+      handleGsapRemoveKeyframe: vi.fn(),
+      commitMutationBatch,
+    } as EnableKeyframesSession);
+    await act(async () => enable());
+    expect(commitMutationBatch).toHaveBeenCalledWith(
+      ["x", "rotation", "opacity"].map((property) =>
+        expect.objectContaining({
+          type: "add-keyframe",
+          animationId: property,
+          percentage: 50,
+          properties: { [property]: 2 },
+        }),
+      ),
+      expect.objectContaining({ softReload: true }),
+    );
+  });
+
   it("adds on a long tween instead of removing a keyframe many output frames away", async () => {
     window.location.hash = "#/project/test-project";
     // On a 120s tween, a 0.5% percentage gap is 0.6s — eighteen Studio frames.
@@ -721,9 +765,74 @@ describe("useEnableKeyframes — native position", () => {
     await renderEnableKeyframes(session)();
     expect(session.commitKeyframeProperties).toHaveBeenCalledWith(
       session.domEditSelection,
-      { x: -640, y: 0 },
+      {
+        x: -640,
+        y: 0,
+      },
     );
     expect(session.commitMutation).not.toHaveBeenCalled();
+  });
+
+  it("captures every animated property from the general toolbar", async () => {
+    usePlayerStore.setState({ currentTime: 5.392 });
+    const session = nativeSession();
+    session.nativeProjectDocument.sequence.tracks[0]!.clips[0]!.parameterTracks =
+      [
+        ["transform.rotation", 45],
+        ["visual.opacity", 0.4],
+        ["transform.scale", 1.5],
+      ].map(([parameterId, value]) => ({
+        schemaVersion: 1,
+        id: String(parameterId),
+        parameterId: String(parameterId),
+        valueType: "number",
+        frameRate: { numerator: 30, denominator: 1 },
+        keyframes: [
+          {
+            id: `${parameterId}:0`,
+            frame: 0,
+            value: Number(value),
+            outgoing: { type: "linear" },
+          },
+        ],
+      }));
+    await renderEnableKeyframes(session)();
+    expect(session.commitKeyframeProperties).toHaveBeenCalledWith(
+      session.domEditSelection,
+      {
+        rotation: 45,
+        opacity: 0.4,
+        scale: 1.5,
+      },
+    );
+  });
+
+  it("removes a rotation-only key through the same general toolbar", async () => {
+    usePlayerStore.setState({ currentTime: 5.392 });
+    const session = nativeSession();
+    session.nativeProjectDocument.sequence.tracks[0]!.clips[0]!.parameterTracks =
+      [
+        {
+          schemaVersion: 1,
+          id: "rotation",
+          parameterId: "transform.rotation",
+          valueType: "number",
+          frameRate: { numerator: 30, denominator: 1 },
+          keyframes: [
+            {
+              id: "rotation:18",
+              frame: 18,
+              value: 45,
+              outgoing: { type: "linear" },
+            },
+          ],
+        },
+      ];
+    await renderEnableKeyframes(session)();
+    expect(session.deleteNativeKeyframes).toHaveBeenCalledWith([
+      expect.objectContaining({ parameterId: "transform.rotation", frame: 18 }),
+    ]);
+    expect(session.commitKeyframeProperties).not.toHaveBeenCalled();
   });
 
   it("removes coincident native X/Y keys atomically at the current output frame", async () => {

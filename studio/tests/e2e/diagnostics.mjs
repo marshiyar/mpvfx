@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
 import puppeteer from "puppeteer-core";
+import { verifyIdleRendererMemory } from "./idle-renderer-memory.mjs";
 
 const require = createRequire(import.meta.url);
 const studio = resolve(import.meta.dirname, "../..");
@@ -67,6 +68,7 @@ try {
 </div><script>window.__timelines = { main: gsap.timeline({ paused: true }) };</script></body></html>`);
   const page = await launch();
   const origin = new URL(page.url()).origin;
+  await verifyIdleRendererMemory(page, join(output, `idle-memory-${process.platform}.json`));
   const start = await fetch(`${origin}/api/projects/MpVFX/render`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ format: "mov", fps: 30, quality: "draft", telemetryOptOut: true }) });
   assert.equal(start.status, 200);
   const { jobId } = await start.json();
@@ -118,6 +120,7 @@ try {
   assert.ok(report.events.some((e) => e.event === "client.ui.click" && e.data.detail.target.action === "diagnostics-export"));
   assert.ok(report.events.some((e) => e.event === "client.renderer.error" && JSON.stringify(e).includes("diagnostics-smoke-renderer-error")));
   assert.ok(report.events.some((e) => e.event === "system.gpu"));
+  assert.ok(report.events.filter((e) => e.event === "system.gpu").length <= 2, "GPU diagnostics entered a collection feedback loop");
   const startup = report.events.find((e) => e.event === "session.start");
   assert.equal(startup.data.platform, process.platform);
   assert.equal(startup.data.architecture, process.arch);
@@ -146,7 +149,7 @@ try {
   assert.ok(restarted.events.some((e) => e.event === "electron.render_process_gone"));
   const disk = readdirSync(join(runtime, "diagnostics")).filter((name) => name.endsWith(".jsonl")).map((name) => readFileSync(join(runtime, "diagnostics", name), "utf8")).join("");
   assert.ok(!disk.includes("CANARY_"), "A private canary reached persistent logs");
-  writeFileSync(join(output, `result-${process.platform}.json`), JSON.stringify({ platform: process.platform, architecture: process.arch, passed: ["native-startup", "edited-video-export-pixels", "job-correlated-chromium-and-ffmpeg", "actual-click", "renderer-error", "downloaded-report", "redaction-on-disk", "gpu-metadata", "performance-heartbeats", "local-crash-reporter", "native-renderer-crash", "native-minidump-on-disk", "restart-recovery"], eventCount: restarted.events.length }, null, 2));
+  writeFileSync(join(output, `result-${process.platform}.json`), JSON.stringify({ platform: process.platform, architecture: process.arch, passed: ["native-startup", "idle-renderer-memory", "edited-video-export-pixels", "job-correlated-chromium-and-ffmpeg", "actual-click", "renderer-error", "downloaded-report", "redaction-on-disk", "gpu-metadata", "bounded-gpu-capture", "performance-heartbeats", "local-crash-reporter", "native-renderer-crash", "native-minidump-on-disk", "restart-recovery"], eventCount: restarted.events.length }, null, 2));
   console.log(`DIAGNOSTICS_VERIFIED ${process.platform}/${process.arch}: click → disk → downloaded report, native renderer crash and restart recovery`);
 } finally {
   await stopAbruptly();

@@ -48,7 +48,7 @@ export function findGsapPositionAnimation(
   const currentTime = usePlayerStore.getState().currentTime;
 
   const scored = animations
-    .filter((a) => animHasPosition(a) || a.keyframes || animations.length === 1)
+    .filter((a) => animHasPosition(a) || a.propertyGroup === "position" || a.arcPath)
     .map((a) => {
       let score = 0;
       if (animHasPosition(a)) score += 10;
@@ -65,7 +65,7 @@ export function findGsapPositionAnimation(
       return { anim: a, score };
     });
   scored.sort((a, b) => b.score - a.score);
-  return scored[0]?.anim ?? animations[0];
+  return scored[0]?.anim ?? null;
 }
 
 /**
