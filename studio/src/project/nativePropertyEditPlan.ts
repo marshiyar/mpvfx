@@ -1,10 +1,5 @@
-import {
-  validateRationalFrameRate,
-  type RationalFrameRate,
-} from "./nativeKeyframeTypes";
-import type {
-  NativeProjectParameterAddress,
-} from "./nativeProjectKeyframeCommands";
+import { validateRationalFrameRate, type RationalFrameRate } from "./nativeKeyframeTypes";
+import type { NativeProjectParameterAddress } from "./nativeProjectKeyframeCommands";
 import type { NativeProjectAtomicPropertyCommand } from "./nativeProjectPropertyCommands";
 import type { NativeProjectClip, NativeProjectDocument } from "./nativeProjectDocument";
 
@@ -152,10 +147,7 @@ const failure = (
 });
 
 /** Quantize editor time exactly as native preview and export address project frames. */
-export const projectFrameFromSeconds = (
-  seconds: number,
-  frameRate: RationalFrameRate,
-): number => {
+export const projectFrameFromSeconds = (seconds: number, frameRate: RationalFrameRate): number => {
   if (!Number.isFinite(seconds)) {
     throw new TypeError("Playhead seconds must be finite");
   }
@@ -320,10 +312,7 @@ export const resolveNativeClipSelection = (
     const directMatches = findClip(document, id);
     if (directMatches.length === 1) return { ok: true, located: directMatches[0] };
     if (directMatches.length > 1) {
-      return resolutionFailure(
-        "ambiguous-clip",
-        `More than one native clip exactly matches ${id}`,
-      );
+      return resolutionFailure("ambiguous-clip", `More than one native clip exactly matches ${id}`);
     }
   }
   return resolutionFailure(
@@ -360,9 +349,10 @@ export const planNativePropertyEdit = (
   }
   // A selected clip remains editable when the project playhead is elsewhere.
   // Use its nearest visible frame, matching the inspector's clamped evaluation.
-  const clipLocalFrame = Math.max(0, Math.min(
-    located.clip.durationFrames - 1, projectFrame - located.clip.startFrame,
-  ));
+  const clipLocalFrame = Math.max(
+    0,
+    Math.min(located.clip.durationFrames - 1, projectFrame - located.clip.startFrame),
+  );
 
   const propertyNames = Object.keys(request.properties);
   if (propertyNames.length === 0) {
@@ -386,10 +376,23 @@ export const planNativePropertyEdit = (
       );
     }
   }
-  const writesKeyframe =
-    request.intent !== "edit" || request.autoKeyframeEnabled !== false;
+  // The general timeline button establishes clip keyframes, initially using
+  // position. Editing any other visual property ON one of those keys must join
+  // that animation instead of silently changing the property's static value.
+  const visualParameters = new Set(
+    Object.values(PROPERTY_DEFINITIONS).map((definition) => definition.parameterId),
+  );
+  const clipKeyFrames = [
+    ...new Set(
+      located.clip.parameterTracks
+        .filter((track) => visualParameters.has(track.parameterId))
+        .flatMap((track) => track.keyframes.map((keyframe) => keyframe.frame)),
+    ),
+  ].sort((a, b) => a - b);
+  const atClipKeyframe = clipKeyFrames.includes(clipLocalFrame);
+  const writesKeyframe = request.intent !== "edit" || request.autoKeyframeEnabled !== false;
   if (
-    writesKeyframe &&
+    (writesKeyframe || atClipKeyframe) &&
     (Object.hasOwn(request.properties, "width") || Object.hasOwn(request.properties, "height")) &&
     !validBounds(request.selectionBounds)
   ) {
@@ -423,7 +426,7 @@ export const planNativePropertyEdit = (
       (track) => track.parameterId === definition.parameterId,
     );
 
-    if (writesKeyframe) {
+    if (writesKeyframe || (!parameterTrack && atClipKeyframe)) {
       const persistedStatic = located.clip.staticParameters?.[definition.parameterId];
       const measuredBaseline = request.propertyBaselines?.[property];
       const baseline =
@@ -438,6 +441,21 @@ export const planNativePropertyEdit = (
           `Property ${property} requires a selection-bound baseline`,
           property,
         );
+      }
+      if (!parameterTrack && atClipKeyframe) {
+        // Preserve the other authored poses, including an edit made at A after
+        // B was placed. All channels are saved in the same undoable transaction.
+        for (const frame of clipKeyFrames) {
+          if (frame === clipLocalFrame) continue;
+          commands.push({
+            type: "upsert",
+            address,
+            valueType: "number",
+            frame,
+            value: baseline,
+            baselineValue: baseline,
+          });
+        }
       }
       commands.push({
         type: "upsert",

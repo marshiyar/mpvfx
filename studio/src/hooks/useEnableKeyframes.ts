@@ -4,7 +4,7 @@
  * - Element has a flat tween → convert + add at seeked time + propagate to end
  * - Element has no animation (deleted) → create new tween with correct position + keyframes
  *
- * Native-owned selections use paired Position commands and native frame values.
+ * Native-owned selections use all animated channels and native frame values.
  * Legacy selections fetch fresh animation data and read GSAP runtime values
  * (no CSS offset — it applies separately via translate).
  */
@@ -87,6 +87,10 @@ export interface EnableKeyframesSession {
   ) => Promise<void>;
   commitMutation?: (
     mutation: Record<string, unknown>,
+    options: CommitMutationOptions,
+  ) => Promise<void>;
+  commitMutationBatch?: (
+    mutations: Record<string, unknown>[],
     options: CommitMutationOptions,
   ) => Promise<void>;
 }
@@ -492,9 +496,8 @@ export async function applyArcKeyframeAtPlayhead(
   );
 }
 
-/** Shared by the toolbar indicator and its command; never consult legacy tweens
- * for a clip whose position is edited by the native project. */
-export function nativeToolbarPosition(
+/** Shared by the general toolbar indicator and its command. */
+export function nativeToolbarKeyframes(
   session: EnableKeyframesSession | undefined,
   time: number,
 ) {
@@ -517,15 +520,31 @@ export function nativeToolbarPosition(
   });
   if (!result.ok) return null;
   const keys = result.keyframeRows.filter(
-    (row) =>
-      ("x" in row.properties || "y" in row.properties) &&
-      row.nativeFrame === result.clipLocalFrame,
+    (row) => row.nativeFrame === result.clipLocalFrame,
   );
+  const animatedProperties = new Set(
+    result.keyframeRows.flatMap((row) => Object.keys(row.properties)),
+  );
+  const properties: Record<string, number> = {};
+  for (const property of animatedProperties) {
+    const value =
+      result.currentValues[property as keyof typeof result.currentValues];
+    if (value != null) properties[property] = value;
+  }
+  // Bootstrap a clip pose with position; other channels join when edited at
+  // these keys. Avoid creating competing uniform-scale and axis-scale tracks.
+  if (animatedProperties.size === 0) {
+    properties.x = result.currentValues.x ?? 0;
+    properties.y = result.currentValues.y ?? 0;
+  }
   return {
     projection: result,
+    properties,
     active:
-      keys.some((row) => "x" in row.properties) &&
-      keys.some((row) => "y" in row.properties),
+      animatedProperties.size > 0 &&
+      [...animatedProperties].every((property) =>
+        keys.some((row) => property in row.properties),
+      ),
     targets: keys.map((row) => ({
       sequenceId: result.sequenceId,
       trackId: result.trackId,
@@ -547,19 +566,16 @@ export function useEnableKeyframes(
     if (!sel) return;
 
     const t = usePlayerStore.getState().currentTime;
-    const native = nativeToolbarPosition(session, t);
+    const native = nativeToolbarKeyframes(session, t);
     if (native) {
       if (native.active) {
         if (!session.deleteNativeKeyframes)
-          throw new Error("Position keyframe removal is unavailable");
+          throw new Error("Keyframe removal is unavailable");
         await session.deleteNativeKeyframes(native.targets);
       } else {
         if (!session.commitKeyframeProperties)
-          throw new Error("Position keyframe saving is unavailable");
-        await session.commitKeyframeProperties(sel, {
-          x: native.projection.currentValues.x ?? 0,
-          y: native.projection.currentValues.y ?? 0,
-        });
+          throw new Error("Keyframe saving is unavailable");
+        await session.commitKeyframeProperties(sel, native.properties);
       }
       return;
     }
@@ -586,6 +602,69 @@ export function useEnableKeyframes(
     const flatAnim = anims.find(
       (a) => !a.keyframes && !a.arcPath && !isInstantHold(a),
     );
+
+    const keyframedAnimations = anims.filter(
+      (animation) => animation.keyframes && !animation.arcPath,
+    );
+    if (
+      !arcAnim &&
+      keyframedAnimations.length > 1 &&
+      session.commitMutationBatch
+    ) {
+      const keys = keyframedAnimations.map((animation) => {
+        const start = resolveTweenStart(animation) ?? 0;
+        const duration = resolveEditableTweenDuration(animation, sel);
+        return animation.keyframes!.keyframes.find((key) =>
+          keyframeIsAtOutputTime(key.percentage, t, { start, duration }),
+        );
+      });
+      const removing = keys.every(Boolean);
+      const mutations: Record<string, unknown>[] = [];
+      for (const [index, animation] of keyframedAnimations.entries()) {
+        const key = keys[index];
+        if (removing && key) {
+          mutations.push({
+            type: "remove-keyframe",
+            animationId: animation.id,
+            percentage: key.percentage,
+          });
+        } else if (!key) {
+          const properties = readElementPosition(iframe, sel, animation);
+          if (Object.keys(properties).length === 0)
+            throw new Error("Unable to read the current keyframe values");
+          if (!isPlayheadWithinTween(animation, t, sel)) {
+            const extended = buildExtendedKeyframes(
+              animation,
+              t,
+              properties,
+              resolveEditableTweenDuration(animation, sel),
+            );
+            mutations.push({
+              type: "replace-with-keyframes",
+              animationId: animation.id,
+              targetSelector: animation.targetSelector,
+              ...extended,
+              ...(animation.ease ? { ease: animation.ease } : {}),
+              ...(animation.keyframes?.easeEach
+                ? { easeEach: animation.keyframes.easeEach }
+                : {}),
+            });
+          } else {
+            mutations.push({
+              type: "add-keyframe",
+              animationId: animation.id,
+              percentage: computeElementPercentage(t, sel, animation),
+              properties,
+            });
+          }
+        }
+      }
+      await session.commitMutationBatch(mutations, {
+        label: removing ? "Remove keyframes" : "Add keyframes",
+        softReload: true,
+      });
+      return;
+    }
 
     if (arcAnim) {
       await applyArcKeyframeAtPlayhead(session, sel, arcAnim, t, iframe);

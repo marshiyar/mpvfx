@@ -33,7 +33,6 @@ import { commitGsapPositionFromDrag } from "./gsapDragPositionCommit";
 import { resolveTweenStart, resolveTweenDuration } from "../utils/globalTimeCompiler";
 import {
   isInstantHold,
-  keyframeIsAtOutputTime,
   keyframesShareOutputFrame,
   resolveDurableKeyframePercentage,
   resolveEditableTweenDuration,
@@ -41,6 +40,7 @@ import {
   writeTargetSelector,
 } from "./gsapShared";
 import { roundTo3 } from "../utils/rounding";
+import { gsapKeyframeEditTarget } from "./gsapKeyframeEditTarget";
 import { resolveGroupTween } from "./gsapRuntimeBridge";
 import { logResize } from "../utils/resizeDebug";
 import {
@@ -212,6 +212,7 @@ export async function tryGsapResizeIntercept(
   if (tweenDuration <= 0) return { status: "blocked", reason: "source-uneditable" };
 
   const activeKeyframePct = activeKeyframePercentageForAnimation(selection, anim);
+  const keyframeEditTarget = gsapKeyframeEditTarget(selection, anim);
   const computedPct = computeCurrentPercentage(selection, anim);
   const pct =
     activeKeyframePct ?? resolveDurableKeyframePercentage(anim, selection, computedPct);
@@ -440,14 +441,7 @@ export async function tryGsapResizeIntercept(
   // Match inspector edits: auto-key off offsets the whole animation only
   // between authored frames. A selected diamond or an existing key at the
   // playhead still owns this resize.
-  const authoredStart = resolveTweenStart(anim) ?? (Number.parseFloat(selection.dataAttributes?.start ?? "0") || 0);
-  const hasKeyframeAtPlayhead = anim.keyframes?.keyframes.some((keyframe) =>
-    keyframeIsAtOutputTime(keyframe.percentage, usePlayerStore.getState().currentTime, {
-      start: authoredStart,
-      duration: tweenDuration,
-    }),
-  );
-  if (!usePlayerStore.getState().autoKeyframeEnabled && activeKeyframePct == null && !hasKeyframeAtPlayhead) {
+  if (!usePlayerStore.getState().autoKeyframeEnabled && keyframeEditTarget == null) {
     await commitWholePropertyOffset(
       selection,
       anim,
