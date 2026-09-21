@@ -104,11 +104,16 @@ async function choose(option) {
 async function setNumber(label, value) {
   const field = await page.$(select(`[aria-label="${label}"]`));
   assert.ok(field, `Input ${label}`);
-  await field.click({ clickCount: 3 }); await field.press("Backspace"); await field.type(String(value)); await field.press("Tab");
+  await field.focus();
+  const modifier = platform === "darwin" ? "Meta" : "Control";
+  await page.keyboard.down(modifier); await page.keyboard.press("KeyA"); await page.keyboard.up(modifier);
+  await field.type(String(value)); await field.press("Tab");
+  assert.equal(await field.evaluate((el) => Number(el.value)), value, `Typed ${label}`);
 }
 async function render(format, ordinal, cancel = false) {
   mark(`${format}-${cancel ? "cancel" : "render"}-${ordinal}`);
   await choose(format);
+  assert.equal(await page.$eval(select('[data-diagnostic-action="export-video"]'), (el) => el.disabled), false, "Valid export settings must enable Export");
   const responsePromise = page.waitForResponse((response) => response.url().endsWith("/api/projects/MpVFX/render") && response.request().method() === "POST", { timeout: 20_000 });
   const started = Date.now();
   await click('[data-diagnostic-action="export-video"]');
@@ -132,7 +137,9 @@ async function render(format, ordinal, cancel = false) {
     const rendered = join(profile, "renders", `${jobId}.${format}`);
     assert.ok(existsSync(rendered), "Completed output must exist");
     // Check the rendered cuts contain actual source pixels, not just progress.
-    const pixel = (time) => [...run(ffmpeg, ["-v", "error", "-ss", String(time), "-i", rendered, "-frames:v", "1", "-vf", "scale=1:1", "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1"])];
+    // Import centers the source at its natural size. Sample the content center,
+    // not an average diluted by the surrounding 1920×1080 canvas background.
+    const pixel = (time) => [...run(ffmpeg, ["-v", "error", "-ss", String(time), "-i", rendered, "-frames:v", "1", "-vf", "crop=2:2:(iw-2)/2:(ih-2)/2,scale=1:1", "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1"])];
     const red = pixel(0.5), blue = pixel(2.5);
     assert.ok(red[0] > 150 && red[2] < 80 && blue[2] > 150 && blue[0] < 80, "Export must preserve red and blue source frames after the UI cuts");
     run(ffmpeg, ["-v", "error", "-y", "-ss", "0.5", "-i", rendered, "-frames:v", "1", join(evidence, `output-${ordinal}-red.png`)]);
@@ -177,8 +184,9 @@ try {
     // Only a fresh hosted runner is permitted; this process name belongs to
     // the installer we just started, never to a developer's running editor.
     try { run("taskkill.exe", ["/IM", "MpVFX.exe", "/T", "/F"]); } catch {}
-    const shortcutRoots = [join(process.env.APPDATA, "Microsoft/Windows/Start Menu/Programs"), join(process.env.USERPROFILE, "Desktop")];
+    const shortcutRoots = [join(process.env.APPDATA, "Microsoft/Windows/Start Menu/Programs"), join(process.env.USERPROFILE, "Desktop"), join(process.env.ProgramData, "Microsoft/Windows/Start Menu/Programs"), join(process.env.PUBLIC, "Desktop")];
     result.shortcuts = shortcutRoots.flatMap((root) => existsSync(root) ? readdirSync(root, { recursive: true }).map(String).filter((name) => /mpvfx.*\.lnk$/i.test(name)) : []);
+    if (!result.shortcuts.length) result.failures.push({ phase: "installer-shortcuts", message: "No MpVFX shortcut found in user or common Desktop/Start Menu locations" });
     result.passed.push("visible-squirrel-installation");
   } else if (platform === "darwin") {
     mark("mount-dmg");
@@ -301,6 +309,7 @@ try {
     } else { result.failures.push({ phase: "desktop-monitor", message: "Native desktop capture was unavailable" }); process.exitCode = 1; }
   }
   if (mounted) { try { run("hdiutil", ["detach", mounted]); } catch {} }
+  if (result.failures.length) process.exitCode = 1;
   writeFileSync(join(evidence, "result.json"), JSON.stringify(result, null, 2));
   console.log(JSON.stringify(result, null, 2));
   rmSync(runtime, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });

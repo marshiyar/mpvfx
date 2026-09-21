@@ -38,6 +38,7 @@ public class DesktopEvidence {
   [DllImport("user32.dll")] static extern IntPtr SetWinEventHook(uint first, uint last, IntPtr module, EventCallback callback, uint process, uint thread, uint flags);
   [DllImport("user32.dll")] static extern bool UnhookWinEvent(IntPtr hook);
   [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
+  [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd, int command);
   public List<Observation> observations = new List<Observation>();
   public int frames; public long durationMs; public bool eventHookActive; public int sampleIntervalMs = 100;
   public int screenWidth; public int screenHeight;
@@ -57,6 +58,13 @@ public class DesktopEvidence {
   public void Run(string directory, string control) {
     SetProcessDPIAware(); clock.Start();
     var bounds = SystemInformation.VirtualScreen; screenWidth=bounds.Width; screenHeight=bounds.Height;
+    // The image starts with GitHub's own agent terminal open. Minimize that
+    // pre-existing runner window before capture; never touch app/helper windows.
+    var baseline=Visible();
+    foreach(var window in baseline) {
+      if(window.className == "CASCADIA_HOSTING_WINDOW_CLASS" && window.title.EndsWith("hosted-compute-agent")) ShowWindow(new IntPtr(window.handle),6);
+    }
+    observations.Add(new Observation {elapsedMs=clock.ElapsedMilliseconds,phase="baseline",source="baseline",windows=baseline});
     EventCallback callback = (hook, type, hwnd, obj, child, thread, time) => {
       if (hwnd == IntPtr.Zero || obj != 0 || child != 0) return;
       observations.Add(new Observation { elapsedMs=clock.ElapsedMilliseconds, phase=phase, source="window-show-event", windows=new List<Window>{Describe(hwnd)} });
