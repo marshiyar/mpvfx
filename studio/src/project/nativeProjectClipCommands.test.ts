@@ -281,12 +281,12 @@ describe("native project clip trim, split, and delete commands", () => {
     expect(trimmed.effects).toEqual(before.effects);
     expect(trimmed.staticParameters).toEqual(before.staticParameters);
     expect(rotation.keyframes.map((keyframe) => [keyframe.frame, keyframe.value])).toEqual([
-      [0, -60],
+      [-30, 0],
       [60, -180],
     ]);
   });
 
-  it("trims out at an integer exclusive end, retaining only the playable local keyframe range", () => {
+  it("trims out at an integer exclusive end, retaining hidden authored keyframes for later extension", () => {
     const result = expectMove(documentFixture(), {
       type: "trim-out",
       address: firstAddress,
@@ -295,7 +295,7 @@ describe("native project clip trim, split, and delete commands", () => {
     const trimmed = findClip(result.document, "clip:first")!;
 
     expect(trimmed).toMatchObject({ startFrame: 0, sourceInFrame: 12, durationFrames: 60 });
-    expect(trimmed.parameterTracks[0]?.keyframes.map((keyframe) => keyframe.frame)).toEqual([0, 59]);
+    expect(trimmed.parameterTracks[0]?.keyframes.map((keyframe) => keyframe.frame)).toEqual([0, 90]);
   });
 
   it("splits deterministically, preserving the left clip and creating a right clip with rebased local keyframes", () => {
@@ -311,9 +311,9 @@ describe("native project clip trim, split, and delete commands", () => {
     expect(right).toMatchObject({ startFrame: 60, sourceInFrame: 72, durationFrames: 60 });
     expect(right.effects).toEqual(left.effects);
     expect(right.staticParameters).toEqual(left.staticParameters);
-    expect(left.parameterTracks[0]?.keyframes.map((keyframe) => [keyframe.frame, keyframe.value])).toEqual([[0, 0], [59, -118]]);
+    expect(left.parameterTracks[0]?.keyframes.map((keyframe) => [keyframe.frame, keyframe.value])).toEqual([[0, 0], [90, -180]]);
     expect(right.parameterTracks[0]?.keyframes.map((keyframe) => [keyframe.frame, keyframe.value])).toEqual([
-      [0, -120],
+      [-60, 0],
       [30, -180],
     ]);
     expect(right.parameterTracks[0]?.id).not.toBe(left.parameterTracks[0]?.id);

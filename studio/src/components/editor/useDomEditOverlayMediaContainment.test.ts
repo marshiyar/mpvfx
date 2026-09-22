@@ -138,7 +138,7 @@ function enableDragCommit(gesture: GestureState, element: HTMLElement) {
   } satisfies ManualOffsetDragMember;
 }
 
-describe("media gesture canvas containment", () => {
+describe("media geometry and crop preservation", () => {
   it("snaps to the canvas even when no other visible object exists", () => {
     const { handlers, gesture } = moveHarness(document.createElement("div"));
     gesture.snapContext!.snapEnabled = true;
@@ -146,32 +146,32 @@ describe("media gesture canvas containment", () => {
     expect(gesture.lastSnappedDx).toBe(50);
   });
 
-  it("prevents a video from crossing the canvas edge even when snapping is off and Alt is held", () => {
+  it("allows off-canvas video movement without adding a crop when snapping is off", () => {
     const { handlers, gesture, setOverlayRect } = moveHarness(
       document.createElement("video"),
     );
 
     handlers.onPointerMove(pointer(300, 0));
 
-    expect(gesture.lastSnappedDx).toBe(50);
+    expect(gesture.lastSnappedDx).toBe(300);
+    expect(gesture.selection.element.style.clipPath).toBe("");
     expect(setOverlayRect).toHaveBeenLastCalledWith(
-      expect.objectContaining({ left: 900, top: 250 }),
+      expect.objectContaining({ left: 1150, top: 250 }),
     );
   });
 
-  it("treats the cropped visible edge as the media boundary", () => {
+  it("preserves an explicit crop when dragging beyond the canvas", () => {
     const video = document.createElement("video");
     video.style.clipPath = "inset(0px 50px 0px 0px)";
     const { handlers, gesture, setOverlayRect } = moveHarness(video);
 
-    // The 100px source box ends at x=950, but its crop ends at x=900. It may
-    // therefore move 100px before the visible media—not the hidden source—hits
-    // the 1000px canvas edge.
+    // Dragging changes position, never the source dimensions or authored crop.
     handlers.onPointerMove(pointer(300, 0));
 
-    expect(gesture.lastSnappedDx).toBe(100);
+    expect(gesture.lastSnappedDx).toBe(300);
+    expect(video.style.clipPath).toBe("inset(0px 50px 0px 0px)");
     expect(setOverlayRect).toHaveBeenLastCalledWith(
-      expect.objectContaining({ left: 950, top: 250 }),
+      expect.objectContaining({ left: 1150, top: 250 }),
     );
   });
 
@@ -182,13 +182,13 @@ describe("media gesture canvas containment", () => {
 
     handlers.onPointerMove(pointer(300, 0));
 
-    // The source box moves to x=900, while its visible crop begins at x=950.
+    // Source x=850 + drag 300 = 1150; adding the explicit 50px crop gives 1200.
     // React positions the handles from that visible x; the imperative fast
     // path must paint the border at the same x in the very same frame.
     expect(setOverlayRect).toHaveBeenLastCalledWith(
-      expect.objectContaining({ left: 900, top: 250 }),
+      expect.objectContaining({ left: 1150, top: 250 }),
     );
-    expect(box.style.left).toBe("950px");
+    expect(box.style.left).toBe("1200px");
     expect(box.style.top).toBe("250px");
   });
 
@@ -216,14 +216,14 @@ describe("media gesture canvas containment", () => {
     enableDragCommit(gesture, video);
 
     handlers.onPointerMove(pointer(300, 0));
-    expect(box.style.left).toBe("950px");
+    expect(box.style.left).toBe("1200px");
 
     handlers.onPointerUp(pointer(300, 0));
     await Promise.resolve();
 
-    // Release must not repaint the full source x=900 over the visible crop
-    // x=950 while the persisted edit settles.
-    expect(box.style.left).toBe("950px");
+    // Release must not repaint the full source x=1150 over the visible crop
+    // x=1200 while the persisted edit settles.
+    expect(box.style.left).toBe("1200px");
     expect(box.style.top).toBe("250px");
   });
 
@@ -279,7 +279,7 @@ describe("media gesture canvas containment", () => {
     );
   });
 
-  it("caps a video resize at the canvas boundary before the draft is committed", () => {
+  it("allows an oversized video without silently clipping or capping its source", () => {
     const video = document.createElement("video");
     const { handlers, gesture } = moveHarness(video);
     Object.assign(gesture, {
@@ -297,9 +297,11 @@ describe("media gesture canvas containment", () => {
       actualHeight: 100,
     });
 
-    // Raw radial scale is 16x (800 / 50), but the 600px-tall canvas is the cap.
+    // Raw radial scale is 16x (800 / 50). Canvas clipping must not rewrite
+    // the media size or add a permanent crop to its source.
     handlers.onPointerMove(pointer(1300, 300));
 
-    expect(readStudioBoxSize(video)).toEqual({ width: 600, height: 600 });
+    expect(readStudioBoxSize(video)).toEqual({ width: 1600, height: 1600 });
+    expect(video.style.clipPath).toBe("");
   });
 });

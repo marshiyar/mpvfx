@@ -20,6 +20,23 @@ describe("GitHub Actions readiness", () => {
     expect(init?.[1]).toBe(analyze?.[1]);
   });
 
+  it("fails closed on public visual evidence and keeps the scheduler away from release permissions", () => {
+    const visual = readRepositoryFile(".github/workflows/visual-release.yml");
+    expect(visual).toContain("steps.privacy.outcome == 'success'");
+    expect(visual).toContain("run: node scripts/automation/privacy.mjs");
+    expect(visual).toContain("path: studio/out/visual-release/public-evidence/");
+    expect(visual).not.toContain("if: always()");
+    expect(visual).not.toContain("visual-release/evidence/*");
+    const scheduler = readRepositoryFile(".github/workflows/quality-schedule.yml");
+    expect(scheduler).toContain("github.event_name != 'pull_request' && github.ref == 'refs/heads/main'");
+    expect(scheduler).toContain("actions: read");
+    expect(scheduler).not.toMatch(/actions: write|contents: write|schedule:|pull_request_target|secrets\.|gh release|git push|upload-artifact/);
+    for (const file of ["desktop.yml", "diagnostics.yml", "quality-cycle.yml", "visual-release.yml"]) {
+      const workflow = readRepositoryFile(`.github/workflows/${file}`);
+      expect(workflow).toContain("workflow_dispatch:");
+      expect(workflow).not.toMatch(/^  (push|pull_request|schedule):/m);
+    }
+  });
   it("keeps tests and source compilation in a dedicated non-publishing workflow", () => {
     const workflow = readRepositoryFile(".github/workflows/tests.yml");
 

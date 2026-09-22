@@ -1,3 +1,4 @@
+import { shiftAudioAutomationInHtml } from "../utils/splitAudioAutomation";
 import { type TimelineElement, usePlayerStore } from "../player/store/playerStore";
 import {
   applyPatchByTarget,
@@ -285,12 +286,14 @@ export function buildTimelineResizeTimingPatch(
     patched = applyPatchByTarget(patched, target, {
       type: "attribute",
       property: pbs.attrName,
-      value:
-        typeof pbs.value === "string"
-          ? pbs.value
-          : formatTimelineAttributeNumber(pbs.value),
+      value: typeof pbs.value === "string" ? pbs.value : formatTimelineAttributeNumber(pbs.value),
     });
   }
+  const previousStart = Number(
+    readAttributeByTarget(original, target, "data-start") ?? element.start,
+  );
+  const newStart = Number(exactAttributes?.start ?? updates.start);
+  patched = shiftAudioAutomationInHtml(patched, target, newStart - previousStart);
   // Content-driven duration from the PATCHED SOURCE (raw data-duration) —
   // grows/shrinks to the furthest clip end. Not from the store, whose
   // durations are runtime-truncated.
@@ -475,7 +478,11 @@ export async function persistElementAttribute({
   const previousValue = readAttributeByTarget(before, patchTarget, attr) ?? null;
   patchLive(value);
 
-  const operation: PatchOperation = { type: "attribute", property: attr, value };
+  const operation: PatchOperation = {
+    type: "attribute",
+    property: attr,
+    value,
+  };
   const patched = applyPatchByTarget(before, patchTarget, operation);
 
   pendingTimelineEditPathRef.current.add(targetPath);

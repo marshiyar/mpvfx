@@ -3,6 +3,12 @@ import { createServer, type Server } from "node:http";
 import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createStudioHttpService } from "../studio.http-service";
+import { randomUUID } from "node:crypto";
+import { performance } from "node:perf_hooks";
+import { handleDiagnosticRequest } from "../diagnostics/http";
+import type { Diagnostics } from "../diagnostics/logger";
+import { diagnosticRoute } from "../diagnostics/redact";
+import { recordDiagnostic, withDiagnosticContext } from "../diagnostics/context";
 
 export interface RunningStudioServer {
   origin: string;
@@ -14,6 +20,7 @@ interface StartStudioServerOptions {
   projectsDir: string;
   studioDir: string;
   version: string;
+  diagnostics?: Diagnostics;
 }
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -138,9 +145,32 @@ export async function startStudioServer(
       response.end(JSON.stringify({ error: "Untrusted desktop request origin" }));
       return;
     }
-    if (await service.handle(request, response)) return;
-    const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
-    serveStatic(options.staticDir, requestUrl.pathname, response);
+    if (options.diagnostics && await handleDiagnosticRequest(request, response, options.diagnostics)) return;
+    const requestId = randomUUID();
+    response.setHeader("X-MpVFX-Request-Id", requestId);
+    const started = performance.now();
+    const route = diagnosticRoute(request.url ?? "/");
+    const context = { requestId };
+    let finished = false;
+    const complete = (aborted: boolean) => {
+      if (finished) return;
+      finished = true;
+      const durationMs = Math.round(performance.now() - started);
+      if (aborted || response.statusCode >= 400 || request.method !== "GET" || durationMs > 1000) withDiagnosticContext(context, () => recordDiagnostic("http.finished", { route, method: request.method, status: response.statusCode, durationMs, aborted }, aborted || response.statusCode >= 400 ? "warn" : "info"));
+    };
+    response.once("finish", () => complete(false));
+    response.once("close", () => complete(!response.writableFinished));
+    await withDiagnosticContext(context, async () => {
+      try {
+        if (await service.handle(request, response)) return;
+        const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
+        serveStatic(options.staticDir, requestUrl.pathname, response);
+      } catch (error) {
+        recordDiagnostic("http.failed", { route, error }, "error");
+        if (!response.headersSent) response.writeHead(500, { "Content-Type": "application/json" });
+        response.end(JSON.stringify({ error: "Local request failed" }));
+      }
+    });
   });
   try {
     const port = await listen(server);

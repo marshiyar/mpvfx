@@ -69,7 +69,7 @@ function probeContainerName(absolutePath: string): Promise<string | null> {
         "--",
         absolutePath,
       ],
-      { timeout: 10_000, maxBuffer: 1024 * 1024 },
+      { windowsHide: true, timeout: 10_000, maxBuffer: 1024 * 1024 },
       (error, stdout) => {
         if (error) {
           resolveProbe(null);

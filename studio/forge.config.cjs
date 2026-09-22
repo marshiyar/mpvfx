@@ -4,6 +4,12 @@ const {
 } = require("./scripts/verify-packaged-media-binaries.cjs");
 const { assertPackagedRenderer } = require("./scripts/verify-packaged-renderer.cjs");
 const { assertPackagedLegalResources } = require("./scripts/verify-packaged-legal.cjs");
+const { assertWindowsBrowserLaunchPolicy } = require("./scripts/apply-windows-browser-patch.cjs");
+const {
+  assertAudioAnimationHandles,
+} = require("./scripts/apply-audio-animation-handles-patch.cjs");
+const { assertStreamingPngPolicy } = require("./scripts/apply-streaming-png-patch.cjs");
+const { PRIVATE_FILE_PATTERN, PRIVATE_DIRECTORY_PATTERN, assertPackagedPrivacy, removePackagedFinderMetadata } = require("./scripts/verify-packaged-privacy.cjs");
 const {
   assertPackagedRuntimeDependencies,
 } = require("./scripts/verify-packaged-runtime-dependencies.cjs");
@@ -20,11 +26,17 @@ module.exports = {
     },
     extraResource: [".puppeteer-cache/chrome-headless-shell", "resources/legal"],
     ignore: [
-      /\.csv$/i,
+      // Only compiled runtime inputs belong in the installed application.
+      /^\/(?!(?:node_modules|dist|desktop-dist|resources)(?:\/|$)|package(?:-lock)?\.json$).+/,
+      PRIVATE_FILE_PATTERN,
+      PRIVATE_DIRECTORY_PATTERN,
+      // Upstream's installer embeds an old signed-download example. It is not
+      // used by the installed app; only index.js and the binary are runtime inputs.
+      /^\/node_modules\/ffmpeg-static\/install\.js$/,
       /^\/(?:src|desktop|tests|fixtures|data|cache|renders|scripts)(?:\/|$)/,
       /^\/\.puppeteer-cache(?:\/|$)/,
       /^\/out(?:\/|$)/,
-      /^\/desktop-dist\/.*\.map$/,
+      /^\/(?:desktop-dist|dist)\/.*\.map$/,
       /^\/.*\.test\.[cm]?[jt]sx?$/,
       /^\/(?:vite|vitest|tsup|tailwind|postcss)\..*\.[cm]?[jt]s$/,
       /^\/tsconfig(?:\..+)?\.json$/,
@@ -45,12 +57,17 @@ module.exports = {
       arch,
     ) => {
       assertPreparedMediaBinaries(buildPath, platform, arch);
+      assertWindowsBrowserLaunchPolicy(buildPath);
+      assertStreamingPngPolicy(buildPath);
+      assertAudioAnimationHandles(buildPath);
     },
     postPackage: async (_forgeConfig, packageResult) => {
+      removePackagedFinderMetadata(packageResult);
       assertPackagedMediaBinaries(packageResult);
       assertPackagedRuntimeDependencies(packageResult);
       assertPackagedRenderer(packageResult);
       assertPackagedLegalResources(packageResult);
+      assertPackagedPrivacy(packageResult);
     },
   },
   makers: [

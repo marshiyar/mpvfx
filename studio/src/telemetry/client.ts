@@ -10,6 +10,7 @@ import { getBrowserSystemMeta } from "./system";
 import { canaryEventProperties } from "./canary";
 import { recordBreadcrumb } from "./breadcrumbs";
 import { configuredTelemetryEndpoint } from "./endpoint";
+import { recordLocalDiagnostic } from "../diagnostics/client";
 const FLUSH_INTERVAL_MS = 1_000;
 
 type EventProperties = Record<string, string | number | boolean | undefined>;
@@ -33,6 +34,7 @@ export function shouldTrack(): boolean {
 }
 
 export function trackEvent(event: string, properties: EventProperties = {}): void {
+  recordLocalDiagnostic(`action.${event}`, properties);
   if (!shouldTrack()) return;
 
   // Every studio event passes through here, so this is the one place that can

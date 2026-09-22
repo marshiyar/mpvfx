@@ -465,6 +465,47 @@ describe("native project render body script", () => {
     expect(exportElement.getAttribute("style")).toBe(previewStyle);
   });
 
+  it("evaluates hidden animation handles identically in preview and export for every visible frame", () => {
+    const project = projectDocument();
+    const clip = project.sequence.tracks[0]!.clips[0]!;
+    clip.durationFrames = 30;
+    clip.binding = { sourceFile: "index.html", domId: "export-clip" };
+    clip.parameterTracks = [createNativeParameterTrack({
+      id: "hidden-rotation",
+      parameterId: "transform.rotation",
+      valueType: "number",
+      frameRate: project.frameRate,
+      keyframes: [
+        {
+          id: "before-in", frame: -30, value: 0,
+          outgoing: { type: "cubic-bezier", controlPoints: { x1: 0.2, y1: -0.5, x2: 0.7, y2: 1.4 } },
+        },
+        { id: "after-out", frame: 90, value: 180, outgoing: { type: "hold" } },
+      ],
+    })];
+    const previewElement = document.createElement("div");
+    previewElement.setAttribute("data-studio-clip-id", clip.id);
+    const exportElement = document.createElement("div");
+    exportElement.id = "export-clip";
+    document.body.replaceChildren(previewElement, exportElement);
+    const script = createNativeProjectRenderBodyScript(serializeNativeProjectDocument(project));
+    expect(script).not.toBeNull();
+    window.eval(script!);
+    for (let local = 0; local < clip.durationFrames; local++) {
+      const frame = clip.startFrame + local;
+      applyNativeFrameToDocument(document, [{
+        clipId: clip.id, startFrame: clip.startFrame, durationFrames: clip.durationFrames,
+        parameterTracks: clip.parameterTracks,
+      }], frame);
+      previewElement.removeAttribute("data-studio-clip-id");
+      window.dispatchEvent(new CustomEvent("hf-seek", { detail: { time: frame / 30 } }));
+      expect(exportElement.getAttribute("style")).toBe(previewElement.getAttribute("style"));
+      const rotation = Number(exportElement.style.transform.match(/rotate\(([-\d.]+)deg\)/)?.[1]);
+      expect(rotation).toBeCloseTo(evaluateNativeParameterTrack(clip.parameterTracks[0]!, local) as number, 8);
+      previewElement.setAttribute("data-studio-clip-id", clip.id);
+    }
+  });
+
   it("renders native width and height tracks without overwriting legacy picture channels", () => {
     const project = projectDocument();
     const scalar = (id: string, parameterId: string, from: number, to: number) =>

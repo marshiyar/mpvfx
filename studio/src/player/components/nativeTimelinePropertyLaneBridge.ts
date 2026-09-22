@@ -78,7 +78,9 @@ export function nativeTimelinePropertyLanesForElement(
               frame: diamond.frame,
               clipDurationFrames: result.clipDurationFrames,
               hasFollowingKeyframe:
-                diamond.frame < lane.diamonds[lane.diamonds.length - 1]!.frame,
+                clip.parameterTracks
+                  .find((track) => track.parameterId === lane.parameterId)
+                  ?.keyframes.some((key) => key.frame > diamond.frame) ?? false,
               properties: { [lane.property]: diamond.value },
               outgoing: diamond.interpolation,
             },

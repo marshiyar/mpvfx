@@ -48,6 +48,9 @@ editor-reliability-plugin/
 *.verification-tmp
 *.stderr
 *.stdout
+*.jsonl
+*.dmp
+*diagnostics*.json.gz
 
 # Local secrets and logs
 .env
@@ -61,6 +64,7 @@ yarn-error.log*
 *.key
 *.p12
 *.pfx
+*.p8
 *.jks
 *.keystore
 *.mobileprovision
@@ -116,7 +120,11 @@ studio/cache/
 **/*cache*/
 studio/data/cache/
 studio/data/renders/
-studio/scripts/
+studio/scripts/*
+!studio/scripts/apply-windows-browser-patch.cjs
+!studio/scripts/verify-packaged-privacy.cjs
+!studio/scripts/apply-streaming-png-patch.cjs
+!studio/scripts/apply-audio-animation-handles-patch.cjs
 **/knip.jsonc
 **/ffmpeg-runtime-manifest.json
 *.puppeteer-cache

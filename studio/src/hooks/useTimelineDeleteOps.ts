@@ -2,6 +2,7 @@
 // the context menu uses. Extracted verbatim from useTimelineEditing.ts to keep
 // it under the studio 600-line cap, following useTimelineAssetDropOps.
 import { useCallback, useRef, type MutableRefObject, type RefObject } from "react";
+import { commitAuthoredTimelineDelete } from "../project/authoredTimelineSplitTransaction";
 import { removeElementFromHtml } from "@hyperframes/studio-server/source-mutation";
 import type { TimelineElement } from "../player";
 import { usePlayerStore } from "../player";
@@ -108,6 +109,47 @@ export function useTimelineDeleteOps({
           : `${editableSelection.length} clips`;
 
       const initialNativeDocument = nativeDocumentRef.current;
+      if (editableSelection.some((candidate) => candidate.timelineLocked)) {
+        showToast("Unlock selected clips before deleting them.", "error");
+        return;
+      }
+      if (
+        nativeProjectEditing &&
+        (!initialNativeDocument ||
+          editableSelection.some(
+            (candidate) =>
+              !resolveNativeClipSelection(initialNativeDocument, nativeDeleteTarget(candidate)).ok,
+          ))
+      ) {
+        try {
+          const result = await commitAuthoredTimelineDelete({
+            elements: editableSelection,
+            activeCompPath,
+            readOptionalProjectFile: nativeProjectEditing.readOptionalProjectFile,
+            writeProjectFile,
+            recordEdit,
+            commitFileTransaction: nativeProjectEditing.commitFileTransaction,
+          });
+          if (result.document) {
+            nativeDocumentRef.current = result.document;
+            nativeProjectEditing.onNativeDocumentCommitted(result.document);
+          }
+          const ids = new Set(editableSelection.map((candidate) => candidate.key ?? candidate.id));
+          usePlayerStore.setState((state) => ({
+            elements: state.elements.filter((candidate) => !ids.has(candidate.key ?? candidate.id)),
+            selectedElementId: null,
+            selectedElementIds: new Set(),
+            selectedKeyframes: new Set(),
+          }));
+          domEditSaveTimestampRef.current = Date.now();
+          forceReloadSdkSession?.();
+          reloadPreview();
+          showToast(`Deleted ${label}. Use Undo to restore.`, "info");
+        } catch (error) {
+          showToast(error instanceof Error ? error.message : "Failed to delete clips", "error");
+        }
+        return;
+      }
       if (nativeProjectEditing && initialNativeDocument) {
         const resolutions = editableSelection.map((candidate) =>
           resolveNativeClipSelection(initialNativeDocument, nativeDeleteTarget(candidate)),
@@ -115,7 +157,10 @@ export function useTimelineDeleteOps({
         const nativeCount = resolutions.filter((resolution) => resolution.ok).length;
         if (nativeCount > 0) {
           if (nativeCount !== editableSelection.length) {
-            showToast("Cannot delete a mixed native and legacy selection in one operation", "error");
+            showToast(
+              "Cannot delete a mixed native and legacy selection in one operation",
+              "error",
+            );
             return;
           }
 
@@ -156,20 +201,20 @@ export function useTimelineDeleteOps({
 
               const activePath = activeCompPath || "index.html";
               const activeContent = result.compatibilityContents[activePath];
-              const deleteContentEnd = activeContent
-                ? furthestClipEndFromSource(activeContent)
-                : 0;
+              const deleteContentEnd = activeContent ? furthestClipEndFromSource(activeContent) : 0;
               if (deleteContentEnd > 0) {
                 usePlayerStore.getState().setDuration(deleteContentEnd);
               }
               const deletedKeys = new Set(
                 editableSelection.map((candidate) => candidate.key ?? candidate.id),
               );
-              usePlayerStore.getState().setElements(
-                timelineElements.filter(
-                  (candidate) => !deletedKeys.has(candidate.key ?? candidate.id),
-                ),
-              );
+              usePlayerStore
+                .getState()
+                .setElements(
+                  timelineElements.filter(
+                    (candidate) => !deletedKeys.has(candidate.key ?? candidate.id),
+                  ),
+                );
               usePlayerStore.getState().setSelectedElementId(null);
               usePlayerStore.getState().setSelectedElementIds(new Set());
               domEditSaveTimestampRef.current = Date.now();
@@ -218,7 +263,10 @@ export function useTimelineDeleteOps({
             `/api/projects/${pid}/file-mutations/remove-element/${encodeURIComponent(targetPath)}`,
             {
               method: "POST",
-              headers: { "Content-Type": "application/json", ...studioWriteHeaders() },
+              headers: {
+                "Content-Type": "application/json",
+                ...studioWriteHeaders(),
+              },
               body: JSON.stringify({ target: patchTarget }),
             },
           );

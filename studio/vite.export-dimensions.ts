@@ -204,7 +204,10 @@ export async function resizeStandaloneExport(input: {
   });
   const runResize = (commandArgs: string[]) =>
     new Promise<void>((resolve, reject) => {
-      const child = spawnProcess(ffmpeg, commandArgs, { stdio: ["ignore", "ignore", "pipe"] });
+      const child = spawnProcess(ffmpeg, commandArgs, {
+        windowsHide: true,
+        stdio: ["ignore", "ignore", "pipe"],
+      });
       let stderr = "";
       let forceKillTimer: ReturnType<typeof setTimeout> | null = null;
       let settled = false;

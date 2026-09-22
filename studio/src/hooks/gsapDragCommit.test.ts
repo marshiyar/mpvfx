@@ -243,6 +243,31 @@ describe("commitKeyframedSizeFromResize — rendered-frame identity", () => {
     usePlayerStore.setState({ currentTime: 0, activeKeyframePct: null, activeKeyframeTarget: null });
   });
 
+  it("preserves the measured CSS size at A when the first canvas resize authors B", async () => {
+    const el = document.createElement("video");
+    el.id = "puck-a";
+    el.setAttribute("data-hf-studio-original-width", "100%");
+    el.setAttribute("data-hf-studio-original-height", "");
+    el.setAttribute("data-hf-studio-original-box-width", "640");
+    el.setAttribute("data-hf-studio-original-box-height", "360");
+    const tween = {
+      id: "#puck-a-rotation", targetSelector: "#puck-a", propertyGroup: "rotation",
+      method: "to", properties: { rotation: 90 }, resolvedStart: 0, duration: 2,
+    } as unknown as GsapAnimation;
+    const { mutations, callbacks } = recordingCallbacks();
+    usePlayerStore.setState({ currentTime: 2 });
+    await commitKeyframedSizeFromResize(
+      { id: "puck-a", selector: "#puck-a", element: el } as DomEditSelection,
+      { width: 320, height: 180 }, "#puck-a", null, tween, callbacks,
+    );
+    expect(mutations.find((m) => m.type === "add-with-keyframes")).toMatchObject({
+      keyframes: [
+        { percentage: 0, properties: { width: 640, height: 360 } },
+        { percentage: 100, properties: { width: 320, height: 180 } },
+      ],
+    });
+  });
+
   it("does not overwrite an adjacent output frame on a long tween", async () => {
     const el = document.createElement("div");
     el.id = "puck-a";

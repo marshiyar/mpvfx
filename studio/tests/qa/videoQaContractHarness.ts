@@ -48,7 +48,6 @@ import type {
   VideoQaBehaviorContract,
   VideoQaInvariantEntry,
 } from "./videoQaContractTypes";
-import { loadVideoQaCorpus } from "./videoQaCorpus";
 
 const FRAME_RATES: readonly RationalFrameRate[] = [
   { numerator: 24, denominator: 1 },
@@ -616,18 +615,14 @@ export async function assertVideoQaBehaviorContract(
   await ASSERTIONS[contract](questionId);
 }
 
-/** Register one cheap behavioral test per source row while sharing family-level fixtures. */
+/** Run the retained deterministic behavior cases without the retired source corpus. */
 export function registerVideoQaContractTests(
   label: string,
   entries: readonly VideoQaInvariantEntry[],
 ): void {
-  const corpus = loadVideoQaCorpus();
   describe(label, () => {
     for (const entry of entries) {
-      const source = corpus[entry.sourceLine - 1];
-      const title = source?.title.replace(/\s+/gu, " ").trim().slice(0, 100) ?? "missing source";
-      it(`[${entry.questionId}] ${title}`, async () => {
-        expect(source?.question_id).toBe(entry.questionId);
+      it(`${entry.contract} (case ${entry.questionId})`, async () => {
         await assertVideoQaBehaviorContract(entry.contract, entry.questionId);
       });
     }

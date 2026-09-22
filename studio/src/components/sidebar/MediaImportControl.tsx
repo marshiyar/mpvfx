@@ -30,6 +30,7 @@ export function MediaImportControl({ onImport, importing = false }: MediaImportC
         disabled={importing}
         aria-busy={importing}
         aria-label="Import media"
+        data-diagnostic-action="import-media"
         title="Import media"
         className="flex h-8 flex-shrink-0 items-center justify-center gap-1.5 rounded-md bg-panel-input px-3 py-[7px] text-[11px] font-medium text-panel-text-3 transition-colors enabled:hover:text-panel-text-1 enabled:active:scale-[0.98] disabled:opacity-60"
       >

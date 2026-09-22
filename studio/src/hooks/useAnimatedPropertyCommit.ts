@@ -12,18 +12,17 @@ import type { GsapAnimation } from "@hyperframes/core/gsap-parser";
 import { classifyPropertyGroup } from "@hyperframes/core/gsap-parser";
 import type { DomEditSelection } from "../components/editor/domEditingTypes";
 import { usePlayerStore } from "../player/store/playerStore";
-import { readAllAnimatedProperties, readGsapProperty } from "./gsapRuntimeBridge";
+import { readAllAnimatedProperties, readGsapProperty } from "./gsapRuntimeReaders";
 import type { SetPatchProps } from "./gsapRuntimePatch";
 import {
   selectorFromSelection,
   computeElementPercentage,
   isInstantHold,
-  keyframeIsAtOutputTime,
   resolveEditableTweenDuration,
   writeTargetSelector,
   tweenTargetsElement,
 } from "./gsapShared";
-import { resolveTweenStart, resolveTweenDuration } from "../utils/globalTimeCompiler";
+import { resolveTweenStart } from "../utils/globalTimeCompiler";
 import { roundTo3 } from "../utils/rounding";
 import { commitWholePropertyOffset } from "./gsapWholePropertyOffsetCommit";
 import {
@@ -33,6 +32,8 @@ import {
 } from "./gsapEditOutcome";
 import type { CommitMutation, CommitMutationCall } from "./gsapScriptCommitTypes";
 import { activeKeyframePercentageForAnimation } from "./activeKeyframeIdentity";
+import { gsapKeyframeEditTarget } from "./gsapKeyframeEditTarget";
+import { newPropertyKeyframes } from "./gsapNewPropertyKeyframes";
 
 interface CommitAnimatedPropertyDeps {
   selectedGsapAnimations: GsapAnimation[];
@@ -50,6 +51,7 @@ interface CommitAnimatedPropertyDeps {
 function pickBestAnimation(
   animations: GsapAnimation[],
   selector: string | null,
+  selection: DomEditSelection,
   property?: string,
 ): GsapAnimation | undefined {
   const targetGroup = property ? classifyPropertyGroup(property) : undefined;
@@ -64,6 +66,10 @@ function pickBestAnimation(
       ? animations.filter((a) => a.propertyGroup === targetGroup)
       : animations;
   if (candidates.length === 0) return undefined;
+  const selected = candidates.find(
+    (candidate) => activeKeyframePercentageForAnimation(selection, candidate) != null,
+  );
+  if (selected) return selected;
   if (candidates.length === 1) return candidates[0];
   const currentTime = usePlayerStore.getState().currentTime;
   // Intentional multi-signal ranking: group match, selector specificity, and playhead overlap.
@@ -80,31 +86,6 @@ function pickBestAnimation(
   });
   scored.sort((a, b) => b.score - a.score);
   return scored[0]?.anim;
-}
-
-/**
- * Auto-keyframe a just-updated static `set`: if the element is already animated
- * (its clip carries keyframes on another tween), convert the set to keyframes so
- * subsequent edits at other playheads interpolate — matching the drag / resize /
- * rotate UX. Purely static elements (no other keyframes) are left as a set.
- */
-async function maybeAutoKeyframeSet(
-  selection: DomEditSelection,
-  setAnim: GsapAnimation,
-  animations: GsapAnimation[],
-  commit: NonNullable<CommitAnimatedPropertyDeps["gsapCommitMutation"]>,
-): Promise<void> {
-  const animatedTween = animations.find((a) => a.keyframes && a.id !== setAnim.id);
-  if (!animatedTween) return;
-  await commit(
-    selection,
-    {
-      type: "convert-to-keyframes",
-      animationId: setAnim.id,
-      duration: animatedTween.duration ?? 1,
-    },
-    { label: "Keyframe 3D transform", softReload: true },
-  );
 }
 
 type Commit = CommitMutation;
@@ -138,34 +119,21 @@ function staticSetLabel(propEntries: [string, number | string][]): string {
   return (only && STATIC_SET_LABELS[only]) || "Set properties";
 }
 
-function identityBaselineForProperty(property: string, editedValue: number | string): number | string {
+function identityBaselineForProperty(
+  property: string,
+  editedValue: number | string,
+): number | string {
   if (
     property === "opacity" ||
     property === "autoAlpha" ||
     property === "scale" ||
     property === "scaleX" ||
-    property === "scaleY"
+    property === "scaleY" ||
+    property === "scaleZ"
   ) {
     return 1;
   }
   return typeof editedValue === "number" ? 0 : editedValue;
-}
-
-/** Merge ALL props into the static `set` in ONE commit (value-only, instant), then
- *  auto-keyframe. One mutation — a per-property loop would shift the set's
- *  group-derived id mid-way (e.g. reset adding `scale` to a rotation set), 404-ing
- *  the next update. */
-async function commitSetProps(
-  selection: DomEditSelection,
-  setAnim: GsapAnimation,
-  propEntries: [string, number | string][],
-  selector: string | null,
-  animations: GsapAnimation[],
-  commit: Commit,
-): Promise<void> {
-  const call = buildSetPropsCall(selection, setAnim, propEntries, selector);
-  await commit(call.selection, call.mutation, call.options);
-  await maybeAutoKeyframeSet(selection, setAnim, animations, commit);
 }
 
 function buildSetPropsCall(
@@ -366,8 +334,16 @@ async function commitKeyframeProps(
     );
   }
   const ct = usePlayerStore.getState().currentTime;
-  const runtimeProps = selector ? readAllAnimatedProperties(iframe, selector, anim) : {};
-  const properties: Record<string, number | string> = { ...runtimeProps, ...props };
+  const pct =
+    gsapKeyframeEditTarget(selection, anim, ct) ?? computeElementPercentage(ct, selection, anim);
+  const existingKf = anim.keyframes?.keyframes.find((kf) => kf.percentage === pct);
+  const runtimeProps = selector
+    ? readAllAnimatedProperties(iframe, selector, anim, anim.propertyGroup)
+    : {};
+  const properties: Record<string, number | string> = {
+    ...(existingKf?.properties ?? runtimeProps),
+    ...props,
+  };
 
   const backfillDefaults: Record<string, number | string> = { ...runtimeProps };
   for (const [property, value] of propEntries) {
@@ -375,7 +351,8 @@ async function commitKeyframeProps(
       const cssVal = readGsapProperty(iframe, selector, property);
       if (cssVal != null) backfillDefaults[property] = cssVal;
     }
-    backfillDefaults[property] = value;
+    if (!(property in backfillDefaults))
+      backfillDefaults[property] = identityBaselineForProperty(property, value);
   }
 
   // Playhead OUTSIDE the keyframe tween's time range → EXTEND the tween to reach it
@@ -429,19 +406,41 @@ async function commitKeyframeProps(
     return;
   }
 
-  const pct = computeElementPercentage(ct, selection, anim);
-  const selectionStart = Number.parseFloat(selection.dataAttributes?.start ?? "0") || 0;
-  const existingKf = anim.keyframes?.keyframes.find((kf) =>
-    keyframeIsAtOutputTime(kf.percentage, ct, {
-      start: ts ?? selectionStart,
-      duration: td,
-    }),
-  );
   // The playhead percentage is a rendered-frame lookup, not the durable source
   // key. Once that frame resolves to an authored keyframe, carry its exact
   // percentage through the writer and runtime rebuild so a long tween's dense
   // neighbouring frames remain independently addressable.
   const mutationPct = existingKf?.percentage ?? pct;
+  const newChannels = propEntries.filter(
+    ([property]) => !kfs?.some((keyframe) => property in keyframe.properties),
+  );
+  if (existingKf && kfs && newChannels.length > 0) {
+    const baselines = Object.fromEntries(
+      newChannels.map(([property]) => [property, backfillDefaults[property]]),
+    );
+    await commit(
+      selection,
+      {
+        type: "replace-with-keyframes",
+        animationId: anim.id,
+        targetSelector: anim.targetSelector,
+        position: ts ?? 0,
+        duration: td,
+        keyframes: kfs.map((keyframe) => ({
+          ...keyframe,
+          properties: {
+            ...baselines,
+            ...keyframe.properties,
+            ...(keyframe.percentage === mutationPct ? props : {}),
+          },
+        })),
+        ...(anim.ease ? { ease: anim.ease } : {}),
+        ...(anim.keyframes?.easeEach ? { easeEach: anim.keyframes.easeEach } : {}),
+      },
+      { label: `Keyframe ${primaryProp}`, softReload: true },
+    );
+    return;
+  }
   // Rebuild the live keyframe tween in place so the edit shows instantly (no flash);
   // rebuildKeyframeTween declines → soft reload if the tween can't be safely rebuilt.
   const numericProps: Record<string, number> = {};
@@ -485,10 +484,36 @@ export function useAnimatedPropertyCommit(deps: CommitAnimatedPropertyDeps) {
   const commitAnimatedProperties = useCallback(
     // This is the single routing boundary for set, keyframe, whole-tween, and first-group writes.
     // fallow-ignore-next-line complexity
-    async (selection: DomEditSelection, props: Record<string, number | string>): Promise<void> => {
-      if (!gsapCommitMutation) return;
+    async function commitProperties(
+      selection: DomEditSelection,
+      props: Record<string, number | string>,
+      commit: CommitMutation | null = gsapCommitMutation,
+    ): Promise<void> {
+      if (!commit) return;
       const propEntries = Object.entries(props);
       if (propEntries.length === 0) return;
+      const groups = new Map<string, Record<string, number | string>>();
+      for (const [property, value] of propEntries) {
+        const group = classifyPropertyGroup(property);
+        groups.set(group, { ...groups.get(group), [property]: value });
+      }
+      if (groups.size > 1 && selectedGsapAnimations.some((animation) => animation.keyframes)) {
+        // Plan all property groups before writing so a transform reset or a
+        // combined edit cannot merge unrelated channels into the first tween.
+        const calls: CommitMutationCall[] = [];
+        const buffer: CommitMutation = async (target, mutation, options) => {
+          calls.push({ selection: target, mutation, options });
+        };
+        buffer.batch = async (pending) => {
+          calls.push(...pending);
+        };
+        for (const properties of groups.values())
+          await commitProperties(selection, properties, buffer);
+        const options = { label: "Edit keyframed properties", softReload: true };
+        if (commit.batch) await commit.batch(calls, options);
+        else for (const call of calls) await commit(call.selection, call.mutation, call.options);
+        return;
+      }
       const primaryProp = propEntries[0]![0];
       assertGsapEditPersisted(
         directEditOutcomeForProperties(
@@ -503,6 +528,7 @@ export function useAnimatedPropertyCommit(deps: CommitAnimatedPropertyDeps) {
       const anim: GsapAnimation | undefined = pickBestAnimation(
         selectedGsapAnimations,
         selector,
+        selection,
         primaryProp,
       );
       if (!anim && !writeTargetSelector(selection)) {
@@ -527,23 +553,14 @@ export function useAnimatedPropertyCommit(deps: CommitAnimatedPropertyDeps) {
         // or a 3D `set` would short-circuit to an in-place update and the playhead
         // keyframe would never land (the bug: scrolling depth on a keyframed element
         // just changed the constant instead of dropping a keyframe).
-        if (elementHasKeyframes && anim) {
+        if (elementHasKeyframes && anim && !isInstantHold(anim)) {
           // With auto-keyframe off (#1808), nudge the whole tween instead of
           // adding a keyframe between authored frames. An edit made ON an
           // authored keyframe still edits that keyframe; treating it as a whole
           // tween offset makes the visible diamond lie about what was changed.
           if (!usePlayerStore.getState().autoKeyframeEnabled) {
             const currentTime = usePlayerStore.getState().currentTime;
-            const tweenStart = resolveTweenStart(anim);
-            const tweenDuration = resolveEditableTweenDuration(anim, selection);
-            const selectionStart = Number.parseFloat(selection.dataAttributes?.start ?? "0") || 0;
-            const hasKeyframeAtPlayhead = anim.keyframes?.keyframes.some((keyframe) =>
-              keyframeIsAtOutputTime(keyframe.percentage, currentTime, {
-                start: tweenStart ?? selectionStart,
-                duration: tweenDuration,
-              }),
-            );
-            if (hasKeyframeAtPlayhead) {
+            if (gsapKeyframeEditTarget(selection, anim, currentTime) != null) {
               await commitKeyframeProps(
                 selection,
                 anim,
@@ -552,15 +569,11 @@ export function useAnimatedPropertyCommit(deps: CommitAnimatedPropertyDeps) {
                 primaryProp,
                 selector,
                 iframe,
-                gsapCommitMutation,
+                commit,
               );
               return;
             }
-            const pct = computeElementPercentage(
-              currentTime,
-              selection,
-              anim,
-            );
+            const pct = computeElementPercentage(currentTime, selection, anim);
             await commitWholePropertyOffset(
               selection,
               anim,
@@ -569,7 +582,7 @@ export function useAnimatedPropertyCommit(deps: CommitAnimatedPropertyDeps) {
               ),
               pct,
               iframe,
-              { commitMutation: gsapCommitMutation },
+              { commitMutation: commit },
               `Edit ${primaryProp} (whole animation)`,
             );
             return;
@@ -582,7 +595,7 @@ export function useAnimatedPropertyCommit(deps: CommitAnimatedPropertyDeps) {
             primaryProp,
             selector,
             iframe,
-            gsapCommitMutation,
+            commit,
           );
           return;
         }
@@ -594,27 +607,7 @@ export function useAnimatedPropertyCommit(deps: CommitAnimatedPropertyDeps) {
         // must update the position set AND create a size set atomically rather
         // than contaminating the first set with a foreign property group.
         if (!elementHasKeyframes) {
-          await commitStaticSet(
-            selection,
-            propEntries,
-            selector,
-            selectedGsapAnimations,
-            gsapCommitMutation,
-          );
-          return;
-        }
-
-        // Existing static hold on an otherwise animated element — merge the props
-        // into the same write, then auto-keyframe it against the sibling tween.
-        if (anim && isInstantHold(anim)) {
-          await commitSetProps(
-            selection,
-            anim,
-            propEntries,
-            selector,
-            selectedGsapAnimations,
-            gsapCommitMutation,
-          );
+          await commitStaticSet(selection, propEntries, selector, selectedGsapAnimations, commit);
           return;
         }
 
@@ -622,50 +615,51 @@ export function useAnimatedPropertyCommit(deps: CommitAnimatedPropertyDeps) {
         // keyframe on an element that only has a position tween). Create a fresh
         // same-group keyframed tween WITH a 0% baseline at the playhead, instead of
         // contaminating a foreign-group tween. Mirror an existing keyframed tween's
-        // time range so the new group animates over the same span. The 0% baseline is
-        // an `_auto` endpoint so it tracks the nearest keyframe as you add more.
+        // time range and preserve the other authored poses.
         // A fresh tween, so its target must address ONE element; with no
         // one-element form the edit is dropped rather than written onto every
         // class sibling (see writeTargetSelector).
         const newTweenTarget = writeTargetSelector(selection);
         if (newTweenTarget) {
-          const template = selectedGsapAnimations.find((a) => !!a.keyframes);
-          const tStart = template ? (resolveTweenStart(template) ?? 0) : 0;
-          const tDur = template ? resolveTweenDuration(template) || 1 : 1;
-          const ct = usePlayerStore.getState().currentTime;
-          const pct =
-            tDur > 0
-              ? canonicalKeyframePercentage(((ct - tStart) / tDur) * 100)
-              : 0;
+          const templates = selectedGsapAnimations.filter(
+            (a) => !!a.keyframes && !isInstantHold(a),
+          );
+          const template =
+            templates.find((a) => gsapKeyframeEditTarget(selection, a) != null) ?? templates[0];
+          if (!template) throw new GsapEditBlockedError("source-uneditable");
           const newProps = Object.fromEntries(propEntries);
           const baselineSelector = selector ?? newTweenTarget;
           const baselineProps = Object.fromEntries(
             propEntries.map(([property, value]) => [
               property,
-              readGsapProperty(iframe, baselineSelector, property) ??
+              anim?.properties[property] ??
+                readGsapProperty(iframe, baselineSelector, property) ??
                 identityBaselineForProperty(property, value),
             ]),
           );
-          const keyframes =
-            pct === 0
-              ? [{ percentage: 0, properties: newProps }]
-              : [
-                  { percentage: 0, properties: baselineProps },
-                  { percentage: pct, properties: newProps },
-                ];
-          await gsapCommitMutation(
-            selection,
-            {
-              type: "add-with-keyframes",
-              targetSelector: newTweenTarget,
-              position: roundTo3(tStart),
-              duration: roundTo3(tDur),
-              keyframes,
-              ...(template?.ease ? { ease: template.ease } : {}),
-              ...(template?.keyframes?.easeEach ? { easeEach: template.keyframes.easeEach } : {}),
-            },
-            { label: `Add ${primaryProp} keyframe`, softReload: true },
-          );
+          const mutation = newPropertyKeyframes(selection, template, newProps, baselineProps);
+          if (anim && commit.batch) {
+            const options = { label: `Keyframe ${primaryProp}`, softReload: true };
+            await commit.batch(
+              [
+                { selection, mutation, options },
+                { selection, mutation: { type: "delete", animationId: anim.id }, options },
+              ],
+              options,
+            );
+            return;
+          }
+          await commit(selection, mutation, {
+            label: `Add ${primaryProp} keyframe`,
+            softReload: !anim,
+            skipReload: !!anim,
+          });
+          if (anim)
+            await commit(
+              selection,
+              { type: "delete", animationId: anim.id },
+              { label: `Keyframe ${primaryProp}`, softReload: true },
+            );
           return;
         }
         throw new GsapEditBlockedError("no-selector");

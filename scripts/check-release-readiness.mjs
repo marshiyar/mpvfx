@@ -3,6 +3,9 @@ import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { basename, dirname, extname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
+
+const { assertPublicContent, assertPublicPath } = createRequire(import.meta.url)("../studio/scripts/verify-packaged-privacy.cjs");
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const failures = [];
@@ -19,9 +22,9 @@ function read(path) {
   return readFileSync(pathOf(path), "utf8");
 }
 
+// Repository policy documents and duplicate notices may be deliberately removed.
+// Only retained release inputs and packaged resources belong in this gate.
 const required = [
-  // Repository guidance, architecture notes, and optional test fixtures can be
-  // deliberately removed. Only resources required by the release belong here.
   "README.md", "LICENSE", "NOTICE", "CHANGELOG.md",
   ".gitattributes", ".gitignore", ".github/dependabot.yml",
   ".github/PULL_REQUEST_TEMPLATE.md", ".github/ISSUE_TEMPLATE/bug_report.yml",
@@ -51,6 +54,9 @@ if (pkg.license !== "Apache-2.0") fail("studio/package.json license must be Apac
 if (Object.hasOwn(pkg, "publishConfig")) fail("Remove npm publishConfig from the private application");
 if (lock.packages?.[""]?.name !== "mpvfx") fail("package-lock root name is not mpvfx");
 if (lock.packages?.[""]?.license !== "Apache-2.0") fail("package-lock root license must be Apache-2.0");
+if (pkg.version !== lock.version || pkg.version !== lock.packages?.[""]?.version) {
+  fail("Application and lockfile versions must match before release");
+}
 
 const license = read("LICENSE");
 for (const marker of ["Apache License", "Version 2.0, January 2004", "http://www.apache.org/licenses/"]) {
@@ -86,7 +92,7 @@ const forbiddenPrefixes = [
   "studio/data/projects/", "studio/renders/", ".agents/", ".codex/", ".claude/",
   ".chatgpt/", ".cursor/", ".continue/", ".windsurf/", ".opencode/", ".gemini/",
 ];
-const secretExtensions = new Set([".pem", ".key", ".p12", ".pfx", ".jks", ".keystore"]);
+const secretExtensions = new Set([".pem", ".key", ".p12", ".pfx", ".jks", ".keystore", ".csv"]);
 const protectedMediaExtensions = new Set([
   ".3dl", ".aac", ".ass", ".avi", ".bmp", ".cube", ".flac", ".gif", ".heic", ".heif",
   ".jpeg", ".jpg", ".lut", ".m4a", ".m4v", ".mkv", ".mov", ".mp3", ".mp4", ".mpeg",
@@ -97,15 +103,23 @@ const allowedDigest = "4662cef1ee4423640d4db8b8880ea889d6e0af6e4466d88f5ee15f2dc
 for (const path of publicationFiles) {
   if (extname(path).toLowerCase() === ".csv") {
     fail("Private CSV files cannot be published (filename withheld)");
-    continue; // Refuse without reading private CSV contents.
+    continue; // Refuse by type without reading private CSV contents.
   }
   if (forbiddenPrefixes.some((prefix) => path.startsWith(prefix))) fail(`Private/local path is publishable: ${path}`);
   const name = basename(path);
-  if ((name === ".env" || (name.startsWith(".env.") && name !== ".env.example")) || secretExtensions.has(extname(name))) {
+  if ((name === ".env" || (name.startsWith(".env.") && name !== ".env.example")) || secretExtensions.has(extname(name).toLowerCase())) {
     fail(`Potential secret file is publishable: ${path}`);
   }
   const absolute = pathOf(path);
   const stat = lstatSync(absolute);
+  if (stat.isSymbolicLink()) fail(`Publishable symbolic link requires review: ${path}`);
+  try {
+    if (name !== ".env.example") assertPublicPath(path);
+    if (stat.isFile() && stat.size <= 50 * 1024 * 1024) {
+      const content = readFileSync(absolute);
+      if (!content.includes(0)) assertPublicContent(content.toString("utf8"), path);
+    }
+  } catch (error) { fail(error.message); }
   if (stat.size > 50 * 1024 * 1024) fail(`Publishable file exceeds GitHub's safe size boundary: ${path}`);
   if (protectedMediaExtensions.has(extname(path).toLowerCase())) {
     if (path !== allowedMedia) fail(`Personal or unreviewed media file is publishable: ${path}`);

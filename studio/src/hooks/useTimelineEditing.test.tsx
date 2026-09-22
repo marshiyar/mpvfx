@@ -966,7 +966,7 @@ describe("useTimelineEditing timeline z-index reorder", () => {
     hook.unmount();
   });
 
-  it("scales authored GSAP positions after an SDK-backed clip resize commits", async () => {
+  it("retains authored GSAP timing when trimming an SDK-backed clip", async () => {
     const { clip, fetchMock, hook, invalidateGsapCache, writeProjectFile } =
       await setupSdkKeyframedClipHarness();
 
@@ -976,19 +976,9 @@ describe("useTimelineEditing timeline z-index reorder", () => {
 
     expect(writeProjectFile.mock.calls[0]?.[1]).toContain('data-start="2"');
     expect(writeProjectFile.mock.calls[0]?.[1]).toContain('data-duration="4"');
-    const mutationCall = fetchMock.mock.calls.find((call) =>
-      requestUrl(call[0]).includes("/gsap-mutations/"),
-    );
-    expect(mutationCall).toBeDefined();
-    const init = mutationCall?.[1] as RequestInit | undefined;
-    expect(JSON.parse(String(init?.body))).toEqual({
-      type: "scale-positions",
-      targetSelector: "#clip",
-      oldStart: 1,
-      oldDuration: 2,
-      newStart: 2,
-      newDuration: 4,
-    });
+    expect(
+      fetchMock.mock.calls.filter((call) => requestUrl(call[0]).includes("/gsap-mutations/")),
+    ).toHaveLength(0);
     expect(invalidateGsapCache).toHaveBeenCalledTimes(1);
 
     hook.unmount();

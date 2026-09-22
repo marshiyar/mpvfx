@@ -81,6 +81,12 @@ jobs:
       - name: Run tests
         run: npm --prefix studio test
 
+      - name: Verify media crop pixels in Chromium
+        run: npm --prefix studio run test:media-crop
+
+      - name: Verify keyframe gestures, interpolation, persistence and undo in Chromium
+        run: npm --prefix studio run test:native-keyframes-e2e
+
   compile:
     if: github.event_name == 'workflow_dispatch'
     name: Typecheck and compile

@@ -1,0 +1,73 @@
+name: Released desktop visual verification
+run-name: Visual release ${{ inputs.release_tag || 'v0.0.2' }} ${{ inputs.audit_key || github.sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Verify all targets or a Windows-only harness change
+        type: choice
+        options: [all, windows]
+        default: all
+      release_tag:
+        description: Published version to inspect
+        default: v0.0.2
+        type: string
+      audit_key:
+        description: Deterministic scheduler fingerprint
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: visual-release-${{ inputs.audit_key || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  visual:
+    name: Visual review on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(inputs.platform == 'windows' && '["windows-2025"]' || '["windows-2025","macos-15","macos-15-intel","ubuntu-24.04"]') }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: studio/.nvmrc
+          cache: npm
+          cache-dependency-path: studio/package-lock.json
+      - name: Install test dependencies
+        run: npm ci --prefix studio
+      - name: Install Linux test desktop
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes openbox scrot
+      - name: Inspect downloaded release on native desktop
+        if: runner.os != 'Linux'
+        env:
+          MPVFX_VISUAL_RELEASE_TAG: ${{ inputs.release_tag || 'v0.0.2' }}
+        run: node studio/tests/e2e/visual-release.mjs
+      - name: Inspect downloaded release in Linux desktop
+        if: runner.os == 'Linux'
+        env:
+          MPVFX_VISUAL_RELEASE_TAG: ${{ inputs.release_tag || 'v0.0.2' }}
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1600x1000x24" sh -c 'openbox >/dev/null 2>&1 & node studio/tests/e2e/visual-release.mjs'
+      - name: Validate and stage public synthetic evidence
+        if: ${{ !cancelled() }}
+        id: privacy
+        run: node scripts/automation/privacy.mjs
+      - name: Retain synthetic visual evidence only
+        if: ${{ !cancelled() && steps.privacy.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: visual-${{ matrix.os }}
+          path: studio/out/visual-release/public-evidence/
+          if-no-files-found: error
+          retention-days: 3

@@ -75,6 +75,43 @@ function keyframedScaleFixture(): GsapAnimation {
   } as unknown as GsapAnimation;
 }
 
+it.each(["playhead", "selected", "between"])("respects size-keyframe ownership with auto-key disabled (%s)", async (mode) => {
+  const selected = mode === "selected";
+  const el = document.createElement("video");
+  el.id = "clip";
+  const selection = { id: "clip", selector: "#clip", element: el } as DomEditSelection;
+  const anim = {
+    id: "#clip-size", targetSelector: "#clip", propertyGroup: "size", method: "to",
+    properties: { width: 640, height: 360 }, resolvedStart: 0, duration: 2,
+    keyframes: { keyframes: [
+      { percentage: 0, properties: { width: 640, height: 360 } },
+      { percentage: 100, properties: { width: 640, height: 360 } },
+    ] },
+  } as unknown as GsapAnimation;
+  usePlayerStore.setState({
+    currentTime: mode === "playhead" ? 2 : 1, autoKeyframeEnabled: false,
+    activeKeyframePct: selected ? 100 : null,
+    activeKeyframeTarget: selected ? { elementId: "index.html#clip", animationId: anim.id, tweenPercentage: 100 } : null,
+  });
+  const commit = vi.fn();
+  await tryGsapResizeIntercept(selection, { width: 320, height: 180 }, [anim], null, commit);
+  expect(commit).toHaveBeenCalledTimes(1);
+  if (mode === "between") {
+    expect(commit.mock.calls[0]![1]).toMatchObject({
+      type: "replace-with-keyframes", animationId: anim.id,
+      keyframes: [
+        { percentage: 0, properties: { width: 320, height: 180 } },
+        { percentage: 100, properties: { width: 320, height: 180 } },
+      ],
+    });
+    return;
+  }
+  expect(commit.mock.calls[0]![1]).toMatchObject({
+    type: "add-keyframe", animationId: anim.id, percentage: 100,
+    properties: { width: 320, height: 180 },
+  });
+});
+
 // Resize/rotation hold tests intentionally pin the same no-conversion contract.
 // fallow-ignore-next-line code-duplication
 it("updates a duration-zero size hold in place instead of converting it to keyframes", async () => {

@@ -10,7 +10,7 @@ import {
   rm,
   stat,
 } from "node:fs/promises";
-import { dirname, isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 
 export interface DurableFileTransactionChange {
   /** Project-root-relative path. Transaction targets may not live in `.hyperframes`. */
@@ -190,8 +190,11 @@ function normalizeTargetPath(path: string): string {
   if (segments.some((segment) => !segment || segment === "." || segment === "..")) {
     throw new Error(`Unsafe transaction target: ${JSON.stringify(path)} contains traversal`);
   }
-  const normalized = normalize(path);
-  if (normalized !== path || normalized === ".." || normalized.startsWith(`..${sep}`)) {
+  // Transaction requests and journals use slash-separated project paths on
+  // every OS. Native Windows normalization changes those valid slashes to
+  // backslashes; filesystem resolution below remains platform-specific.
+  const normalized = posix.normalize(path);
+  if (normalized !== path || normalized === ".." || normalized.startsWith("../")) {
     throw new Error(`Unsafe transaction target: ${JSON.stringify(path)} contains traversal`);
   }
   if (segments[0] === JOURNAL_PARENT) {

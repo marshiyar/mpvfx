@@ -17,6 +17,7 @@ import { BlocksTab, type BlockPreviewInfo } from "./BlocksTab";
 import { Tooltip } from "../ui";
 import { useBlockCatalog } from "../../hooks/useBlockCatalog";
 import { MediaImportControl } from "./MediaImportControl";
+import { DiagnosticsControl } from "../DiagnosticsControl";
 
 export type SidebarTab = "compositions" | "assets" | "blocks";
 
@@ -300,6 +301,7 @@ export const LeftSidebar = memo(
 
           </>
         )}
+        <DiagnosticsControl />
       </div>
     );
   }),

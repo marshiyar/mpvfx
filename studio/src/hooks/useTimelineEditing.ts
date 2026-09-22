@@ -1,4 +1,5 @@
 // fallow-ignore-file complexity
+import { parseAutomation, serializeAutomation } from "@hyperframes/core/audio-automation";
 import { useCallback, useRef } from "react";
 import type { TimelineElement } from "../player";
 import { useRazorSplit } from "./useRazorSplit";
@@ -328,12 +329,7 @@ export function useTimelineEditing({
                 String(destinationTrack.lane.authoredTrack),
               ]);
             }
-            patchIframeDomTiming(
-              previewIframeRef.current,
-              element,
-              exactLiveAttrs,
-              activeCompPath,
-            );
+            patchIframeDomTiming(previewIframeRef.current, element, exactLiveAttrs, activeCompPath);
             syncPreviewContentDuration(previewIframeRef.current);
             forceReloadSdkSession?.();
           });
@@ -442,11 +438,27 @@ export function useTimelineEditing({
         ["data-start", formatTimelineAttributeNumber(updates.start)],
         ["data-duration", formatTimelineAttributeNumber(updates.duration)],
       ];
-      if (updates.playbackStart != null) {
+      if (startChanged && element.automation) {
+        const originalAutomation =
+          liveElementBefore?.getAttribute("data-automation") ?? element.automation;
+        const automation = parseAutomation(originalAutomation);
+        liveTimingBefore.push(["data-automation", originalAutomation]);
         liveAttrs.push([
-          playbackStartAttr,
-          formatTimelineAttributeNumber(updates.playbackStart),
+          "data-automation",
+          serializeAutomation({
+            ...automation,
+            lanes: automation.lanes.map((lane) => ({
+              ...lane,
+              points: lane.points.map((point) => ({
+                ...point,
+                t: point.t - (updates.start - element.start),
+              })),
+            })),
+          }),
         ]);
+      }
+      if (updates.playbackStart != null) {
+        liveAttrs.push([playbackStartAttr, formatTimelineAttributeNumber(updates.playbackStart)]);
       }
       patchIframeDomTiming(previewIframeRef.current, element, liveAttrs, activeCompPath);
       // Snapshot the duration BEFORE the optimistic updates below so a failed
@@ -462,11 +474,10 @@ export function useTimelineEditing({
       };
       const hasPbsAdjustment =
         updates.playbackStart != null ||
-        (updates.start !== element.start && element.playbackStart != null);
-      // Server-path fallback: after persisting the attr patch, scale GSAP tween
-      // positions/durations on the server, then soft-reload with the rewritten
-      // script (timing-only resize) — same no-flash path as move; full reload is
-      // the fallback.
+        (updates.start !== element.start &&
+          (element.playbackStart != null || Boolean(element.automation)));
+      // Trimming changes visibility, not animation speed or absolute GSAP timing.
+      // Rebind timing against the unchanged authored curve.
       const coalesceKey = `timeline-resize:${element.hfId ?? element.id}`;
       const finishResizeGsapSync = () =>
         finishClipTimingFallback({
@@ -478,12 +489,12 @@ export function useTimelineEditing({
           label: "Resize timeline clip",
           coalesceKey,
           recordEdit,
-          edit: {
-            kind: "scale",
-            from: { start: element.start, duration: element.duration },
-            to: { start: updates.start, duration: updates.duration },
-          },
-        }).finally(() => invalidateGsapCache?.());
+          edit: { kind: "shift", delta: 0 },
+        })
+          .then(() => {
+            if (startChanged && element.automation) reloadPreview();
+          })
+          .finally(() => invalidateGsapCache?.());
       const resizeFallback = () =>
         enqueueEdit(element, "Resize timeline clip", buildResizePatches, coalesceKey).then(
           finishResizeGsapSync,
@@ -543,7 +554,9 @@ export function useTimelineEditing({
             result = await commitAgainst(latest.revision);
           }
           if (!result.committed) {
-            throw new Error(`Native timeline resize was not committed: ${result.message ?? result.reason}`);
+            throw new Error(
+              `Native timeline resize was not committed: ${result.message ?? result.reason}`,
+            );
           }
           const resizedClip = result.document.sequence.tracks
             .flatMap((track) => track.clips)
@@ -553,8 +566,7 @@ export function useTimelineEditing({
           }
           const frameSeconds = (frame: number) =>
             String(
-              (frame * result.document.frameRate.denominator) /
-                result.document.frameRate.numerator,
+              (frame * result.document.frameRate.denominator) / result.document.frameRate.numerator,
             );
           patchIframeDomTiming(
             previewIframeRef.current,
@@ -567,6 +579,7 @@ export function useTimelineEditing({
             activeCompPath,
           );
           syncPreviewContentDuration(previewIframeRef.current);
+          if (startChanged && element.automation) reloadPreview();
           forceReloadSdkSession?.();
         });
         editQueueRef.current = operation.catch((error) => {
@@ -574,10 +587,9 @@ export function useTimelineEditing({
         });
         return operation;
       };
-      const persistDone =
-        nativeAuthoritative
-          ? enqueueNativeResize()
-          : sdkSession && element.hfId && !hasPbsAdjustment && !needsExtension
+      const persistDone = nativeAuthoritative
+        ? enqueueNativeResize()
+        : sdkSession && element.hfId && !hasPbsAdjustment && !needsExtension
           ? sdkTimingPersist(
               element.hfId,
               targetPath,
@@ -602,12 +614,7 @@ export function useTimelineEditing({
           : resizeFallback();
       return persistDone.catch((error) => {
         // Failed persist: revert the optimistic duration readout + live root.
-        patchIframeDomTiming(
-          previewIframeRef.current,
-          element,
-          liveTimingBefore,
-          activeCompPath,
-        );
+        patchIframeDomTiming(previewIframeRef.current, element, liveTimingBefore, activeCompPath);
         rollbackDuration();
         showToast(getStudioSaveErrorMessage(error), "error");
         throw error;
