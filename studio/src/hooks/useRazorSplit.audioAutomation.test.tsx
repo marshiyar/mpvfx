@@ -143,7 +143,7 @@ afterEach(() => {
 });
 
 describe("useRazorSplit audio automation compatibility", () => {
-  it("crops and rebases volume and FX lanes on the timeline-local split clock", async () => {
+  it("retains full volume and FX curves on the timeline-local split clock", async () => {
     const html = [
       '<div data-composition-id="main" data-duration="10">',
       `  <audio class="clip" id="bed" data-hf-id="hf-bed" data-start="1" data-duration="8" data-media-start="0.5" data-playback-rate="2" data-automation='${originalAutomation}'></audio>`,
@@ -154,28 +154,23 @@ describe("useRazorSplit audio automation compatibility", () => {
     const savedHtml = files.get("index.html")!;
     const left = automationById(savedHtml, "bed");
     const right = automationById(savedHtml, "bed-split");
-    expect(left.lanes[0]?.points).toEqual([
-      { t: 0, v: 0 },
-      { t: 3, v: 0.75 },
-    ]);
-    expect(right.lanes[0]?.points).toEqual([
-      { t: 0, v: 0.75 },
-      { t: 1, v: 1 },
-      { t: 5, v: 0.5 },
-    ]);
-    expect(right.lanes[1]?.points[0]).toEqual(expect.objectContaining({
-      t: 0,
-      v: sampleAutomationLane(parseAutomation(originalAutomation).lanes[1]!, 3),
-      curve: 0.4,
-    }));
-    expect(right.lanes[1]?.points.at(-1)).toEqual({ t: 3, v: 600 });
+    const source = parseAutomation(originalAutomation);
+    expect(left).toEqual(source);
+    expect(right.lanes).toEqual(
+      source.lanes.map((lane) => ({
+        ...lane,
+        points: lane.points.map((p) => ({ ...p, t: p.t - 3 })),
+      })),
+    );
     expect(savedHtml).toContain('id="bed-split"');
     expect(savedHtml).toContain('data-media-start="6.5"');
-    expect(recordEdit).toHaveBeenCalledWith(expect.objectContaining({
-      files: expect.objectContaining({
-        "index.html": { before: html, after: savedHtml },
+    expect(recordEdit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        files: expect.objectContaining({
+          "index.html": { before: html, after: savedHtml },
+        }),
       }),
-    }));
+    );
     const originalVolume = parseAutomation(originalAutomation).lanes[0]!;
     const leftVolume = left.lanes[0]!;
     const rightVolume = right.lanes[0]!;
@@ -203,27 +198,27 @@ describe("useRazorSplit audio automation compatibility", () => {
   });
 
   it("uses an exact boundary point once and retains its outgoing curve controls", () => {
-    const source = parseAutomation(JSON.stringify({
-      version: 1,
-      lanes: [{
-        target: "fx.n1.frequency",
-        points: [
-          { t: 0, v: 100 },
-          { t: 3, v: 300, curve: -0.3, viaX: 0.4, viaY: 0.75 },
-          { t: 7, v: 700 },
+    const source = parseAutomation(
+      JSON.stringify({
+        version: 1,
+        lanes: [
+          {
+            target: "fx.n1.frequency",
+            points: [
+              { t: 0, v: 100 },
+              { t: 3, v: 300, curve: -0.3, viaX: 0.4, viaY: 0.75 },
+              { t: 7, v: 700 },
+            ],
+          },
         ],
-      }],
-    }));
+      }),
+    );
     const { left, right } = splitAudioAutomation(source, 3);
 
-    expect(left.lanes[0]?.points).toEqual([
-      { t: 0, v: 100 },
-      { t: 3, v: 300, curve: -0.3, viaX: 0.4, viaY: 0.75 },
-    ]);
-    expect(right.lanes[0]?.points).toEqual([
-      { t: 0, v: 300, curve: -0.3, viaX: 0.4, viaY: 0.75 },
-      { t: 4, v: 700 },
-    ]);
+    expect(left).toEqual(source);
+    expect(right.lanes[0]?.points).toEqual(
+      source.lanes[0]!.points.map((p) => ({ ...p, t: p.t - 3 })),
+    );
     for (const t of [0, 0.5, 1.75, 4]) {
       expect(sampleAutomationLane(right.lanes[0]!, t)).toBeCloseTo(
         sampleAutomationLane(source.lanes[0]!, t + 3),
@@ -263,10 +258,12 @@ describe("useRazorSplit audio automation compatibility", () => {
 
     expect(saved.getElementById("bed")?.hasAttribute("data-automation")).toBe(false);
     expect(saved.getElementById("bed-split")?.hasAttribute("data-automation")).toBe(false);
-    expect(recordEdit).toHaveBeenCalledWith(expect.objectContaining({
-      files: expect.objectContaining({
-        "index.html": { before: html, after: savedHtml },
+    expect(recordEdit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        files: expect.objectContaining({
+          "index.html": { before: html, after: savedHtml },
+        }),
       }),
-    }));
+    );
   });
 });

@@ -1,4 +1,7 @@
 import { useState } from "react";
+import { useClipboardActions } from "../../contexts/ClipboardActionsContext";
+import { usePlayerStore } from "../store/playerStore";
+import { timelineKeyframeSelectionKey } from "./timelineKeyframeIdentity";
 import { createPortal } from "react-dom";
 import { useContextMenuDismiss } from "../../hooks/useContextMenuDismiss";
 import { useMenuKeyboardNav } from "./menuKeyboardNav";
@@ -105,6 +108,7 @@ export function KeyframeDiamondContextMenu({
   onSetNativeInterpolation,
 }: KeyframeDiamondContextMenuProps) {
   const menuRef = useContextMenuDismiss(onClose);
+  const clipboard = useClipboardActions();
   // The clicked diamond's identity, built once: the menu's mutating entries
   // all act on it, and they must not disagree about which keyframe was clicked.
   const keyframe: TimelineKeyframeTarget = {
@@ -144,10 +148,22 @@ export function KeyframeDiamondContextMenu({
   };
 
   const menuWidth = 200;
+  const withKeySelection = (action: () => unknown) => {
+    const key = timelineKeyframeSelectionKey(state.elementId, keyframe);
+    const selected = usePlayerStore.getState().selectedKeyframes;
+    usePlayerStore.setState({
+      selectedElementId: state.elementId,
+      selectedElementIds: new Set([state.elementId]),
+      selectedKeyframes: selected.has(key) ? selected : new Set([key]),
+    });
+    void action();
+    onClose();
+  };
   // Measured off the rendered rows, so the flip-up test below stays right as
   // optional entries drop out. The separator counts as roughly a third of a row.
   const rows =
     1 +
+    (clipboard && state.native ? 4 : 0) +
     (onMoveToPlayhead ? 1 : 0) +
     (onEditEase && hasIncomingEaseSegment ? 1 : 0) +
     (onCopyProperties ? 1 : 0) +
@@ -164,8 +180,26 @@ export function KeyframeDiamondContextMenu({
       role="menu"
       aria-label="Keyframe actions"
       className="fixed z-[200] bg-neutral-900 border border-neutral-700 rounded-md py-1 min-w-[180px] overflow-y-auto"
-      style={{ left: adjustedX, top: adjustedY, maxHeight: `calc(100vh - ${adjustedY + 8}px)` }}
+      style={{ left: adjustedX, top: adjustedY, maxHeight: `calc(100vh - ${adjustedY + 8}px)`,
+      }}
     >
+      {clipboard &&
+        state.native &&
+        [
+          ["Copy keyframes", clipboard.copy],
+          ["Cut keyframes", clipboard.cut],
+          ["Paste keyframes", clipboard.paste],
+          ["Select all keyframes", clipboard.selectAll],
+        ].map(([label, action]) => (
+          <button
+            key={String(label)}
+            role="menuitem"
+            className={ITEM_CLS}
+            onClick={() => withKeySelection(action as () => unknown)}
+          >
+            {String(label)}
+          </button>
+        ))}
       {onMoveToPlayhead && (
         <button
           type="button"
@@ -280,16 +314,15 @@ export function KeyframeDiamondContextMenu({
         role="menuitem"
         className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-400 hover:bg-red-950/40 focus-visible:bg-red-950/40 outline-none cursor-pointer text-left"
         onClick={() => {
-              if (state.native) {
-                onDeleteAll(
-                  state.element,
-                  state.animationId,
-                  state.nativeTargets && state.nativeTargets.length > 0
-                    ? state.nativeTargets
-                    : state.native,
-                );
-              }
-              else onDeleteAll(state.element, state.animationId);
+          if (state.native) {
+            onDeleteAll(
+              state.element,
+              state.animationId,
+              state.nativeTargets && state.nativeTargets.length > 0
+                ? state.nativeTargets
+                : state.native,
+            );
+          } else onDeleteAll(state.element, state.animationId);
           onClose();
         }}
       >

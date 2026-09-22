@@ -32,7 +32,7 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
       - name: Run keyframe and diagnostics regressions
-        run: npm exec -- vitest run diagnostics src/diagnostics vite.file-transaction src/hooks/gsap src/hooks/useGsap src/hooks/useAnimatedPropertyCommit.test.tsx src/hooks/useProjectAnimatedPropertyCommit.test.tsx src/hooks/useEnableKeyframes.test.ts src/project/native src/components/TimelineToolbar.test.tsx src/contexts/DomEditContext.test.tsx src/hooks/useDomEditSession.test.tsx
+        run: npm exec -- vitest run src/hooks/useAppHotkeys.test.ts src/player/store/playerStore.test.ts vite.nativeProject.test.ts src/utils/sourcePatcher.test.ts src/utils/studioFileMutationCoordinator.test.ts diagnostics src/diagnostics vite.file-transaction src/hooks/gsap src/hooks/useGsap src/hooks/useAnimatedPropertyCommit.test.tsx src/hooks/useProjectAnimatedPropertyCommit.test.tsx src/hooks/useEnableKeyframes.test.ts src/project src/utils/authoredClipClipboard.test.ts src/utils/splitAuthoredClip.test.ts src/utils/splitAudioAutomation.test.ts src/utils/audioAnimationHandles.test.ts src/hooks/timelineClipboard.test.tsx src/hooks/timelineTrimAnimation.test.ts src/hooks/useTimelineEditing.test.tsx src/hooks/useRazorSplit.native.test.tsx src/hooks/useRazorSplit.audioAutomation.test.tsx desktop/audioAnimationHandles.test.ts src/components/TimelineToolbar.test.tsx src/contexts/DomEditContext.test.tsx src/hooks/useDomEditSession.test.tsx
       - name: Typecheck the current source
         if: ${{ !cancelled() }}
         run: npm run typecheck

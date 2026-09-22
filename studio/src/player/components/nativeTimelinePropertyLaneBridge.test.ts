@@ -154,6 +154,16 @@ describe("native timeline property lane bridge", () => {
     ).toEqual([true, false]);
   });
 
+  it("keeps outgoing easing editable when its destination key is hidden beyond a trimmed Out", () => {
+    const document = documentFixture();
+    document.sequence.tracks[0]!.clips[0]!.durationFrames = 30;
+    const rotation = nativeTimelinePropertyLanesForElement(document, timelineElement)?.lanes.find(
+      (lane) => lane.id === "parameter:rotation",
+    );
+    expect(rotation!.keyframes).toHaveLength(1);
+    expect(rotation!.keyframes[0]!.native!.hasFollowingKeyframe).toBe(true);
+  });
+
   it("returns null when exact scoped identity cannot resolve a native clip", () => {
     expect(
       nativeTimelinePropertyLanesForElement(documentFixture(), {

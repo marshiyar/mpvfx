@@ -103,7 +103,7 @@ describe("native timeline range edit planner", () => {
       binding: { sourceFile: "index.html", domId: "clip", hfId: "hf-clip" },
     });
     expect(trimmed.parameterTracks[0]!.keyframes).toMatchObject([
-      { frame: 0, value: 45, outgoing: { type: "linear" } },
+      { frame: -15, value: 0, outgoing: { type: "linear" } },
       { id: "key:1", frame: 45, value: 180 },
       { id: "key:2", frame: 75, value: 270 },
     ]);
@@ -210,7 +210,7 @@ describe("native timeline range edit planner", () => {
 
 it("does not treat millisecond-rounded unchanged boundaries as a second trim", () => {
   const result = planNativeTimelineRangeEdit({ document: document(), element,
-    requestedStartSeconds: 1.001 - 0.0001, requestedDurationSeconds: 121 * 1001 / 30000,
+    requestedStartSeconds: 1.001 - 0.0001, requestedDurationSeconds: (121 * 1001) / 30000,
   });
   expect(result.ok).toBe(true);
   if (result.ok) expect(result.startFrame).toBe(30);

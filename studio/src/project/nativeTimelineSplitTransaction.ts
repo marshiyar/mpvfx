@@ -163,7 +163,8 @@ const prepareCompatibilityEdits = (
       !Number.isSafeInteger(splitFrame) ||
       localFrame <= 0 ||
       localFrame >= clip.durationFrames ||
-      (BigInt(localFrame) * BigInt(rate.numerator)) % BigInt(rate.denominator) !== 0n
+      (document.assets.find((asset) => asset.id === clip.assetId)?.kind !== "image" &&
+        (BigInt(localFrame) * BigInt(rate.numerator)) % BigInt(rate.denominator) !== 0n)
     ) {
       return { ok: false, reason: "native-command-rejected" };
     }
@@ -273,7 +274,10 @@ export async function commitNativeTimelineSplits(
       });
       const nativeAfter = serializeNativeProjectDocument(document);
       const snapshots: Record<string, { before: string; after: string }> = {
-        [NATIVE_PROJECT_DOCUMENT_PATH]: { before: nativeBefore, after: nativeAfter },
+        [NATIVE_PROJECT_DOCUMENT_PATH]: {
+          before: nativeBefore,
+          after: nativeAfter,
+        },
       };
       for (const sourceFile of plan.sourceFiles) {
         snapshots[sourceFile] = {

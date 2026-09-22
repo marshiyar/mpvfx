@@ -66,7 +66,7 @@ describe("native keyframe track types", () => {
     ).toThrow(/duplicate keyframe frame 15/i);
   });
 
-  it("rejects non-integer project-frame times instead of silently rounding", () => {
+  it("rejects non-integer clip-local times instead of silently rounding", () => {
     expect(() =>
       createNativeParameterTrack({
         id: "track:rotation",
@@ -77,7 +77,7 @@ describe("native keyframe track types", () => {
           { id: "fractional", frame: 1.5, value: 90, outgoing: { type: "linear" } },
         ],
       }),
-    ).toThrow(/integer project frame/i);
+    ).toThrow(/safe integer clip-local frame/i);
   });
 
   it("validates numeric, vec2, and RGBA values against the declared track type", () => {

@@ -327,7 +327,6 @@ function sourceRangeExceedsAsset(
 function validateParameterTracks(
   rawTracks: unknown,
   projectFrameRate: RationalFrameRate | null,
-  clipDurationFrames: number | null,
   path: string,
   issues: NativeProjectDocumentValidationIssue[],
 ): rawTracks is NativeParameterTrack[] {
@@ -402,22 +401,8 @@ function validateParameterTracks(
       pushIssue(issues, "invalid-parameter-track", trackPath, message);
     }
 
-    if (clipDurationFrames !== null && Array.isArray(rawTrack.keyframes)) {
-      rawTrack.keyframes.forEach((rawKeyframe, keyframeIndex) => {
-        if (
-          isRecord(rawKeyframe) &&
-          isNonNegativeInteger(rawKeyframe.frame) &&
-          rawKeyframe.frame > clipDurationFrames
-        ) {
-          pushIssue(
-            issues,
-            "invalid-parameter-track",
-            `${trackPath}.keyframes[${keyframeIndex}].frame`,
-            `Keyframe frame ${rawKeyframe.frame} exceeds clip duration ${clipDurationFrames}`,
-          );
-        }
-      });
-    }
+    // Authored curves survive trimming. Keys outside the visible range remain
+    // valid interpolation handles and become visible again on extension.
   });
   return true;
 }
@@ -847,7 +832,6 @@ export function validateNativeProjectDocument(
       validateParameterTracks(
         clip.parameterTracks,
         projectFrameRate,
-        isPositiveInteger(clip.durationFrames) ? clip.durationFrames : null,
         `${clipPath}.parameterTracks`,
         issues,
       );

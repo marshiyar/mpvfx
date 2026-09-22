@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import puppeteer from "puppeteer-core";
+import { verifyProfessionalTimeline } from "./professional-timeline-scenarios.mjs";
 import { minimalEnvironment } from "../../../scripts/automation/privacy.mjs";
 
 const STUDIO_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -93,6 +94,27 @@ async function waitUntil(predicate, message, timeoutMs = 15_000) {
   throw new Error(message);
 }
 
+async function readPersistedJson(path, timeoutMs = 5_000) {
+  const started = Date.now();
+  while (true) {
+    try {
+      return JSON.parse(await readFile(path, "utf8"));
+    } catch (error) {
+      // Undo/Redo uses the legacy file endpoint. A direct disk read can overlap
+      // its write; retry only incomplete JSON/missing files, never assertions.
+      if (
+        (!(error instanceof SyntaxError) && error?.code !== "ENOENT") ||
+        Date.now() - started >= timeoutMs
+      ) {
+        throw new Error(`Could not read persisted JSON from ${path}`, {
+          cause: error,
+        });
+      }
+      await new Promise((resolveWait) => setTimeout(resolveWait, 50));
+    }
+  }
+}
+
 async function waitForHttp(url, serverProcess, serverOutput) {
   await waitUntil(
     async () => {
@@ -113,7 +135,7 @@ async function waitForHttp(url, serverProcess, serverOutput) {
   );
 }
 
-async function selectByDomId(page, id) {
+async function selectByDomId(page, id, requireVisibleBox = true) {
   await waitUntil(async () => {
     const preview = await readNativeVideoState(page);
     return (
@@ -139,9 +161,11 @@ async function selectByDomId(page, id) {
     );
     await clip.click();
   }
-  await page.waitForSelector('pierce/[data-dom-edit-selection-box="true"]', {
-    timeout: 10_000,
-  });
+  if (requireVisibleBox) {
+    await page.waitForSelector('pierce/[data-dom-edit-selection-box="true"]', {
+      timeout: 10_000,
+    });
+  }
 }
 
 async function readWorkflowUiState(page) {
@@ -599,6 +623,22 @@ async function main() {
     );
     const pageErrors = [];
     const failedResponses = [];
+    const pendingMutations = new Set();
+    let lastMutationAt = 0;
+    page.on("request", (request) => {
+      if (request.method() === "GET" || !request.url().includes("/file-transactions/")) return;
+      pendingMutations.add(request);
+      lastMutationAt = Date.now();
+    });
+    const finishedMutation = (request) => {
+      if (pendingMutations.delete(request)) lastMutationAt = Date.now();
+    };
+    page.on("requestfinished", finishedMutation);
+    page.on("requestfailed", finishedMutation);
+    const waitForSettledWrites = () => waitUntil(
+      async () => pendingMutations.size === 0 && Date.now() - lastMutationAt >= 250,
+      "Save/history acknowledgements did not settle before reopening the project",
+    );
     page.on("pageerror", (error) => pageErrors.push(error.message));
     page.on("response", (response) => {
       const status = response.status();
@@ -783,7 +823,7 @@ async function main() {
     );
 
     await waitUntil(async () => {
-      const saved = JSON.parse(await readFile(nativePath, "utf8"));
+      const saved = await readPersistedJson(nativePath);
       return (
         saved.revision === 1 &&
         saved.sequence.tracks[0].clips[0].parameterTracks[0].keyframes[0]
@@ -801,7 +841,7 @@ async function main() {
       "Committed Hold interpolation did not refresh the native preview",
     );
 
-    const saved = JSON.parse(await readFile(nativePath, "utf8"));
+    const saved = await readPersistedJson(nativePath);
     assert(
       saved.revision === 1,
       `Expected one durable native revision, found ${saved.revision}`,
@@ -855,8 +895,7 @@ async function main() {
       )) === "true"
     )
       await autoKeyframe.click();
-    const readSaved = async () =>
-      JSON.parse(await readFile(nativePath, "utf8"));
+    const readSaved = () => readPersistedJson(nativePath);
     const savedTrack = async (parameter) =>
       (await readSaved()).sequence.tracks[0].clips[0].parameterTracks.find(
         (track) => track.parameterId === parameter,
@@ -1113,7 +1152,7 @@ async function main() {
       const track = tracks.find((item) => item.parameterId === parameter);
       assert(
         track?.keyframes.find((key) => key.frame === 0)?.value === baseline,
-        `${parameter} changed key A`,
+        `${parameter} changed key A: expected ${baseline}, received ${track?.keyframes.find((key) => key.frame === 0)?.value}`,
       );
       assert(
         track.keyframes.some(
@@ -1244,6 +1283,7 @@ async function main() {
     await waitForMiddleRendered(false);
     await traceWorkflow(page, "redo-rendered");
 
+    await waitForSettledWrites();
     await page.reload({ waitUntil: "domcontentloaded" });
     await selectByDomId(page, "native-video");
     await requestSeek(page, 1);
@@ -1270,6 +1310,9 @@ async function main() {
       `Server failures:\n${failedResponses.join("\n")}`,
     );
     await captureUi(page, "reopened-midpoint");
+    await verifyProfessionalTimeline({ page, readSaved, selectByDomId, requestSeek, waitUntil, waitForSettledWrites, assert });
+    assert(pageErrors.length === 0, `Browser page errors: ${pageErrors.join("\n")}`);
+    assert(failedResponses.length === 0, `Server failures: ${failedResponses.join("\n")}`);
     await writeFile(
       join(OUTPUT_DIR, "result.json"),
       JSON.stringify(
@@ -1297,6 +1340,10 @@ async function main() {
             "all-channel-keyframe-add-remove",
             "atomic-undo-redo",
             "save-reopen",
+            "keyframe-clipboard-and-scoped-delete",
+            "clip-copy-cut-duplicate",
+            "complete-curve-split-and-reopen",
+            "select-delete-all-and-undo",
           ],
           poseA,
           poseMid,

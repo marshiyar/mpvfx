@@ -464,7 +464,7 @@ describe("native project document", () => {
     }
   });
 
-  it("rejects every parameter keyframe beyond its clip duration with an exact keyframe path", () => {
+  it("retains offscreen number, vector and color keys beyond the visible clip duration", () => {
     const document = validDocument();
     const clip = document.sequence.tracks[0]!.clips[0]!;
     clip.parameterTracks = [
@@ -510,31 +510,13 @@ describe("native project document", () => {
       },
     ];
 
-    try {
-      parseNativeProjectDocument(document);
-      throw new Error("expected parser to reject keyframes beyond the clip duration");
-    } catch (error) {
-      expect(error).toBeInstanceOf(NativeProjectDocumentValidationError);
-      expect((error as NativeProjectDocumentValidationError).issues).toEqual(
-        expect.arrayContaining([
-          {
-            code: "invalid-parameter-track",
-            path: "sequence.tracks[0].clips[0].parameterTracks[0].keyframes[0].frame",
-            message: "Keyframe frame 91 exceeds clip duration 90",
-          },
-          {
-            code: "invalid-parameter-track",
-            path: "sequence.tracks[0].clips[0].parameterTracks[1].keyframes[0].frame",
-            message: "Keyframe frame 120 exceeds clip duration 90",
-          },
-          {
-            code: "invalid-parameter-track",
-            path: "sequence.tracks[0].clips[0].parameterTracks[2].keyframes[0].frame",
-            message: "Keyframe frame 92 exceeds clip duration 90",
-          },
-        ]),
-      );
-    }
+    const parsed = parseNativeProjectDocument(document);
+    expect(parsed.sequence.tracks[0]!.clips[0]!.parameterTracks).toEqual(
+      document.sequence.tracks[0]!.clips[0]!.parameterTracks,
+    );
+    expect(parseNativeProjectDocument(JSON.parse(serializeNativeProjectDocument(parsed)))).toEqual(
+      parsed,
+    );
   });
 
   it.each([89, 90])(

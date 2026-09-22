@@ -154,6 +154,7 @@ export const projectNativeKeyframeUi = (
   for (const { track, projection } of supportedTracks(clip.parameterTracks)) {
     currentValues[projection.property] = evaluateNativeParameterTrack(track, clipLocalFrame);
     for (const keyframe of track.keyframes) {
+      if (keyframe.frame < 0 || keyframe.frame >= clip.durationFrames) continue;
       keyframeRows.push({
         percentage: (keyframe.frame / clip.durationFrames) * 100,
         properties: { [projection.property]: keyframe.value },
