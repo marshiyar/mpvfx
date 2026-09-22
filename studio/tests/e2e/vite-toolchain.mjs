@@ -25,6 +25,9 @@ function origin(server) {
 
 async function checkEditor(url, label) {
   console.log(`Checking ${label}`);
+  const runtime = await fetch(`${url}/api/runtime.js`);
+  assert(runtime.ok, `${label}: playback runtime returned ${runtime.status}`);
+  assert.match(runtime.headers.get("content-type") ?? "", /javascript/);
   const page = await browser.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -49,7 +52,10 @@ async function checkEditor(url, label) {
           if (element.shadowRoot) roots.push(element.shadowRoot);
           if (element.tagName === "IFRAME") {
             try {
-              if (element.contentDocument?.querySelector('[data-composition-id="main"]')) return true;
+              if (
+                element.contentWindow?.__hyperframeRuntimeBootstrapped === true &&
+                element.contentDocument?.querySelector('[data-composition-id="main"]')
+              ) return true;
             } catch { /* Only same-origin editor scenes count. */ }
           }
         }

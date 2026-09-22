@@ -40,7 +40,7 @@ jobs:
         run: npm ci --prefix studio
       - name: Check workflow and packaging contracts
         working-directory: studio
-        run: npm exec -- vitest run desktop/githubWorkflows.test.ts desktop/packaging.test.ts
+        run: npm exec -- vitest run desktop/githubWorkflows.test.ts desktop/packaging.test.ts desktop/server.integration.test.ts
       - name: Typecheck
         run: npm --prefix studio run typecheck
       - name: Compile browser and desktop
