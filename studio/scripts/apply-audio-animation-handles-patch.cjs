@@ -14,9 +14,36 @@ const bundled = [
   "return{t:Math.max(0,n),v:i,...wp(e)}",
   "return{t:n,v:i,...wp(e)}/*MpVFX: preserve animation handles*/",
 ];
+const bundledFx = [
+  "return{t:Math.max(0,n),v:a,...Le(e)}",
+  "return{t:n,v:a,...Le(e)}/*MpVFX: preserve animation handles*/",
+];
+const volume = [
+  "time: Math.max(0, k.time - trackStart)",
+  "time: k.time - trackStart /*MpVFX: preserve volume handles*/",
+];
+const bundledVolume = [
+  "time:Math.max(0,o.time-t)",
+  "time:o.time-t/*MpVFX: preserve volume handles*/",
+];
+const fallbackVolume = [
+  "time: Math.max(0, Math.min(trimDuration, keyframe.time - track.start))",
+  "time: keyframe.time - track.start /*MpVFX: preserve volume handles*/",
+];
+const producerPaths = ["index.js", "public-server.js", "distributed.js"]
+  .map(file => `node_modules/@hyperframes/producer/dist/${file}`);
 const targets = [
-  ...["core/dist/audioAutomation.js", "producer/dist/index.js", "producer/dist/public-server.js", "producer/dist/distributed.js"].map(path => ({ path: `node_modules/@hyperframes/${path}`, pair: plain })),
+  { path: "node_modules/@hyperframes/core/dist/audioAutomation.js", pair: plain },
+  ...producerPaths.map(path => ({ path, pair: plain })),
   ...["core", "producer"].map(pkg => ({ path: `node_modules/@hyperframes/${pkg}/dist/hyperframe.runtime.iife.js`, pair: bundled })),
+  { path: "node_modules/@hyperframes/core/dist/generated/runtime-inline.js", pair: bundled },
+  { path: "node_modules/@hyperframes/core/dist/generated/audio-fx-runtime-inline.js", pair: bundledFx },
+  ...producerPaths.map(path => ({ path, pair: bundledFx })),
+  { path: "node_modules/@hyperframes/core/dist/runtime/mediaVolumeEnvelope.js", pair: volume, kind: "envelope" },
+  ...producerPaths.map(path => ({ path, pair: volume, kind: "envelope" })),
+  ...["core/dist/hyperframe.runtime.iife.js", "core/dist/generated/runtime-inline.js", "producer/dist/hyperframe.runtime.iife.js"]
+    .map(path => ({ path: `node_modules/@hyperframes/${path}`, pair: bundledVolume, kind: "envelope" })),
+  ...producerPaths.map(path => ({ path, pair: fallbackVolume, kind: "envelope" })),
 ];
 const runtimePath = "node_modules/@hyperframes/producer/dist/hyperframe.runtime.iife.js";
 const manifestPath = "node_modules/@hyperframes/producer/dist/hyperframe.manifest.json";
@@ -28,11 +55,12 @@ function runtimeManifestPatch(root, runtime) {
   const manifest = JSON.parse(source);
   // Accept the verified upstream bytes or this exact patch's bytes. Never
   // disable the producer integrity check or bless an unrelated modification.
-  const original = runtime.source.replace(bundled[1], bundled[0]);
+  const original = targets.filter(target => target.path === runtimePath)
+    .reduce((source, { pair }) => source.replace(pair[1], pair[0]), runtime.source);
   const digest = sha256(runtime.patched);
   if (
     manifest.artifacts?.iife !== "hyperframe.runtime.iife.js" ||
-    ![sha256(original), digest].includes(manifest.sha256)
+    ![sha256(runtime.source), sha256(original), digest].includes(manifest.sha256)
   ) throw new Error("Audio runtime integrity checksum does not match the supported artifact");
   return {
     full,
@@ -51,11 +79,17 @@ function patchAudioAnimationHandles(source, pair, name) {
   return source.replace(before, after);
 }
 function applyAudioAnimationHandles(root = resolve(__dirname, "..")) {
-  const patches = targets.map(({ path, pair }) => {
+  const byPath = new Map();
+  for (const { path, pair } of targets) {
     const full = join(root, path);
-    const source = readFileSync(full, "utf8");
-    return { path, full, source, patched: patchAudioAnimationHandles(source, pair, path) };
-  });
+    const existing = byPath.get(path);
+    const source = existing?.source ?? readFileSync(full, "utf8");
+    byPath.set(path, {
+      path, full, source,
+      patched: patchAudioAnimationHandles(existing?.patched ?? source, pair, path),
+    });
+  }
+  const patches = [...byPath.values()];
   patches.push(runtimeManifestPatch(root, patches.find(patch => patch.path === runtimePath)));
   for (const { full, source, patched } of patches) if (source !== patched) writeFileSync(full, patched);
 }
