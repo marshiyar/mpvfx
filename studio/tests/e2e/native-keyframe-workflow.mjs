@@ -94,6 +94,27 @@ async function waitUntil(predicate, message, timeoutMs = 15_000) {
   throw new Error(message);
 }
 
+async function readPersistedJson(path, timeoutMs = 5_000) {
+  const started = Date.now();
+  while (true) {
+    try {
+      return JSON.parse(await readFile(path, "utf8"));
+    } catch (error) {
+      // Undo/Redo uses the legacy file endpoint. A direct disk read can overlap
+      // its write; retry only incomplete JSON/missing files, never assertions.
+      if (
+        (!(error instanceof SyntaxError) && error?.code !== "ENOENT") ||
+        Date.now() - started >= timeoutMs
+      ) {
+        throw new Error(`Could not read persisted JSON from ${path}`, {
+          cause: error,
+        });
+      }
+      await new Promise((resolveWait) => setTimeout(resolveWait, 50));
+    }
+  }
+}
+
 async function waitForHttp(url, serverProcess, serverOutput) {
   await waitUntil(
     async () => {
@@ -802,7 +823,7 @@ async function main() {
     );
 
     await waitUntil(async () => {
-      const saved = JSON.parse(await readFile(nativePath, "utf8"));
+      const saved = await readPersistedJson(nativePath);
       return (
         saved.revision === 1 &&
         saved.sequence.tracks[0].clips[0].parameterTracks[0].keyframes[0]
@@ -820,7 +841,7 @@ async function main() {
       "Committed Hold interpolation did not refresh the native preview",
     );
 
-    const saved = JSON.parse(await readFile(nativePath, "utf8"));
+    const saved = await readPersistedJson(nativePath);
     assert(
       saved.revision === 1,
       `Expected one durable native revision, found ${saved.revision}`,
@@ -874,8 +895,7 @@ async function main() {
       )) === "true"
     )
       await autoKeyframe.click();
-    const readSaved = async () =>
-      JSON.parse(await readFile(nativePath, "utf8"));
+    const readSaved = () => readPersistedJson(nativePath);
     const savedTrack = async (parameter) =>
       (await readSaved()).sequence.tracks[0].clips[0].parameterTracks.find(
         (track) => track.parameterId === parameter,
