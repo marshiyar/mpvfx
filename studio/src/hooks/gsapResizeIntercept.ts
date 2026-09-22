@@ -40,6 +40,7 @@ import {
   writeTargetSelector,
 } from "./gsapShared";
 import { roundTo3 } from "../utils/rounding";
+import { gsapKeyframeEditTarget } from "./gsapKeyframeEditTarget";
 import { resolveGroupTween } from "./gsapRuntimeBridge";
 import { logResize } from "../utils/resizeDebug";
 import {
@@ -211,6 +212,7 @@ export async function tryGsapResizeIntercept(
   if (tweenDuration <= 0) return { status: "blocked", reason: "source-uneditable" };
 
   const activeKeyframePct = activeKeyframePercentageForAnimation(selection, anim);
+  const keyframeEditTarget = gsapKeyframeEditTarget(selection, anim);
   const computedPct = computeCurrentPercentage(selection, anim);
   const pct =
     activeKeyframePct ?? resolveDurableKeyframePercentage(anim, selection, computedPct);
@@ -436,10 +438,10 @@ export async function tryGsapResizeIntercept(
     return true;
   };
 
-  // With auto-keyframe off (#1808), `anim` is already a real (non-"set")
-  // tween for this resize group, so nudge it as a whole rather than adding a
-  // keyframe at the playhead.
-  if (!usePlayerStore.getState().autoKeyframeEnabled) {
+  // Match inspector edits: auto-key off offsets the whole animation only
+  // between authored frames. A selected diamond or an existing key at the
+  // playhead still owns this resize.
+  if (!usePlayerStore.getState().autoKeyframeEnabled && keyframeEditTarget == null) {
     await commitWholePropertyOffset(
       selection,
       anim,

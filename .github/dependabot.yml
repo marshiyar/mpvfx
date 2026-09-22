@@ -22,9 +22,12 @@ updates:
 
   - package-ecosystem: github-actions
     directory: /
+    groups:
+      codeql:
+        patterns:
+          - "github/codeql-action/*"
     schedule:
       interval: weekly
       day: monday
       time: "09:30"
       timezone: America/Los_Angeles
-

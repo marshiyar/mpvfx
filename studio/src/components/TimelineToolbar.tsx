@@ -6,7 +6,7 @@ import {
 } from "@phosphor-icons/react";
 import {
   useEnableKeyframes,
-  nativeToolbarPosition,
+  nativeToolbarKeyframes,
   isPlayheadWithinTween,
   type EnableKeyframesSession,
 } from "../hooks/useEnableKeyframes";
@@ -98,7 +98,7 @@ function resolveKeyframeToggleState(
   currentTime: number,
 ): KeyframeToggleState {
   if (!session?.domEditSelection) return NO_KEYFRAME_TOGGLE;
-  const native = nativeToolbarPosition(session, currentTime);
+  const native = nativeToolbarKeyframes(session, currentTime);
   if (native)
     return {
       state: native.active ? "active" : "inactive",
@@ -115,6 +115,36 @@ function resolveKeyframeToggleState(
       (candidate) => candidate.keyframes && !candidate.arcPath,
     );
   if (!animation?.keyframes) return NO_KEYFRAME_TOGGLE;
+
+  const keyframedAnimations = session.selectedGsapAnimations.filter(
+    (candidate) => candidate.keyframes && !candidate.arcPath,
+  );
+  if (!arcAnimation && keyframedAnimations.length > 1) {
+    const active = keyframedAnimations.every((candidate) =>
+      candidate.keyframes!.keyframes.some((keyframe) =>
+        keyframeIsAtOutputTime(keyframe.percentage, currentTime, {
+          start: resolveTweenStart(candidate) ?? 0,
+          duration: resolveEditableTweenDuration(
+            candidate,
+            session.domEditSelection!,
+          ),
+        }),
+      ),
+    );
+    return {
+      state: active ? "active" : "inactive",
+      isMotionPath: false,
+      pathEndpoint: false,
+      willExtend: keyframedAnimations.some(
+        (candidate) =>
+          !isPlayheadWithinTween(
+            candidate,
+            currentTime,
+            session.domEditSelection,
+          ),
+      ),
+    };
+  }
 
   const isMotionPath = Boolean(arcAnimation);
   if (
@@ -230,8 +260,8 @@ export function TimelineToolbar({
     onToggle: onToggleKeyframe,
   } = useKeyframeToggle(domEditSession);
 
-  const nativePositionAction =
-    nativeToolbarPosition(domEditSession, currentTime) !== null;
+  const nativeKeyframeAction =
+    nativeToolbarKeyframes(domEditSession, currentTime) !== null;
 
   const trackHeight = usePlayerStore((s) => s.timelineTrackHeight);
   const setTrackHeight = usePlayerStore((s) => s.setTimelineTrackHeight);
@@ -360,8 +390,8 @@ export function TimelineToolbar({
               toolbar layout never shifts. */}
           <Tooltip
             label={
-              nativePositionAction
-                ? `${keyframeState === "active" ? "Remove" : "Add"} position keyframe at playhead (K)`
+              nativeKeyframeAction
+                ? `${keyframeState === "active" ? "Remove" : "Add"} keyframe at playhead (K)`
                 : keyframePathEndpoint
                   ? "Motion path endpoints cannot be removed"
                   : !onToggleKeyframe
@@ -386,8 +416,8 @@ export function TimelineToolbar({
               disabled={!onToggleKeyframe}
               onClick={onToggleKeyframe}
               aria-label={
-                nativePositionAction
-                  ? `${keyframeState === "active" ? "Remove" : "Add"} position keyframe at playhead`
+                nativeKeyframeAction
+                  ? `${keyframeState === "active" ? "Remove" : "Add"} keyframe at playhead`
                   : keyframePathEndpoint
                     ? "Motion path endpoint"
                     : keyframeIsMotionPath

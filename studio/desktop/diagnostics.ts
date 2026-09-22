@@ -99,14 +99,12 @@ export function startDesktopDiagnostics(userDataDir: string) {
     }
     catch (error) { recordDiagnostic("system.gpu_unavailable", { error }, "warn"); }
   };
-  // Some drivers/virtual machines never emit gpu-info-update. Always obtain a
-  // basic snapshot at readiness; event-driven complete snapshots enrich it later.
-  void app.whenReady().then(() => captureGpu("basic"));
-  let gpuCapturePending = false;
-  app.on("gpu-info-update", () => {
-    if (gpuCapturePending) return;
-    gpuCapturePending = true;
-    setTimeout(() => { gpuCapturePending = false; void captureGpu(); }, 500).unref();
+  // getGPUInfo("complete") can itself emit gpu-info-update. Listening to that
+  // event for another capture creates an endless query/log loop. Collect two
+  // startup snapshots explicitly, including on drivers that emit no update.
+  void app.whenReady().then(async () => {
+    await captureGpu("basic");
+    await captureGpu("complete");
   });
   const loop = monitorEventLoopDelay({ resolution: 20 });
   loop.enable();

@@ -7,6 +7,8 @@ import type { DomEditSelection } from "../components/editor/domEditingTypes";
 import {
   STUDIO_ORIGINAL_WIDTH_ATTR,
   STUDIO_ORIGINAL_HEIGHT_ATTR,
+  STUDIO_ORIGINAL_BOX_WIDTH_ATTR,
+  STUDIO_ORIGINAL_BOX_HEIGHT_ATTR,
 } from "../components/editor/manualEditsTypes";
 import { usePlayerStore } from "../player/store/playerStore";
 import { resolveTweenStart, resolveTweenDuration } from "../utils/globalTimeCompiler";
@@ -344,8 +346,15 @@ function resolvePriorSize(
       height: positiveOr(Number(sizeSet.properties.height), fallbackH),
     };
   }
-  const ow = Number.parseFloat(el?.getAttribute(STUDIO_ORIGINAL_WIDTH_ATTR) ?? "");
-  const oh = Number.parseFloat(el?.getAttribute(STUDIO_ORIGINAL_HEIGHT_ATTR) ?? "");
+  const originalPixels = (boxAttr: string, inlineAttr: string) => {
+    const measured = Number(el?.getAttribute(boxAttr));
+    if (Number.isFinite(measured) && measured > 0) return measured;
+    const inline = el?.getAttribute(inlineAttr) ?? "";
+    // A percentage or another CSS unit is not a pixel measurement.
+    return /^\d+(?:\.\d+)?(?:px)?$/.test(inline) ? Number.parseFloat(inline) : NaN;
+  };
+  const ow = originalPixels(STUDIO_ORIGINAL_BOX_WIDTH_ATTR, STUDIO_ORIGINAL_WIDTH_ATTR);
+  const oh = originalPixels(STUDIO_ORIGINAL_BOX_HEIGHT_ATTR, STUDIO_ORIGINAL_HEIGHT_ATTR);
   return { width: positiveOr(ow, fallbackW), height: positiveOr(oh, fallbackH) };
 }
 

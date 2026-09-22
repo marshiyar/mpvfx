@@ -109,7 +109,11 @@ It is **not a clean release sign-off**. See
 
 | ID | State | Acceptance evidence needed |
 | --- | --- | --- |
-| linux-mov-png | Repair proposed; native Linux pending | MOV succeeds through both streamed and disk PNG frame paths; decoded red/blue pixels and audio are correct. See the saved-frame repair below. |
+| linux-mov-png | [PR #42](https://github.com/marshiyar/mpvfx/pull/42), focused checks pass | 18 streaming/saved-frame tests pass locally using real host FFmpeg with the Linux input policy. Native Linux MOV verification remains pending. |
+| idle-thumbnail-loop | Fixed locally; other platforms pending | Generated-video native macOS ARM idle probe: retained heap after 90 seconds and GC fell from 417.1 MB to 17.2 MB. The native diagnostics harness now repeats a 90-second retained-heap check on each platform. |
+| keyframe-editing | Shared repair in PR #49; other native platforms pending | Regressions cover all 14 supported visual properties, selected-key identity, first-property baselines, and multi-channel toolbar edits. Local macOS Chromium passed real canvas move/rotate at B with auto-key off, width/scale edits, preserved A, midpoint interpolation, save/reopen, and atomic toolbar add/remove/undo/redo. The generated-fixture browser test is included in the manual Tests workflow. Native Windows/Linux verification remains pending. |
+| workspace-controls | [#46](https://github.com/marshiyar/mpvfx/issues/46), open | Restore canvas dimensions and project frame rate access without restoring the removed navigation bar; verify save/reopen and timing preservation when frame rate changes. |
+| codeql-versioning | Workflow repaired; hosted check pending | Init/analyze use the same 4.38.1 commit; Dependabot groups CodeQL sub-actions so subsequent updates land together. |
 | small-window-cancel | Open | At 1024×768 native windows, render progress and Cancel are visible/reachable; clicking Cancel sends the request and stops the job; retry works. |
 | windows-installer | Open | Install creates working Start Menu shortcuts, shows deliberate branding, and update/uninstall lifecycle preserves user work. |
 | mov-thumbnail | Open | Completed ProRes MOV has a valid thumbnail independent of Chromium codec support; output remains correct. |
@@ -156,19 +160,20 @@ focused PR instead of merging unrelated development changes.
 These checks verify the automation boundary. They do not certify arbitrary images
 as private, resolve the release backlog, or validate the app on a physical Windows PC.
 
-## Saved PNG export repair (2026-09-21)
+### September 21 local regression follow-up
 
-Review branch `codex/linux-png-sequence` extends the existing Linux PNG workaround
-to saved captures, including chunk start numbers and frame limits. It decodes the
-generated PNGs with the existing engine decoder and pipes RGBA to the same FFmpeg
-encoder. Back-pressure bounds frame memory; no additional raw-video file is written.
-Missing, corrupt or mismatched frames fail the export, and cancellation/deadlines
-still terminate and reap the helper process. Packaging verifies the repair in the
-engine and all three producer bundles.
+The video-thumbnail decoder kept its error handler attached while clearing its
+source and calling `load()`. Chromium emitted another error, repeatedly queuing
+React updates while the editor sat idle. Cleanup now detaches media listeners
+before releasing the decoder and ignores stale events after a source change.
+Regression tests cover successful extraction, decode failure, stale events, and
+canvas extraction errors. Synthetic native macOS ARM diagnostics passed the new
+idle-memory check (2,909 KiB retained growth), edited-video export pixel checks,
+report redaction, a forced renderer crash, local minidump recording, and restart
+recovery. This does not establish long-session stability on every device.
 
-The local regression first failed with PNG decoding disabled at the helper boundary.
-After the repair, the pinned macOS ARM FFmpeg produced ProRes with the expected
-red/blue/green frame order, alpha, rational frame rate, selected chunk and synthetic
-audio. Failure, blocked-pipe cancellation and timeout checks also pass. This tests
-the Linux argument path on a macOS host; a native Linux app export, installer and
-visual run remain unverified. No hosted workflow was dispatched for this repair.
+GPU diagnostics also queried complete information in response to
+`gpu-info-update`, which collection itself can emit. It now records basic and
+complete startup snapshots once, preventing a query/log feedback loop. The native
+harness checks that capture stays bounded. Raw user telemetry and crash reports
+remain outside version control and public artifacts.

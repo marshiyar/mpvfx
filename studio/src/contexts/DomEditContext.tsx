@@ -83,6 +83,7 @@ export interface DomEditActionsValue extends Pick<
   | "invalidateGsapCache"
   | "previewIframeRef"
   | "commitMutation"
+  | "commitMutationBatch"
   | "applyMarqueeSelection"
   | "handleUpdateKeyframeEase"
   | "handleUpdateSegmentEase"
@@ -233,6 +234,7 @@ export function DomEditProvider({
     invalidateGsapCache,
     previewIframeRef,
     commitMutation,
+    commitMutationBatch,
     applyMarqueeSelection,
     handleUpdateKeyframeEase,
     handleUpdateSegmentEase,
@@ -245,6 +247,12 @@ export function DomEditProvider({
 }) {
   const commitMutationRef = useRef(commitMutation);
   commitMutationRef.current = commitMutation;
+  const commitMutationBatchRef = useRef(commitMutationBatch);
+  commitMutationBatchRef.current = commitMutationBatch;
+  const stableCommitMutationBatch = useCallback<DomEditActionsValue["commitMutationBatch"]>(
+    (mutations, options) => commitMutationBatchRef.current(mutations, options),
+    [],
+  );
 
   const stableCommitMutation = useCallback<DomEditActionsValue["commitMutation"]>(
     (mutation, options) => commitMutationRef.current(mutation, options),
@@ -329,6 +337,7 @@ export function DomEditProvider({
       invalidateGsapCache,
       previewIframeRef,
       commitMutation: stableCommitMutation,
+      commitMutationBatch: stableCommitMutationBatch,
       applyMarqueeSelection,
       handleUpdateKeyframeEase,
       handleUpdateSegmentEase,
@@ -411,6 +420,7 @@ export function DomEditProvider({
       invalidateGsapCache,
       previewIframeRef,
       stableCommitMutation,
+      stableCommitMutationBatch,
       applyMarqueeSelection,
       handleUpdateKeyframeEase,
       handleUpdateSegmentEase,
