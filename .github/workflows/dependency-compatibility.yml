@@ -46,4 +46,4 @@ jobs:
       - name: Compile browser and desktop
         run: npm --prefix studio run desktop:build
       - name: Exercise development and production in Chromium
-        run: node studio/tests/e2e/vite-toolchain.mjs
+        run: npm --prefix studio run test:vite-toolchain
