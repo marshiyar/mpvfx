@@ -6,6 +6,15 @@ export type StudioProjectFileWriter = (path: string, content: string) => Promise
 // cloning the same stale bytes and overwriting one another.
 const mutationQueues = new WeakMap<StudioProjectFileWriter, Map<string, Promise<unknown>>>();
 
+/** Undo must choose its entry after pending file writes AND history commits. */
+export async function waitForStudioFileMutations(writer: StudioProjectFileWriter): Promise<void> {
+  while (true) {
+    const pending = [...new Set(mutationQueues.get(writer)?.values() ?? [])];
+    if (!pending.length) return;
+    await Promise.allSettled(pending);
+  }
+}
+
 export function serializeStudioFileMutation<T>(
   writer: StudioProjectFileWriter,
   targetPath: string,

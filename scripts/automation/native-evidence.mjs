@@ -6,7 +6,12 @@ import { pathToFileURL } from 'node:url';
 import { assertHosted, inspectPng } from './privacy.mjs';
 
 const labels = ['initial', 'pose-a', 'pose-midpoint', 'pose-b', 'reopened-midpoint', 'failure'];
-const checks = ['visible-native-lanes', 'exact-midpoint', 'pause-reseek', 'outgoing-interpolation-persistence', 'canvas-position', 'canvas-rotation', 'inspector-width', 'inspector-scale', 'preserved-pose-a', 'all-channel-keyframe-add-remove', 'atomic-undo-redo', 'save-reopen'];
+const checks = ['visible-native-lanes', 'exact-midpoint', 'pause-reseek', 'outgoing-interpolation-persistence', 'canvas-position', 'canvas-rotation', 'inspector-width', 'inspector-scale', 'preserved-pose-a', 'all-channel-keyframe-add-remove', 'atomic-undo-redo', 'save-reopen',
+  'keyframe-clipboard-and-scoped-delete',
+  'clip-copy-cut-duplicate',
+  'complete-curve-split-and-reopen',
+  'select-delete-all-and-undo',
+];
 const reject = () => { throw new Error('Invalid native evidence'); };
 
 export function prepareNativeEvidence({ input, output, env = process.env }) {

@@ -7,7 +7,12 @@ import { prepareNativeEvidence } from './native-evidence.mjs';
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aJYoAAAAASUVORK5CYII=', 'base64');
 const hosted = { GITHUB_ACTIONS: 'true', RUNNER_ENVIRONMENT: 'github-hosted', GITHUB_SHA: 'a'.repeat(40) };
-const checks = ['visible-native-lanes', 'exact-midpoint', 'pause-reseek', 'outgoing-interpolation-persistence', 'canvas-position', 'canvas-rotation', 'inspector-width', 'inspector-scale', 'preserved-pose-a', 'all-channel-keyframe-add-remove', 'atomic-undo-redo', 'save-reopen'];
+const checks = ['visible-native-lanes', 'exact-midpoint', 'pause-reseek', 'outgoing-interpolation-persistence', 'canvas-position', 'canvas-rotation', 'inspector-width', 'inspector-scale', 'preserved-pose-a', 'all-channel-keyframe-add-remove', 'atomic-undo-redo', 'save-reopen',
+  'keyframe-clipboard-and-scoped-delete',
+  'clip-copy-cut-duplicate',
+  'complete-curve-split-and-reopen',
+  'select-delete-all-and-undo',
+];
 function fixture(fn) {
   const root = mkdtempSync(join(tmpdir(), 'mpvfx-native-evidence-'));
   const input = join(root, 'raw'), output = join(root, 'public');

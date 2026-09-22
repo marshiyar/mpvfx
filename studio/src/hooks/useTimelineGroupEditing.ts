@@ -25,7 +25,6 @@ import {
   captureDurationRollback,
   finishGroupTimingGsapFallback,
   readFileContent,
-  scaleGsapPositions,
   shiftGsapPositions,
   syncPreviewContentDuration,
 } from "./timelineTimingSync";
@@ -111,7 +110,10 @@ function resizeCoalesceKey(changes: readonly TimelineGroupResizeChange[]): strin
 function toSdkTimingChanges<T extends { element: TimelineElement }>(
   changes: readonly T[],
   timingUpdate: (change: T) => { start: number; duration?: number },
-): Array<{ hfId: string; timingUpdate: { start: number; duration?: number } } | null> {
+): Array<{
+  hfId: string;
+  timingUpdate: { start: number; duration?: number };
+} | null> {
   return changes.map((change) =>
     change.element.hfId ? { hfId: change.element.hfId, timingUpdate: timingUpdate(change) } : null,
   );
@@ -277,9 +279,7 @@ export function useTimelineGroupEditing({
         }
       }
       if (nativeEntries.length > 0 && nativeEntries.length !== changes.length) {
-        const error = new Error(
-          "A timeline gesture cannot mix native-owned and legacy-only clips",
-        );
+        const error = new Error("A timeline gesture cannot mix native-owned and legacy-only clips");
         showToast(error.message, "error");
         return Promise.reject(error);
       }
@@ -361,8 +361,7 @@ export function useTimelineGroupEditing({
                   selectorIndex: change.element.selectorIndex,
                 },
                 requestedStartSeconds: change.start,
-                destinationAuthoredTrack:
-                  change.authoredTrack ?? change.track ?? undefined,
+                destinationAuthoredTrack: change.authoredTrack ?? change.track ?? undefined,
               })),
               readOptionalProjectFile: dependencies.readOptionalProjectFile,
               writeProjectFile,
@@ -416,12 +415,7 @@ export function useTimelineGroupEditing({
             if (change.track != null || change.authoredTrack != null) {
               attrs.push(["data-track-index", String(edit.destination.authoredTrack)]);
             }
-            patchIframeDomTiming(
-              previewIframeRef.current,
-              change.element,
-              attrs,
-              activeCompPath,
-            );
+            patchIframeDomTiming(previewIframeRef.current, change.element, attrs, activeCompPath);
           }
           syncPreviewContentDuration(previewIframeRef.current);
           forceReloadSdkSession?.();
@@ -429,7 +423,9 @@ export function useTimelineGroupEditing({
         }
         const handledBySdk = await trySdkBatchPersist({
           changes,
-          sdkChanges: toSdkTimingChanges(changes, (change) => ({ start: change.start })),
+          sdkChanges: toSdkTimingChanges(changes, (change) => ({
+            start: change.start,
+          })),
           eligible: changes.every((change) => change.track == null),
           needsExtension,
           label: "Move timeline clips",
@@ -539,9 +535,7 @@ export function useTimelineGroupEditing({
         }
       }
       if (nativeEntries.length > 0 && nativeEntries.length !== changes.length) {
-        const error = new Error(
-          "A timeline gesture cannot mix native-owned and legacy-only clips",
-        );
+        const error = new Error("A timeline gesture cannot mix native-owned and legacy-only clips");
         showToast(error.message, "error");
         return Promise.reject(error);
       }
@@ -668,15 +662,18 @@ export function useTimelineGroupEditing({
               [
                 ["data-start", edit.compatibility.start],
                 ["data-duration", edit.compatibility.duration],
-                [
-                  playbackStartAttributeForElement(change.element),
-                  edit.compatibility.sourceOffset,
-                ],
+                [playbackStartAttributeForElement(change.element), edit.compatibility.sourceOffset],
               ],
               activeCompPath,
             );
           }
           syncPreviewContentDuration(previewIframeRef.current);
+          if (
+            changes.some(
+              (change) => change.element.automation && change.start !== change.element.start,
+            )
+          )
+            reloadPreview();
           forceReloadSdkSession?.();
           return;
         }
@@ -686,7 +683,9 @@ export function useTimelineGroupEditing({
             start: change.start,
             duration: change.duration,
           })),
-          eligible: changes.every((change) => !resizeHasPlaybackStartAdjustment(change)),
+          eligible: changes.every(
+            (change) => !resizeHasPlaybackStartAdjustment(change) && !change.element.automation,
+          ),
           needsExtension,
           label: "Resize timeline clips",
           coalesceKey,
@@ -717,29 +716,21 @@ export function useTimelineGroupEditing({
             iframe: previewIframeRef.current,
             reloadPreview,
             label: "Resize timeline clips",
-            errorLabel: "Failed to scale GSAP positions",
+            errorLabel: "Failed to refresh trimmed clips",
             coalesceKey,
             recordEdit,
             activeCompPath,
             changes,
             resolveChangePath: (element) => targetPathFor(element, activeCompPath),
-            mutateChange: (change, changePath) => {
-              const domId = change.element.domId;
-              const timingChanged =
-                change.start !== change.element.start ||
-                change.duration !== change.element.duration;
-              if (!timingChanged || !domId) return null;
-              return scaleGsapPositions(
-                projectId,
-                changePath,
-                domId,
-                change.element.start,
-                change.element.duration,
-                change.start,
-                change.duration,
-              );
-            },
+            // Each clip keeps its absolute animation times when trimmed.
+            mutateChange: () => null,
           });
+          if (
+            changes.some(
+              (change) => change.element.automation && change.start !== change.element.start,
+            )
+          )
+            reloadPreview();
         } finally {
           invalidateGsapCache?.();
         }

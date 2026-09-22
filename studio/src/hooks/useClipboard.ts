@@ -1,4 +1,7 @@
 import { useCallback, useRef } from "react";
+import { useNativeKeyframeClipboard } from "./useNativeKeyframeClipboard";
+import { useAuthoredTimelineClipboard } from "./useAuthoredTimelineClipboard";
+import type { NativeTimelineEditingDependencies } from "./useTimelineEditingTypes";
 import type { TimelineElement } from "../player";
 import { usePlayerStore } from "../player";
 import type { DomEditSelection } from "../components/editor/domEditing";
@@ -19,6 +22,9 @@ interface RecordEditInput {
 }
 
 interface UseClipboardOptions {
+  clearCanvasSelection?: () => void;
+  nativeProjectEditing?: NativeTimelineEditingDependencies;
+  handleTimelineElementsDelete?: (elements: TimelineElement[]) => Promise<void>;
   projectId: string | null;
   activeCompPath: string | null;
   domEditSelectionRef: React.MutableRefObject<DomEditSelection | null>;
@@ -49,6 +55,9 @@ function getElementOuterHtml(
 }
 
 export function useClipboard({
+  clearCanvasSelection,
+  nativeProjectEditing,
+  handleTimelineElementsDelete,
   projectId,
   activeCompPath,
   domEditSelectionRef,
@@ -61,6 +70,25 @@ export function useClipboard({
   handleDomEditElementDelete,
   previewIframeRef,
 }: UseClipboardOptions) {
+  const keyframeClipboard = useNativeKeyframeClipboard({
+    projectId,
+    nativeProjectEditing,
+    writeProjectFile,
+    recordEdit,
+    showToast,
+  });
+  const timelineClipboard = useAuthoredTimelineClipboard({
+    clearCanvasSelection,
+    projectId,
+    activeCompPath,
+    showToast,
+    writeProjectFile,
+    recordEdit,
+    domEditSaveTimestampRef,
+    reloadPreview,
+    nativeProjectEditing,
+    handleTimelineElementsDelete,
+  });
   const clipboardRef = useRef<ClipboardPayload | null>(null);
   const projectIdRef = useRef(projectId);
   projectIdRef.current = projectId;
@@ -69,46 +97,18 @@ export function useClipboard({
   // duplicated DOM lookup with the canonical composition-aware resolver.
   // fallow-ignore-next-line complexity
   const handleCopy = useCallback((): boolean => {
-    const { selectedElementId, elements } = usePlayerStore.getState();
-
-    // Timeline clip copy
-    if (selectedElementId) {
-      const element = elements.find((el) => (el.key ?? el.id) === selectedElementId);
-      if (!element) return false;
-      const targetPath = element.sourceFile || activeCompPath || "index.html";
-
-      let html: string | null = null;
-      try {
-        const doc = previewIframeRef.current?.contentDocument;
-        if (doc) {
-          html =
-            findElementForSelection(
-              doc,
-              {
-                hfId: element.hfId,
-                id: element.domId,
-                selector: element.selector,
-                selectorIndex: element.selectorIndex,
-                sourceFile: targetPath,
-              },
-              activeCompPath,
-            )?.outerHTML ?? null;
-        }
-      } catch {
-        // cross-origin frame
-      }
-
-      if (!html) {
-        showToast("Unable to copy this element.", "info");
-        return false;
-      }
-
-      const payload: ClipboardPayload = { kind: "timeline-clip", html, sourceFile: targetPath };
-      clipboardRef.current = payload;
-      showToast("Copied clip", "info");
+    if (keyframeClipboard.copy()) {
+      clipboardRef.current = null;
       return true;
     }
 
+    if (timelineClipboard.copy()) {
+      keyframeClipboard.clear();
+      clipboardRef.current = null;
+      return true;
+    }
+
+    keyframeClipboard.clear();
     // DOM element copy
     const domSelection = domEditSelectionRef.current;
     if (domSelection) {
@@ -131,10 +131,21 @@ export function useClipboard({
     }
 
     return false;
-  }, [activeCompPath, domEditSelectionRef, previewIframeRef, showToast]);
+  }, [
+    activeCompPath,
+    domEditSelectionRef,
+    previewIframeRef,
+    showToast,
+    timelineClipboard.copy,
+    keyframeClipboard.copy,
+    keyframeClipboard.clear,
+  ]);
 
   const handlePaste = useCallback(async () => {
+    const invokedTime = usePlayerStore.getState().currentTime;
+    if (await keyframeClipboard.paste()) return;
     const payload = clipboardRef.current;
+    if (!payload && (await timelineClipboard.paste(invokedTime))) return;
     if (!payload) {
       showToast("Nothing to paste.", "info");
       return;
@@ -195,9 +206,20 @@ export function useClipboard({
     reloadPreview,
     showToast,
     writeProjectFile,
+    timelineClipboard.paste,
+    keyframeClipboard.paste,
   ]);
 
   const handleCut = useCallback(async (): Promise<boolean> => {
+    if (usePlayerStore.getState().selectedKeyframes.size) return keyframeClipboard.cut();
+    keyframeClipboard.clear();
+    if (
+      usePlayerStore.getState().selectedElementId ||
+      usePlayerStore.getState().selectedElementIds.size
+    ) {
+      clipboardRef.current = null;
+      return timelineClipboard.cut();
+    }
     const copied = handleCopy();
     if (!copied) return false;
 
@@ -216,7 +238,24 @@ export function useClipboard({
       return true;
     }
     return true;
-  }, [handleCopy, domEditSelectionRef, handleTimelineElementDelete, handleDomEditElementDelete]);
+  }, [
+    handleCopy,
+    domEditSelectionRef,
+    handleTimelineElementDelete,
+    handleDomEditElementDelete,
+    timelineClipboard.cut,
+    keyframeClipboard.cut,
+    keyframeClipboard.clear,
+  ]);
 
-  return { handleCopy, handlePaste, handleCut };
+  const handleDuplicate = useCallback(async () => {
+    if (usePlayerStore.getState().selectedKeyframes.size) {
+      keyframeClipboard.copy();
+      await keyframeClipboard.paste();
+      return;
+    }
+    await timelineClipboard.duplicate();
+  }, [keyframeClipboard.copy, keyframeClipboard.paste, timelineClipboard.duplicate]);
+
+  return { handleCopy, handlePaste, handleCut, handleDuplicate };
 }

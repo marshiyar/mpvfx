@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import puppeteer from "puppeteer-core";
+import { verifyProfessionalTimeline } from "./professional-timeline-scenarios.mjs";
 import { minimalEnvironment } from "../../../scripts/automation/privacy.mjs";
 
 const STUDIO_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -113,7 +114,7 @@ async function waitForHttp(url, serverProcess, serverOutput) {
   );
 }
 
-async function selectByDomId(page, id) {
+async function selectByDomId(page, id, requireVisibleBox = true) {
   await waitUntil(async () => {
     const preview = await readNativeVideoState(page);
     return (
@@ -139,9 +140,11 @@ async function selectByDomId(page, id) {
     );
     await clip.click();
   }
-  await page.waitForSelector('pierce/[data-dom-edit-selection-box="true"]', {
-    timeout: 10_000,
-  });
+  if (requireVisibleBox) {
+    await page.waitForSelector('pierce/[data-dom-edit-selection-box="true"]', {
+      timeout: 10_000,
+    });
+  }
 }
 
 async function readWorkflowUiState(page) {
@@ -1270,6 +1273,9 @@ async function main() {
       `Server failures:\n${failedResponses.join("\n")}`,
     );
     await captureUi(page, "reopened-midpoint");
+    await verifyProfessionalTimeline({ page, readSaved, selectByDomId, requestSeek, waitUntil, assert });
+    assert(pageErrors.length === 0, `Browser page errors: ${pageErrors.join("\n")}`);
+    assert(failedResponses.length === 0, `Server failures: ${failedResponses.join("\n")}`);
     await writeFile(
       join(OUTPUT_DIR, "result.json"),
       JSON.stringify(
@@ -1297,6 +1303,10 @@ async function main() {
             "all-channel-keyframe-add-remove",
             "atomic-undo-redo",
             "save-reopen",
+            "keyframe-clipboard-and-scoped-delete",
+            "clip-copy-cut-duplicate",
+            "complete-curve-split-and-reopen",
+            "select-delete-all-and-undo",
           ],
           poseA,
           poseMid,

@@ -15,7 +15,10 @@ import {
 import { shouldIgnoreHistoryShortcut } from "../utils/studioHelpers";
 import { canSplitElement } from "../utils/timelineElementSplit";
 import { trackStudioEvent } from "../utils/studioTelemetry";
-import { serializeStudioFileMutations } from "../utils/studioFileMutationCoordinator";
+import {
+  serializeStudioFileMutations,
+  waitForStudioFileMutations,
+} from "../utils/studioFileMutationCoordinator";
 
 function iframeContentWindow(iframe: HTMLIFrameElement | null): Window | null {
   try {
@@ -129,6 +132,8 @@ interface UseAppHotkeysParams {
   handleCopy: () => boolean;
   handlePaste: () => Promise<void>;
   handleCut: () => Promise<boolean>;
+  handleDuplicate?: () => Promise<void>;
+  onSelectAll?: () => void;
   onResetKeyframes: () => boolean | Promise<boolean>;
   onDeleteSelectedKeyframes: () => void | Promise<boolean>;
   onAfterUndoRedo?: () => void;
@@ -161,6 +166,8 @@ interface HotkeyCallbacks {
   handleCopy: () => boolean;
   handlePaste: () => Promise<void>;
   handleCut: () => Promise<boolean>;
+  handleDuplicate?: () => Promise<void>;
+  onSelectAll?: () => void;
   onResetKeyframes: () => boolean | Promise<boolean>;
   onDeleteSelectedKeyframes: () => void | Promise<boolean>;
   onToggleRecording?: () => void;
@@ -224,6 +231,16 @@ export function dispatchModifierKey(
     // clipboards and toasted "Copied clip". Return without preventDefault so
     // the downstream handler still sees the key.
     if (automationOwnsKey(event)) return true;
+    if (key === "a" && cb.onSelectAll) {
+      event.preventDefault();
+      cb.onSelectAll();
+      return true;
+    }
+    if (key === "d" && cb.handleDuplicate) {
+      event.preventDefault();
+      void cb.handleDuplicate();
+      return true;
+    }
     if (key === "c") {
       if (cb.handleCopy()) {
         event.preventDefault();
@@ -385,6 +402,8 @@ export function useAppHotkeys({
   handleCopy,
   handlePaste,
   handleCut,
+  handleDuplicate,
+  onSelectAll,
   onResetKeyframes,
   onDeleteSelectedKeyframes,
   onAfterUndoRedo,
@@ -439,6 +458,7 @@ export function useAppHotkeys({
       if (tryApplyBeatHistory(direction, editHistory.state, showToast)) return;
 
       await waitForPendingDomEditSaves();
+      await waitForStudioFileMutations(writeProjectFile);
       const result = await editHistory[direction]({
         readFile: readHistoryFile,
         writeFile: writeHistoryFile,
@@ -461,7 +481,10 @@ export function useAppHotkeys({
         if (activeCompPath && result.paths?.includes(activeCompPath)) {
           forceReloadSdkSession?.();
         }
-        await syncHistoryPreviewAfterApply({ paths: result.paths, files: result.files });
+        await syncHistoryPreviewAfterApply({
+          paths: result.paths,
+          files: result.files,
+        });
         showToast(`${direction === "undo" ? "Undid" : "Redid"} ${result.label}`, "info");
       }
     },
@@ -472,6 +495,7 @@ export function useAppHotkeys({
       syncHistoryPreviewAfterApply,
       waitForPendingDomEditSaves,
       writeHistoryFile,
+      writeProjectFile,
       serializeHistoryFiles,
       onAfterUndoRedo,
       activeCompPath,
@@ -494,6 +518,8 @@ export function useAppHotkeys({
     handleCopy,
     handlePaste,
     handleCut,
+    handleDuplicate,
+    onSelectAll,
     onResetKeyframes,
     onDeleteSelectedKeyframes,
     onToggleRecording,

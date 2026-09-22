@@ -27,6 +27,8 @@ import { useStudioExternalFileChanges } from "./hooks/useStudioExternalFileChang
 import { useBlockHandlers } from "./hooks/useBlockHandlers";
 import { useAppHotkeys } from "./hooks/useAppHotkeys";
 import { useClipboard } from "./hooks/useClipboard";
+import { selectAllTimelineItems } from "./hooks/selectAllTimelineItems";
+import { ClipboardActionsProvider } from "./contexts/ClipboardActionsContext";
 import { deleteSelectedKeyframes } from "./hooks/timelineEditingHelpers";
 import { clearKeyframeInteractionAfterHistory } from "./hooks/keyframeHistoryState";
 import { useCaptionDetection } from "./hooks/useCaptionDetection";
@@ -128,14 +130,8 @@ export function StudioApp() {
   const handleNativeDuration = useCallback((durationSeconds: number) => {
     usePlayerStore.getState().setDuration(durationSeconds);
   }, []);
-  const getNativePlaybackRate = useCallback(
-    () => usePlayerStore.getState().playbackRate,
-    [],
-  );
-  const getNativePlayheadSeconds = useCallback(
-    () => usePlayerStore.getState().currentTime,
-    [],
-  );
+  const getNativePlaybackRate = useCallback(() => usePlayerStore.getState().playbackRate, []);
+  const getNativePlayheadSeconds = useCallback(() => usePlayerStore.getState().currentTime, []);
   const nativeProjectSession = useNativeProjectSession({
     projectId,
     readOptionalProjectFile: fileManager.readOptionalProjectFile,
@@ -256,7 +252,9 @@ export function StudioApp() {
   });
   const handleTimelineElementsMove: TimelineMoveEditsHandler = useCallback(
     async (edits, coalesceKey, operation: TimelineMoveOperation = "timing", coalesceMs) => {
-      const deps = { handleTimelineGroupMove: timelineEditing.handleTimelineGroupMove };
+      const deps = {
+        handleTimelineGroupMove: timelineEditing.handleTimelineGroupMove,
+      };
       await persistTimelineMoveEditsAtomically(edits, coalesceKey, operation, deps, coalesceMs);
     },
     [timelineEditing.handleTimelineGroupMove],
@@ -293,12 +291,19 @@ export function StudioApp() {
   });
   const clearDomSelectionRef = useRef<() => void>(() => {});
   const domEditSelectionBridgeRef = useRef<DomEditSelection | null>(null);
+  const clearCanvasSelection = useCallback(() => {
+    clearDomSelectionRef.current();
+    domEditSelectionBridgeRef.current = null;
+  }, []);
   type DomEditDelete = (s: DomEditSelection, o?: { expandGroup?: boolean }) => Promise<void>;
   const handleDomEditElementDeleteRef = useRef<DomEditDelete>(async () => {});
   const domEditDeleteBridge: DomEditDelete = (s, o) => handleDomEditElementDeleteRef.current(s, o);
   const resetKeyframesRef = useRef<() => Promise<boolean>>(async () => false);
   const deleteSelectedKeyframesRef = useRef<() => Promise<boolean>>(async () => false);
-  const { handleCopy, handlePaste, handleCut } = useClipboard({
+  const { handleCopy, handlePaste, handleCut, handleDuplicate } = useClipboard({
+    clearCanvasSelection,
+    nativeProjectEditing,
+    handleTimelineElementsDelete: timelineEditing.handleTimelineElementsDelete,
     projectId,
     activeCompPath,
     domEditSelectionRef: domEditSelectionBridgeRef,
@@ -311,7 +316,22 @@ export function StudioApp() {
     handleDomEditElementDelete: domEditDeleteBridge,
     previewIframeRef,
   });
+  const handleSelectAll = useCallback(
+    () => selectAllTimelineItems(nativeProjectSession.document, clearCanvasSelection),
+    [nativeProjectSession.document, clearCanvasSelection],
+  );
+  const clipboardActions = useMemo(
+    () => ({
+      copy: handleCopy,
+      cut: handleCut,
+      paste: handlePaste,
+      duplicate: handleDuplicate,
+      selectAll: handleSelectAll,
+    }),
+    [handleCopy, handleCut, handlePaste, handleDuplicate, handleSelectAll],
+  );
   const appHotkeys = useAppHotkeys({
+    onSelectAll: handleSelectAll,
     handleTimelineElementsDelete: timelineEditing.handleTimelineElementsDelete,
     handleTimelineElementSplit: timelineEditing.handleTimelineElementSplit,
     handleDomEditElementDelete: domEditDeleteBridge,
@@ -329,6 +349,7 @@ export function StudioApp() {
     handleCopy,
     handlePaste,
     handleCut,
+    handleDuplicate,
     onResetKeyframes: () => resetKeyframesRef.current(),
     onDeleteSelectedKeyframes: () => deleteSelectedKeyframesRef.current(),
     onAfterUndoRedo: () => {
@@ -445,16 +466,13 @@ export function StudioApp() {
     setActiveCompPath,
     showToast,
   });
-  const {
-    designPanelActive,
-    shouldShowMotionPath,
-    shouldShowSelectedDomBounds,
-  } = useInspectorState(
-    panelLayout.rightPanelTab,
-    isPlaying,
-    domEditSession.domEditSelection,
-    gestureState === "recording",
-  );
+  const { designPanelActive, shouldShowMotionPath, shouldShowSelectedDomBounds } =
+    useInspectorState(
+      panelLayout.rightPanelTab,
+      isPlaying,
+      domEditSession.domEditSelection,
+      gestureState === "recording",
+    );
   useStudioUrlState({
     projectId,
     activeCompPath,
@@ -509,9 +527,10 @@ export function StudioApp() {
   if (resolving || waitingForServer || !projectId)
     return <StudioSplash waiting={waitingForServer} />;
   return (
-    <StudioShellProvider value={studioCtxValue}>
-      <StudioPlaybackProvider value={studioCtxValue}>
-        <PanelLayoutProvider value={panelLayout}>
+    <ClipboardActionsProvider value={clipboardActions}>
+      <StudioShellProvider value={studioCtxValue}>
+        <StudioPlaybackProvider value={studioCtxValue}>
+          <PanelLayoutProvider value={panelLayout}>
             <FileManagerProvider value={fileManager}>
               <DomEditProvider value={domEditSession}>
                 <div
@@ -604,15 +623,13 @@ export function StudioApp() {
                       ) : undefined
                     }
                   />
-                  <StudioOverlays
-                    toasts={toasts}
-                    dismissToast={dismissToast}
-                  />
+                  <StudioOverlays toasts={toasts} dismissToast={dismissToast} />
                 </div>
               </DomEditProvider>
             </FileManagerProvider>
-        </PanelLayoutProvider>
-      </StudioPlaybackProvider>
-    </StudioShellProvider>
+          </PanelLayoutProvider>
+        </StudioPlaybackProvider>
+      </StudioShellProvider>
+    </ClipboardActionsProvider>
   );
 }

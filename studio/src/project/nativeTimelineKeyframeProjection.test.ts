@@ -263,7 +263,7 @@ describe("native timeline keyframe projection", () => {
     expect(result.groups).toEqual([]);
   });
 
-  it("fails structurally when a keyframe lies outside the clip-local frame range", () => {
+  it("keeps an animated lane while hiding its offscreen keyframes", () => {
     const invalidTrack = numericTrack("animation:late", "transform.rotation", [
       ["late:key", 120, -180],
     ]);
@@ -271,13 +271,9 @@ describe("native timeline keyframe projection", () => {
       id: "clip:first",
     });
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.failure).toMatchObject({
-        code: "keyframe-outside-clip",
-        parameterId: "transform.rotation",
-        keyframeId: "late:key",
-      });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.groups[0]!.lanes[0]!.diamonds).toEqual([]);
     }
   });
 });
