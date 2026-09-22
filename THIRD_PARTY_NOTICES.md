@@ -581,7 +581,7 @@ runtime dependencies.
 | [dlv](https://www.npmjs.com/package/dlv) | 1.1.3 | MIT |
 | [ds-store](https://www.npmjs.com/package/ds-store) | 0.1.6 | MIT |
 | [eastasianwidth](https://www.npmjs.com/package/eastasianwidth) | 0.2.0 | MIT |
-| [electron](https://www.npmjs.com/package/electron) | 44.4.1 | MIT |
+| [electron](https://www.npmjs.com/package/electron) | 44.4.2 | MIT |
 | [electron-installer-common](https://www.npmjs.com/package/electron-installer-common) | 0.10.4 | Apache-2.0 |
 | [electron-installer-debian](https://www.npmjs.com/package/electron-installer-debian) | 3.2.0 | MIT |
 | [electron-installer-dmg](https://www.npmjs.com/package/electron-installer-dmg) | 5.0.1 | Apache-2.0 |
