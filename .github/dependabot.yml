@@ -9,6 +9,14 @@ updates:
       timezone: America/Los_Angeles
     open-pull-requests-limit: 10
     groups:
+      # Keep Vite and its React/test integrations together, including major updates.
+      vite-toolchain:
+        patterns:
+          - vite
+          - "@vitejs/*"
+          - vitest
+          - "@vitest/*"
+          - vite-node
       production-minor-and-patch:
         dependency-type: production
         update-types:
@@ -22,9 +30,12 @@ updates:
 
   - package-ecosystem: github-actions
     directory: /
+    groups:
+      codeql:
+        patterns:
+          - "github/codeql-action/*"
     schedule:
       interval: weekly
       day: monday
       time: "09:30"
       timezone: America/Los_Angeles
-

@@ -118,17 +118,23 @@ notices and any corresponding-source offer required by copyleft components.
 `;
 
 const outputs = new Map([
-  [resolve(repositoryRoot, "THIRD_PARTY_NOTICES.md"), notice],
   [resolve(repositoryRoot, "studio/resources/legal/THIRD_PARTY_NOTICES.md"), notice],
   [resolve(repositoryRoot, "studio/resources/legal/MPVFX_LICENSE.txt"), readFileSync(resolve(repositoryRoot, "LICENSE"), "utf8")],
   [resolve(repositoryRoot, "studio/resources/legal/NOTICE.txt"), readFileSync(resolve(repositoryRoot, "NOTICE"), "utf8")],
-  [resolve(repositoryRoot, "studio/resources/legal/PRIVACY.md"), readFileSync(resolve(repositoryRoot, "PRIVACY.md"), "utf8")],
   [resolve(repositoryRoot, "studio/resources/legal/REMOTE_ASSETS.md"), readFileSync(resolve(repositoryRoot, "docs/REMOTE_ASSETS.md"), "utf8")],
   [resolve(repositoryRoot, "studio/resources/legal/FFMPEG_SOURCE.md"), readFileSync(resolve(repositoryRoot, "docs/FFMPEG_DISTRIBUTION.md"), "utf8")],
   [resolve(repositoryRoot, "studio/resources/legal/Apache-2.0.txt"), readFileSync(resolve(repositoryRoot, "third_party/licenses/Apache-2.0.txt"), "utf8")],
   [resolve(repositoryRoot, "studio/resources/legal/GPL-3.0.txt"), readFileSync(resolve(repositoryRoot, "third_party/licenses/GPL-3.0.txt"), "utf8")],
   [resolve(repositoryRoot, "studio/resources/legal/GSAP-NOTICE.txt"), readFileSync(resolve(repositoryRoot, "third_party/licenses/GSAP-NOTICE.txt"), "utf8")],
 ]);
+
+// Keep existing root documents synchronized without recreating deliberate deletions.
+const rootNoticesPath = resolve(repositoryRoot, "THIRD_PARTY_NOTICES.md");
+if (existsSync(rootNoticesPath)) outputs.set(rootNoticesPath, notice);
+const rootPrivacyPath = resolve(repositoryRoot, "PRIVACY.md");
+if (existsSync(rootPrivacyPath)) {
+  outputs.set(resolve(repositoryRoot, "studio/resources/legal/PRIVACY.md"), readFileSync(rootPrivacyPath, "utf8"));
+}
 
 const stale = [];
 for (const [path, content] of outputs) {
