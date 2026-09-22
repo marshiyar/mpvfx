@@ -358,7 +358,7 @@ export function dispatchPlainKey(event: KeyboardEvent, key: string, cb: HotkeyCa
     // still drawn as selected. The timeline path stays as the fallback for rows
     // with no canvas node to select (audio, a comp that is not the active one).
     const domSel = cb.domEditSelectionRef.current;
-    if (domSel) {
+    if (domSel && !usePlayerStore.getState().timelineSelectionOwnsCommands) {
       event.preventDefault();
       // The whole marquee group, not just the primary the ref holds.
       void cb.handleDomEditElementDelete(domSel, { expandGroup: true });

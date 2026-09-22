@@ -602,6 +602,22 @@ async function main() {
     );
     const pageErrors = [];
     const failedResponses = [];
+    const pendingMutations = new Set();
+    let lastMutationAt = 0;
+    page.on("request", (request) => {
+      if (request.method() === "GET" || !request.url().includes("/file-transactions/")) return;
+      pendingMutations.add(request);
+      lastMutationAt = Date.now();
+    });
+    const finishedMutation = (request) => {
+      if (pendingMutations.delete(request)) lastMutationAt = Date.now();
+    };
+    page.on("requestfinished", finishedMutation);
+    page.on("requestfailed", finishedMutation);
+    const waitForSettledWrites = () => waitUntil(
+      async () => pendingMutations.size === 0 && Date.now() - lastMutationAt >= 250,
+      "Save/history acknowledgements did not settle before reopening the project",
+    );
     page.on("pageerror", (error) => pageErrors.push(error.message));
     page.on("response", (response) => {
       const status = response.status();
@@ -1116,7 +1132,7 @@ async function main() {
       const track = tracks.find((item) => item.parameterId === parameter);
       assert(
         track?.keyframes.find((key) => key.frame === 0)?.value === baseline,
-        `${parameter} changed key A`,
+        `${parameter} changed key A: expected ${baseline}, received ${track?.keyframes.find((key) => key.frame === 0)?.value}`,
       );
       assert(
         track.keyframes.some(
@@ -1247,6 +1263,7 @@ async function main() {
     await waitForMiddleRendered(false);
     await traceWorkflow(page, "redo-rendered");
 
+    await waitForSettledWrites();
     await page.reload({ waitUntil: "domcontentloaded" });
     await selectByDomId(page, "native-video");
     await requestSeek(page, 1);
@@ -1273,7 +1290,7 @@ async function main() {
       `Server failures:\n${failedResponses.join("\n")}`,
     );
     await captureUi(page, "reopened-midpoint");
-    await verifyProfessionalTimeline({ page, readSaved, selectByDomId, requestSeek, waitUntil, assert });
+    await verifyProfessionalTimeline({ page, readSaved, selectByDomId, requestSeek, waitUntil, waitForSettledWrites, assert });
     assert(pageErrors.length === 0, `Browser page errors: ${pageErrors.join("\n")}`);
     assert(failedResponses.length === 0, `Server failures: ${failedResponses.join("\n")}`);
     await writeFile(

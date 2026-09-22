@@ -5,6 +5,7 @@ export async function verifyProfessionalTimeline({
   selectByDomId,
   requestSeek,
   waitUntil,
+  waitForSettledWrites,
   assert,
 }) {
   const modifier = process.platform === "darwin" ? "Meta" : "Control";
@@ -103,6 +104,7 @@ export async function verifyProfessionalTimeline({
     pasted.parameterTracks.every((track, i) => track.id !== original.parameterTracks[i].id),
     "Copied animation still shares editable identities",
   );
+  await waitForSettledWrites();
   await page.reload({ waitUntil: "domcontentloaded" });
   await selectByDomId(page, pasted.binding.domId, false);
   await context(pasted.binding.domId, "Cut");
@@ -162,6 +164,7 @@ export async function verifyProfessionalTimeline({
     JSON.stringify(values(right)) === JSON.stringify(expectedRight),
     "Split failed to retain all right-side channels and interpolation",
   );
+  await waitForSettledWrites();
   await page.reload({ waitUntil: "domcontentloaded" });
   await selectByDomId(page, right.binding.domId, false);
   const reopened = await readClips();

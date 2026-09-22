@@ -82,6 +82,7 @@ export function useAuthoredTimelineClipboard(options: Options) {
       usePlayerStore.setState({
         selectedElementIds: ids,
         selectedElementId: ids.values().next().value!,
+        timelineSelectionOwnsCommands: true,
         selectedKeyframes: new Set(),
       });
     });

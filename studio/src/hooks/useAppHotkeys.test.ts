@@ -5,6 +5,7 @@ import { usePlayerStore } from "../player/store/playerStore";
 import { clearAutomationClipboard, copyRange } from "../player/components/automationClipboard";
 import { VOLUME_RANGE } from "@hyperframes/core/audio-automation";
 import type { TimelineElement } from "../player/store/timelineElement";
+import { selectAllTimelineItems } from "./selectAllTimelineItems";
 
 /** Minimal valid fixture — TimelineElement only requires these five fields. */
 const bgmElement: TimelineElement = {
@@ -56,6 +57,31 @@ afterEach(() => {
 });
 
 describe("dispatchPlainKey — Delete arbitration", () => {
+  it("keeps Select All owned by the timeline after a delayed partial canvas mirror", () => {
+    const clips = ["a", "b", "c"].map((id) => ({ ...bgmElement, id, key: id }));
+    usePlayerStore.setState({ elements: clips, selectedKeyframes: new Set() });
+    selectAllTimelineItems(null);
+    usePlayerStore.getState().setSelectionAnchor("b");
+    const cb = callbacks();
+    cb.domEditSelectionRef = { current: { id: "b", sourceFile: "index.html" } } as typeof cb.domEditSelectionRef;
+    dispatchPlainKey(press("Delete"), "delete", cb);
+    expect(cb.handleTimelineElementsDelete).toHaveBeenCalledWith(clips);
+    expect(cb.handleDomEditElementDelete).not.toHaveBeenCalled();
+  });
+
+  it("returns ownership to a genuine new canvas selection after Select All", () => {
+    const clips = ["a", "b"].map((id) => ({ ...bgmElement, id, key: id }));
+    usePlayerStore.setState({ elements: clips, selectedKeyframes: new Set() });
+    selectAllTimelineItems(null);
+    usePlayerStore.getState().setSelectedElementId("a");
+    const cb = callbacks();
+    const domSelection = { id: "a", sourceFile: "index.html" };
+    cb.domEditSelectionRef = { current: domSelection } as typeof cb.domEditSelectionRef;
+    dispatchPlainKey(press("Delete"), "delete", cb);
+    expect(cb.handleDomEditElementDelete).toHaveBeenCalledWith(domSelection, { expandGroup: true });
+    expect(cb.handleTimelineElementsDelete).not.toHaveBeenCalled();
+  });
+
   const selectBgm = () =>
     usePlayerStore.setState({ elements: [bgmElement], selectedElementId: "bgm" });
 

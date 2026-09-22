@@ -136,6 +136,8 @@ interface PlayerState
 
   /** Multi-select: additional selected elements beyond selectedElementId. */
   selectedElementIds: Set<string>;
+  /** Explicit clip commands keep ownership when the canvas mirrors only visible members. */
+  timelineSelectionOwnsCommands: boolean;
   clearSelectedElementIds: () => void;
   /** Replace the whole multi-selection at once (marquee live updates). */
   setSelectedElementIds: (ids: Set<string>) => void;
@@ -321,6 +323,7 @@ export function createTimelineResetState() {
     focusedEaseSegment: null,
     revealedAudioFxTarget: null,
     selectedElementIds: new Set<string>(),
+    timelineSelectionOwnsCommands: false,
     requestedSeekTime: null,
     timelineFocus: null,
     keyframeCache: new Map<string, KeyframeCacheEntry>(),
@@ -389,11 +392,13 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     }),
 
   selectedElementIds: new Set<string>(),
+  timelineSelectionOwnsCommands: false,
   setSelection: (ids, anchor) =>
     set((state) => {
       const selection = resolveElementSelection(ids, anchor);
       return {
         ...selection,
+        timelineSelectionOwnsCommands: false,
         ...activeKeyframePatchForSelection(state, selection.selectedElementIds),
       };
     }),
@@ -403,6 +408,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       next.add(id);
       return {
         ...resolveElementSelection(next, s.selectedElementId),
+        timelineSelectionOwnsCommands: false,
         ...activeKeyframePatchForSelection(s, next),
       };
     }),
@@ -413,11 +419,13 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       else next.add(id);
       return {
         ...resolveElementSelection(next, s.selectedElementId),
+        timelineSelectionOwnsCommands: false,
         ...activeKeyframePatchForSelection(s, next),
       };
     }),
   clearSelection: () =>
     set({
+      timelineSelectionOwnsCommands: false,
       selectedElementId: null,
       selectedElementIds: new Set(),
       activeKeyframePct: null,
@@ -534,6 +542,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   setZoomMode: (mode) => set({ zoomMode: mode }),
   clearSelectedElementIds: () =>
     set({
+      timelineSelectionOwnsCommands: false,
       selectedElementIds: new Set(),
       activeKeyframePct: null,
       activeKeyframeTarget: null,
@@ -543,6 +552,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       const selectedElementIds = new Set(ids);
       return {
         selectedElementIds,
+        timelineSelectionOwnsCommands: false,
         ...activeKeyframePatchForSelection(state, selectedElementIds),
       };
     }),
@@ -632,6 +642,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   setSelectedElementId: (id, options) =>
     set((s) => {
       const selectedElementIds = nextSelectionSet(s.selectedElementIds, id, options?.preserveSet);
+      const timelineSelectionOwnsCommands = Boolean(
+        options?.preserveSet && id && s.selectedElementIds.has(id) && s.timelineSelectionOwnsCommands,
+      );
       const activeKeyframe = activeKeyframePatchForSelection(s, selectedElementIds);
       // The active keyframe follows exact selected-set membership, not the anchor:
       // a preserveSet DOM echo may move the anchor while its owner stays selected,
@@ -654,13 +667,14 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         ? {
             selectedElementId: id,
             selectedElementIds,
+            timelineSelectionOwnsCommands,
             selectedKeyframes: new Set<string>(),
             ...activeKeyframe,
             motionPathArmed: false,
             focusedEaseSegment: null,
             ...(revealSurvives ? {} : { revealedAudioFxTarget: null }),
           }
-        : { selectedElementId: id, selectedElementIds, ...activeKeyframe };
+        : { selectedElementId: id, selectedElementIds, timelineSelectionOwnsCommands, ...activeKeyframe };
     }),
   // Move the anchor within an active multi-selection WITHOUT collapsing it — used by
   // DOM->store sync echoes while a group gesture re-patches the preview. A non-member
@@ -678,6 +692,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       return {
         selectedElementId: id,
         selectedElementIds,
+        timelineSelectionOwnsCommands: false,
         focusedEaseSegment: id === s.selectedElementId ? s.focusedEaseSegment : null,
         ...activeKeyframePatchForSelection(s, selectedElementIds),
       };

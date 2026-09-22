@@ -42,5 +42,6 @@ export function selectAllTimelineItems(
   usePlayerStore.setState({
     selectedElementIds: ids,
     selectedElementId: ids.values().next().value ?? null,
+    timelineSelectionOwnsCommands: true,
   });
 }
