@@ -107,8 +107,8 @@ describe("splitAudioAutomation nonlinear equivalence", () => {
       ],
     }, 4);
 
-    expect(left.points.at(-1)).toEqual(source.points[1]);
-    expect(right.points[0]).toEqual({ ...source.points[1], t: 0 });
+    expect(left.points).toEqual(source.points);
+    expect(right.points).toEqual(source.points.map((p) => ({ ...p, t: p.t - 4 })));
     expectEquivalentSamples(source, 4, left, right, 10);
   });
 
@@ -130,7 +130,7 @@ describe("splitAudioAutomation nonlinear equivalence", () => {
     expectEquivalentSamples(source, 4, reparsed.lanes[0]!, reparsed.lanes[1]!, 10);
   });
 
-  it("rejects explicitly when the point budget cannot preserve a nonlinear cut", () => {
+  it("preserves a full lane without manufacturing extra boundary points", () => {
     const points = Array.from({ length: MAX_AUTOMATION_POINTS }, (_, index) => ({
       t: index,
       v: index,
@@ -143,8 +143,15 @@ describe("splitAudioAutomation nonlinear equivalence", () => {
       lanes: [{ target: "fx.eq.frequency", points }],
     }));
 
-    expect(() => splitAudioAutomation(automation, MAX_AUTOMATION_POINTS - 1.5)).toThrow(
-      "cannot be preserved within the 512-point lane limit",
+    const split = splitAudioAutomation(automation, MAX_AUTOMATION_POINTS - 1.5);
+    expect(split.left.lanes[0]!.points).toEqual(automation.lanes[0]!.points);
+    expect(split.right.lanes[0]!.points).toHaveLength(MAX_AUTOMATION_POINTS);
+    expectEquivalentSamples(
+      automation.lanes[0]!,
+      MAX_AUTOMATION_POINTS - 1.5,
+      split.left.lanes[0]!,
+      split.right.lanes[0]!,
+      MAX_AUTOMATION_POINTS - 1,
     );
   });
 });

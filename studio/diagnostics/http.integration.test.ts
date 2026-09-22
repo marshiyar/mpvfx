@@ -1,0 +1,40 @@
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { gunzipSync } from "node:zlib";
+import { afterEach, describe, expect, it } from "vitest";
+import { createDiagnostics } from "./logger";
+import { startStudioServer } from "../desktop/editorServer";
+
+const cleanups: Array<() => Promise<void> | void> = [];
+afterEach(async () => { for (const cleanup of cleanups.reverse().splice(0)) await cleanup(); });
+describe("desktop diagnostic transport", () => {
+  it("persists client events and downloads a usable redacted report, rejecting untrusted origins and oversized batches", async () => {
+    const root = mkdtempSync(join(tmpdir(), "mpvfx-diagnostic-http-"));
+    cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+    const log = createDiagnostics({ directory: join(root, "diagnostics"), metadata: { platform: process.platform } });
+    cleanups.push(() => log.close());
+    mkdirSync(join(root, "dist"));
+    writeFileSync(join(root, "dist", "index.html"), "test editor");
+    const server = await startStudioServer({ staticDir: join(root, "dist"), projectsDir: join(root, "projects"), studioDir: resolve("."), version: "test", diagnostics: log });
+    cleanups.push(() => server.close());
+    const url = `${server.origin}/api/diagnostics`;
+    const status = await (await fetch(`${url}/status`)).json();
+    expect(status).toMatchObject({ recording: true, localOnly: true });
+    const operation = await fetch(`${server.origin}/api/projects`);
+    expect(operation.headers.get("X-MpVFX-Request-Id")).toMatch(/^[a-f0-9-]{36}$/);
+    const event = { event: "ui.click", data: { action: "export-video", password: "CANARY_CREDENTIAL" }, sessionId: "SPOOF_SESSION", level: "fatal" };
+    const post = (body: unknown, origin = server.origin) => fetch(`${url}/events`, { method: "POST", headers: { "Content-Type": "application/json", Origin: origin }, body: JSON.stringify(body) });
+    expect((await post({ events: [event] }, "https://untrusted.example")).status).toBe(403);
+    expect((await post({ events: [event], dropped: 4 })).status).toBe(200);
+    expect((await post({ events: Array(33).fill(event) })).status).toBe(400);
+    expect((await post({ events: [event], padding: "x".repeat(600 * 1024) })).status).toBe(413);
+    const downloaded = await fetch(`${url}/export`);
+    expect(downloaded.headers.get("content-disposition")).toContain("attachment");
+    const contents = gunzipSync(Buffer.from(await downloaded.arrayBuffer())).toString();
+    expect(contents).not.toMatch(/CANARY_|SPOOF_SESSION/);
+    const report = JSON.parse(contents);
+    expect(report.events.find((e: any) => e.event === "client.ui.click")).toMatchObject({ sessionId: status.sessionId, level: "info", data: { detail: { action: "export-video", password: "[redacted]" } } });
+    expect(report.events.find((e: any) => e.event === "client.events_lost").data.count).toBe(4);
+  }, 20_000);
+});

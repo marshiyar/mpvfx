@@ -11,18 +11,12 @@ function repositoryFile(path: string): string {
 }
 
 describe("public repository release readiness", () => {
-  it("ships the repository policy and maintenance documents", () => {
+  it("ships the retained release inputs", () => {
     for (const path of [
       "README.md",
       "LICENSE",
       "NOTICE",
       "CHANGELOG.md",
-      "CODE_OF_CONDUCT.md",
-      "CONTRIBUTING.md",
-      "PRIVACY.md",
-      "SECURITY.md",
-      "SUPPORT.md",
-      "docs/ARCHITECTURE.md",
       "docs/FFMPEG_DISTRIBUTION.md",
       "docs/GITHUB_SETUP.md",
       "docs/REMOTE_ASSETS.md",
@@ -67,52 +61,7 @@ describe("public repository release readiness", () => {
     expect(setup).toContain("repository name must be exactly `mpvfx`");
   });
 
-  it("separates and completely attributes the Stack Overflow QA corpus", () => {
-    const corpusPath = resolve(
-      repositoryRoot,
-      "third_party/stackexchange-video-qa/data/video-qa.jsonl",
-    );
-    const sourcePath = resolve(
-      repositoryRoot,
-      "third_party/stackexchange-video-qa/sources.jsonl",
-    );
-    expect(existsSync(resolve(repositoryRoot, "data_Q&A/data-1.jsonl"))).toBe(false);
-    expect(existsSync(corpusPath)).toBe(true);
-    expect(existsSync(sourcePath)).toBe(true);
-
-    const corpus = readFileSync(corpusPath, "utf8")
-      .trim()
-      .split(/\r?\n/u)
-      .map((line) => JSON.parse(line) as {
-        question_id: number;
-        answers: Array<{ answer_id: number }>;
-      });
-    const sources = readFileSync(sourcePath, "utf8")
-      .trim()
-      .split(/\r?\n/u)
-      .map((line) => JSON.parse(line) as Record<string, unknown>);
-    const expectedIds = new Set(
-      corpus.flatMap((record) => [
-        `question:${record.question_id}`,
-        ...record.answers.map((answer) => `answer:${answer.answer_id}`),
-      ]),
-    );
-    const attributedIds = new Set(
-      sources.map((source) => `${source.post_type}:${source.post_id}`),
-    );
-
-    expect(attributedIds).toEqual(expectedIds);
-    for (const source of sources) {
-      expect(source.author).toEqual(expect.any(String));
-      expect(source.source_url).toMatch(/^https:\/\/stackoverflow\.com\/(?:q(?:uestions)?\/|a\/)/u);
-      expect(source.created_at).toMatch(/^\d{4}-\d{2}-\d{2}T/u);
-      expect(source.license).toMatch(/^CC BY-SA (?:2\.5|3\.0|4\.0)$/u);
-      expect(source.license_url).toMatch(/^https:\/\/creativecommons\.org\/licenses\/by-sa\//u);
-      expect(source.changes).toEqual(expect.any(String));
-    }
-  });
-
-  it("keeps copied QA prose inside the separately licensed corpus", () => {
+  it("keeps copied QA prose out of the retained behavior cases", () => {
     const traceMap = [
       "studio/tests/qa/videoQaInvariantMap.part1.ts",
       "studio/tests/qa/videoQaInvariantMap.part2.ts",
@@ -143,7 +92,7 @@ describe("public repository release readiness", () => {
     }
   });
 
-  it("denies personal media by default and publishes only the synthetic smoke video", () => {
+  it("denies personal media by default and allows only the reviewed smoke video when present", () => {
     const privateMediaPaths = [
       "personal-media/private-video.mp4",
       "personal-media/private-audio.wav",
@@ -175,12 +124,14 @@ describe("public repository release readiness", () => {
     const mediaFiles = publication.stdout
       .split("\0")
       .filter((path) => /\.(?:3dl|aac|ass|avi|bmp|cube|flac|gif|heic|heif|jpe?g|lut|m4a|m4v|mkv|mov|mp3|mp4|mpe?g|ogg|opus|png|srt|tiff?|vtt|wav|webm|webp)$/iu.test(path));
-    expect(mediaFiles).toEqual([smokeVideo]);
-    expect(
-      createHash("sha256")
-        .update(readFileSync(resolve(repositoryRoot, smokeVideo)))
-        .digest("hex"),
-    ).toBe("4662cef1ee4423640d4db8b8880ea889d6e0af6e4466d88f5ee15f2dc6d18030");
+    expect(mediaFiles.filter((path) => path !== smokeVideo)).toEqual([]);
+    for (const path of mediaFiles) {
+      expect(
+        createHash("sha256")
+          .update(readFileSync(resolve(repositoryRoot, path)))
+          .digest("hex"),
+      ).toBe("4662cef1ee4423640d4db8b8880ea889d6e0af6e4466d88f5ee15f2dc6d18030");
+    }
   });
 
   it("excludes the former upstream favicon bytes without reserving the favicon name", () => {
@@ -315,7 +266,10 @@ describe("public repository release readiness", () => {
       "PRIVACY.md",
       "docs/GITHUB_SETUP.md",
       "docs/RELEASING.md",
-    ].map(repositoryFile).join("\n");
+    ]
+      .filter((path) => existsSync(resolve(repositoryRoot, path)))
+      .map(repositoryFile)
+      .join("\n");
 
     expect(publicDocs).not.toMatch(/ChatGPT|Claude|AI-agent|conversation histories|prompts\/responses/iu);
   });

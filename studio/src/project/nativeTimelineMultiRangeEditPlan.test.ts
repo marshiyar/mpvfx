@@ -122,7 +122,7 @@ describe("native timeline multi-clip range planner", () => {
       binding: { sourceFile: "z.html", domId: "clip-a", hfId: "hf-a" },
     });
     expect(clipA!.parameterTracks[0]!.keyframes).toMatchObject([
-      { frame: 0, value: 45 },
+      { frame: -15, value: 0 },
       { id: "key:a1", frame: 45, value: 180 },
     ]);
     expect(clipB).toMatchObject({

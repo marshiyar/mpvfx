@@ -515,8 +515,13 @@ describe("tryGsapDragIntercept — autoKeyframeEnabled toggle (#1808)", () => {
     },
   } as unknown as GsapAnimation;
 
-  async function runAutoKeyframeDrag(enabled: boolean) {
-    usePlayerStore.setState({ autoKeyframeEnabled: enabled, currentTime: 2 });
+  async function runAutoKeyframeDrag(enabled: boolean, currentTime = 1, altKey = false) {
+    usePlayerStore.setState({
+      autoKeyframeEnabled: enabled,
+      currentTime,
+      activeKeyframeTarget: null,
+      activeKeyframePct: null,
+    });
     const commitMutation = vi.fn();
     const handled = await tryGsapDragIntercept(
       selection,
@@ -524,6 +529,8 @@ describe("tryGsapDragIntercept — autoKeyframeEnabled toggle (#1808)", () => {
       [keyframedPositionAnim],
       fakeIframe("puck-b", []),
       commitMutation,
+      undefined,
+      { altKey },
     );
     return { handled, types: commitMutation.mock.calls.map(([, mutation]) => mutation.type) };
   }
@@ -539,6 +546,96 @@ describe("tryGsapDragIntercept — autoKeyframeEnabled toggle (#1808)", () => {
     const { handled, types } = await runAutoKeyframeDrag(true);
     expect(handled).toEqual({ status: "persisted" });
     expect(types).not.toContain("replace-with-keyframes");
+  });
+
+  it("edits B without offsetting A when auto-key is off and the playhead is on B", async () => {
+    const { types } = await runAutoKeyframeDrag(false, 2);
+    expect(types).toContain("add-keyframe");
+    expect(types).not.toContain("replace-with-keyframes");
+  });
+
+  it("retains explicit Alt-drag whole-path editing even on an authored key", async () => {
+    const { types } = await runAutoKeyframeDrag(false, 2, true);
+    expect(types).toContain("replace-with-keyframes");
+  });
+
+  it("edits an authored rotation key rather than offsetting the entire rotation curve", async () => {
+    usePlayerStore.setState({ currentTime: 2, autoKeyframeEnabled: false });
+    const rotation = {
+      ...keyframedPositionAnim,
+      id: "#puck-b-rotation",
+      propertyGroup: "rotation",
+      keyframes: {
+        keyframes: [
+          { percentage: 0, properties: { rotation: 0 } },
+          { percentage: 100, properties: { rotation: 0 } },
+        ],
+      },
+    } as unknown as GsapAnimation;
+    const commit = vi.fn();
+    await tryGsapRotationIntercept(selection, 90, [rotation], fakeIframe("puck-b", []), commit);
+    expect(commit.mock.calls.map(([, mutation]) => mutation.type)).toEqual(["add-keyframe"]);
+    expect(commit.mock.calls[0]![1]).toMatchObject({
+      percentage: 100,
+      properties: { rotation: 90 },
+    });
+  });
+
+  it("starts rotation at an existing position key without changing the other pose", async () => {
+    usePlayerStore.setState({
+      autoKeyframeEnabled: false,
+      currentTime: 2,
+      activeKeyframeTarget: null,
+    });
+    const commit = vi.fn();
+    await tryGsapRotationIntercept(
+      { ...selection, computedStyles: { rotate: "15deg" } },
+      90,
+      [keyframedPositionAnim],
+      fakeIframe("puck-b", []),
+      commit,
+    );
+    expect(commit.mock.calls[0]![1]).toMatchObject({
+      type: "add-with-keyframes",
+      keyframes: [
+        { percentage: 0, properties: { rotation: 15 } },
+        { percentage: 100, properties: { rotation: 90 } },
+      ],
+    });
+  });
+
+  it("starts position at an existing rotation key without moving the other pose", async () => {
+    usePlayerStore.setState({
+      autoKeyframeEnabled: false,
+      currentTime: 2,
+      activeKeyframeTarget: null,
+    });
+    const rotation = {
+      ...keyframedPositionAnim,
+      id: "rotation",
+      propertyGroup: "rotation",
+      keyframes: {
+        keyframes: [
+          { percentage: 0, properties: { rotation: 0 } },
+          { percentage: 100, properties: { rotation: 90 } },
+        ],
+      },
+    } as GsapAnimation;
+    const commit = vi.fn();
+    await tryGsapDragIntercept(
+      selection,
+      { x: 50, y: 25 },
+      [rotation],
+      fakeIframe("puck-b", []),
+      commit,
+    );
+    expect(commit.mock.calls[0]![1]).toMatchObject({
+      type: "add-with-keyframes",
+      keyframes: [
+        { percentage: 0, properties: { x: 0, y: 0 } },
+        { percentage: 100, properties: { x: 50, y: 25 } },
+      ],
+    });
   });
 });
 

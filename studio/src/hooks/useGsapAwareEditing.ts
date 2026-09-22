@@ -189,8 +189,15 @@ export function useGsapAwareEditing({
     ) => {
       if (projectPropertyCommit.isNativeSelection(selection)) {
         try {
-          const { newX, newY } = computeDraggedGsapPosition(selection.element, next, { x: 0, y: 0 });
-          await projectPropertyCommit.commitAnimatedProperties(selection, { x: newX, y: newY }, { intent: "edit" });
+          const { newX, newY } = computeDraggedGsapPosition(selection.element, next, {
+            x: 0,
+            y: 0,
+          });
+          await projectPropertyCommit.commitAnimatedProperties(
+            selection,
+            { x: newX, y: newY },
+            { intent: "edit" },
+          );
           return;
         } catch (error) {
           trackGsapInteractionFailure(error, selection, "drag", "Move animated layer");
@@ -365,9 +372,12 @@ export function useGsapAwareEditing({
             await projectPropertyCommit.commitAnimatedProperties(
               selection,
               { ...next, ...(position ? { x: position.newX, y: position.newY } : {}) },
-              { intent: "edit", ...(selection.element.style.clipPath
-                ? { sourceStyles: { "clip-path": selection.element.style.clipPath } }
-                : {}) },
+              {
+                intent: "edit",
+                ...(selection.element.style.clipPath
+                  ? { sourceStyles: { "clip-path": selection.element.style.clipPath } }
+                  : {}),
+              },
             );
           },
           restore,
@@ -477,12 +487,9 @@ export function useGsapAwareEditing({
     async (selection: DomEditSelection, next: { angle: number }) => {
       if (projectPropertyCommit.isNativeSelection(selection)) {
         try {
-          await projectPropertyCommit.commitAnimatedProperty(
-            selection,
-            "rotation",
-            next.angle,
-            { intent: "edit" },
-          );
+          await projectPropertyCommit.commitAnimatedProperty(selection, "rotation", next.angle, {
+            intent: "edit",
+          });
           return;
         } catch (error) {
           trackGsapInteractionFailure(error, selection, "rotation", "Rotate animated layer");
@@ -620,6 +627,23 @@ export function useGsapAwareEditing({
     [domEditSelection, safeGsapCommit],
   );
 
+  const commitMutationBatch = useCallback(
+    async (mutations: Record<string, unknown>[], options: CommitMutationOptions) => {
+      if (!domEditSelection || mutations.length === 0) return;
+      try {
+        if (!gsapCommitMutation?.batch) throw new Error("Animation batch saving is unavailable");
+        await gsapCommitMutation.batch(
+          mutations.map((mutation) => ({ selection: domEditSelection, mutation, options })),
+          options,
+        );
+      } catch (error) {
+        trackGsapInteractionFailure(error, domEditSelection, "property", options.label);
+        throw error;
+      }
+    },
+    [domEditSelection, gsapCommitMutation, trackGsapInteractionFailure],
+  );
+
   // Unroll all computed (helper/loop) tweens in the active timeline into literal
   // tweens, so the clicked keyframe becomes directly editable. Visual no-op.
   const handleUnroll = useCallback(() => {
@@ -643,5 +667,6 @@ export function useGsapAwareEditing({
     handleUpdateArcSegment,
     handleUnroll,
     commitMutation,
+    commitMutationBatch,
   };
 }

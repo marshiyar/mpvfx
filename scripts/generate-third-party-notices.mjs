@@ -128,12 +128,17 @@ const outputs = new Map([
   [resolve(repositoryRoot, "studio/resources/legal/GSAP-NOTICE.txt"), readFileSync(resolve(repositoryRoot, "third_party/licenses/GSAP-NOTICE.txt"), "utf8")],
 ]);
 
-// Keep existing root documents synchronized without recreating deliberate deletions.
+// Keep optional repository copies synchronized when present, without requiring
+// or recreating them after an intentional deletion. The packaged privacy policy
+// remains independently maintained when there is no root copy to synchronize.
 const rootNoticesPath = resolve(repositoryRoot, "THIRD_PARTY_NOTICES.md");
 if (existsSync(rootNoticesPath)) outputs.set(rootNoticesPath, notice);
 const rootPrivacyPath = resolve(repositoryRoot, "PRIVACY.md");
 if (existsSync(rootPrivacyPath)) {
-  outputs.set(resolve(repositoryRoot, "studio/resources/legal/PRIVACY.md"), readFileSync(rootPrivacyPath, "utf8"));
+  outputs.set(
+    resolve(repositoryRoot, "studio/resources/legal/PRIVACY.md"),
+    readFileSync(rootPrivacyPath, "utf8"),
+  );
 }
 
 const stale = [];

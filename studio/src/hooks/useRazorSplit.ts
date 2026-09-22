@@ -1,5 +1,6 @@
+import { commitAuthoredTimelineSplits } from "../project/authoredTimelineSplitTransaction";
 import { useCallback, useRef, type MutableRefObject } from "react";
-import { splitElementInHtml } from "@hyperframes/studio-server/source-mutation";
+import { splitAuthoredClip } from "../utils/splitAuthoredClip";
 import type { TimelineElement } from "../player";
 import { usePlayerStore } from "../player";
 import { getTimelineElementLabel } from "../utils/studioHelpers";
@@ -7,7 +8,6 @@ import { trackStudioRazorSplit } from "../telemetry/events";
 import { canSplitElement, canSplitElementAt } from "../utils/timelineElementSplit";
 import { buildAtomicCutIntents, runAtomicCutTransaction } from "../utils/razorSplitTransaction";
 import { applyPatchByTarget } from "../utils/sourcePatcher";
-import { splitAudioAutomationInHtml } from "../utils/splitAudioAutomation";
 import {
   NATIVE_PROJECT_DOCUMENT_PATH,
   parseNativeProjectDocument,
@@ -89,7 +89,8 @@ const canSplitNativeElementAt = (
     Number.isSafeInteger(splitFrame) &&
     localFrame > 0 &&
     localFrame < clip.durationFrames &&
-    (BigInt(localFrame) * BigInt(rate.numerator)) % BigInt(rate.denominator) === 0n
+    (document.assets.find((asset) => asset.id === clip.assetId)?.kind === "image" ||
+      (BigInt(localFrame) * BigInt(rate.numerator)) % BigInt(rate.denominator) === 0n)
   );
 };
 
@@ -181,11 +182,7 @@ export function useRazorSplit({
       );
       const nativeCount = resolutions.filter((resolution) => resolution.ok).length;
       if (nativeCount === 0) return null;
-      if (nativeCount !== elements.length) {
-        throw new Error(
-          "Cannot split a mixed native and legacy selection in one operation",
-        );
-      }
+      if (nativeCount !== elements.length) return null;
 
       const operation = editQueueRef.current.then(async () => {
         const commitAgainst = async (document: NativeProjectDocument) => {
@@ -221,33 +218,34 @@ export function useRazorSplit({
               const element = elements[edit.requestIndex]!;
               const clip = clips[edit.requestIndex]!;
               const leftBinding = edit.leftBinding;
-              const baseId = `${leftBinding.domId ?? clip.id.replace(/[^a-zA-Z0-9_-]/g, "-")}-split`;
-              const rate = clip.playbackRate ?? { numerator: 1, denominator: 1 };
-              const split = splitElementInHtml(
+              const rate = clip.playbackRate ?? {
+                numerator: 1,
+                denominator: 1,
+              };
+              const split = splitAuthoredClip(
                 content,
                 bindingTarget(leftBinding),
                 edit.compatibilitySplitSeconds,
-                baseId,
+                crypto.randomUUID(),
                 {
                   start: frameSeconds(clip.startFrame, document),
                   duration: frameSeconds(clip.durationFrames, document),
-                  playbackStart: frameSeconds(clip.sourceInFrame, document),
-                  playbackRate: rate.numerator / rate.denominator,
-                  stampPlaybackStart: true,
+                  sourceIn: frameSeconds(clip.sourceInFrame, document),
+                  rate: rate.numerator / rate.denominator,
+                  still:
+                    document.assets.find((asset) => asset.id === clip.assetId)?.kind === "image",
                 },
               );
-              if (!split.matched || !split.newId) {
-                throw new Error(`Compatibility source did not match native clip ${clip.id}`);
-              }
 
               const localFrames = edit.splitFrame - clip.startFrame;
-              const sourceDelta =
-                (localFrames * rate.numerator) / rate.denominator;
+              const isImage =
+                document.assets.find((asset) => asset.id === clip.assetId)?.kind === "image";
+              const sourceDelta = isImage ? 0 : (localFrames * rate.numerator) / rate.denominator;
               const playbackProperty = playbackStartAttributeForElement(element).slice(
                 "data-".length,
               ) as "media-start" | "playback-start";
               let patched = patchExactSplitAttributes(
-                split.html,
+                split.content,
                 bindingTarget(leftBinding),
                 {
                   startFrame: clip.startFrame,
@@ -259,14 +257,8 @@ export function useRazorSplit({
               );
               const rightBinding: NativeClipDomBinding = {
                 sourceFile: edit.sourceFile,
-                domId: split.newId,
+                ...split.binding,
               };
-              patched = splitAudioAutomationInHtml(
-                patched,
-                bindingTarget(leftBinding),
-                bindingTarget(rightBinding),
-                frameSeconds(localFrames, document),
-              );
               patched = patchExactSplitAttributes(
                 patched,
                 bindingTarget(rightBinding),
@@ -340,6 +332,25 @@ export function useRazorSplit({
         trackStudioRazorSplit({ mode, count: nativeResult.splitCount });
         return nativeResult;
       }
+      if (nativeProjectEditing) {
+        const result = await commitAuthoredTimelineSplits({
+          elements,
+          splitSeconds: splitTime,
+          activeCompPath,
+          readOptionalProjectFile: nativeProjectEditing.readOptionalProjectFile,
+          writeProjectFile,
+          recordEdit,
+          commitFileTransaction: nativeProjectEditing.commitFileTransaction,
+        });
+        domEditSaveTimestampRef.current = Date.now();
+        if (result.document) {
+          nativeDocumentRef.current = result.document;
+          nativeProjectEditing.onNativeDocumentCommitted(result.document);
+        }
+        synchronize();
+        trackStudioRazorSplit({ mode, count: result.splitCount });
+        return { ...result, syncFailed: false, skippedSelectors: [] };
+      }
       const intents = buildAtomicCutIntents(elements, splitTime, activeCompPath);
       const requestedCount = intents.reduce((count, file) => count + file.targets.length, 0);
       const label =
@@ -383,6 +394,8 @@ export function useRazorSplit({
       synchronize,
       writeProjectFile,
       runNativeCut,
+      nativeProjectEditing,
+      nativeDocumentRef,
     ],
   );
 
@@ -393,11 +406,7 @@ export function useRazorSplit({
         return;
       }
       if (!canSplitElement(element)) return;
-      const nativeValidity = canSplitNativeElementAt(
-        nativeDocumentRef.current,
-        element,
-        splitTime,
-      );
+      const nativeValidity = canSplitNativeElementAt(nativeDocumentRef.current, element, splitTime);
       if (nativeValidity === false) return;
       if (nativeValidity === null && !canSplitElementAt(element, splitTime)) return;
       try {

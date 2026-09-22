@@ -22,8 +22,7 @@ export type NativeTimelineProperty =
   | "width"
   | "height";
 
-export type NativeTimelinePropertyGroupId =
-  | "position"
+export type NativeTimelinePropertyGroupId = "position"
   | "rotation"
   | "scale"
   | "opacity"
@@ -55,14 +54,7 @@ export interface NativeTimelineKeyframeGroup {
   readonly lanes: readonly NativeTimelineKeyframeLane[];
 }
 
-export type NativeTimelineKeyframeProjectionFailure =
-  | NativePropertyEditPlanFailure
-  | {
-      readonly code: "keyframe-outside-clip";
-      readonly message: string;
-      readonly parameterId: string;
-      readonly keyframeId: string;
-    };
+export type NativeTimelineKeyframeProjectionFailure = NativePropertyEditPlanFailure;
 
 export type NativeTimelineKeyframeProjectionResult =
   | {
@@ -74,7 +66,8 @@ export type NativeTimelineKeyframeProjectionResult =
       readonly clipDurationFrames: number;
       readonly groups: readonly NativeTimelineKeyframeGroup[];
     }
-  | { readonly ok: false; readonly failure: NativeTimelineKeyframeProjectionFailure };
+  | { readonly ok: false; readonly failure: NativeTimelineKeyframeProjectionFailure;
+    };
 
 interface PropertyDefinition {
   readonly parameterId: string;
@@ -155,26 +148,11 @@ export const projectNativeTimelineKeyframes = (
         left.property.order - right.property.order || left.track.id.localeCompare(right.track.id),
     );
 
-  for (const { track } of projectedTracks) {
-    const outside = track.keyframes.find(
-      (keyframe) => keyframe.frame < 0 || keyframe.frame >= clip.durationFrames,
-    );
-    if (outside) {
-      return {
-        ok: false,
-        failure: {
-          code: "keyframe-outside-clip",
-          message: `Keyframe ${outside.id} is outside clip-local frame range`,
-          parameterId: track.parameterId,
-          keyframeId: outside.id,
-        },
-      };
-    }
-  }
-
   const lanesByGroup = new Map<NativeTimelinePropertyGroupId, NativeTimelineKeyframeLane[]>();
   for (const { track, property } of projectedTracks) {
-    const diamonds: NativeTimelineKeyframeDiamond[] = track.keyframes
+    const diamonds: NativeTimelineKeyframeDiamond[] = track.keyframes.filter(
+      (keyframe) => keyframe.frame >= 0 && keyframe.frame < clip.durationFrames,
+    )
       .map((keyframe) => ({
         id: keyframe.id,
         keyframeId: keyframe.id,
@@ -185,7 +163,10 @@ export const projectNativeTimelineKeyframes = (
         value: keyframe.value,
         interpolation: cloneInterpolation(keyframe.outgoing),
       }))
-      .sort((left, right) => left.frame - right.frame || left.keyframeId.localeCompare(right.keyframeId));
+      .sort(
+        (left, right) =>
+          left.frame - right.frame || left.keyframeId.localeCompare(right.keyframeId),
+      );
     const lanes = lanesByGroup.get(property.groupId) ?? [];
     lanes.push({
       laneId: track.id,
@@ -203,7 +184,7 @@ export const projectNativeTimelineKeyframes = (
     return lanes?.length ? [{ ...group, lanes }] : [];
   });
   return {
-    ok: true,
+        ok: true,
     sequenceId: document.sequence.id,
     trackId,
     clipId: clip.id,

@@ -83,15 +83,3 @@ export interface VideoQaInvariantEntry {
   /** Specific executable behavior selected from this question's video concept. */
   readonly contract: VideoQaBehaviorContract;
 }
-
-export interface VideoQaSourceRecord {
-  readonly question_id: number;
-  readonly title: string;
-  readonly question_text: string;
-  readonly total_answers: number;
-  readonly answers: readonly {
-    readonly answer_id: number;
-    readonly answer_text: string;
-    readonly score: number;
-  }[];
-}

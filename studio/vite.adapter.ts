@@ -13,6 +13,7 @@ import {
   rmSync,
 } from "node:fs";
 import { join, relative, resolve, isAbsolute, dirname } from "node:path";
+import { recordDiagnostic, withDiagnosticContext } from "./diagnostics/context";
 import type { ViteDevServer } from "vite";
 import {
   type ResolvedProject,
@@ -365,6 +366,7 @@ export function createStandaloneAdapter(
     },
 
     startRender(opts): RenderJobState {
+      withDiagnosticContext({ jobId: opts.jobId }, () => recordDiagnostic("export.requested", { format: opts.format, fps: opts.fps, quality: opts.quality, outputResolution: opts.outputResolution }));
       const requestedCompositionPath = resolveRenderCompositionSourcePath(
         opts.project.dir,
         opts.project.id,
@@ -430,7 +432,30 @@ export function createStandaloneAdapter(
         }
       };
       // fallow-ignore-next-line complexity
-      (async () => {
+      void withDiagnosticContext({ jobId: opts.jobId }, async () => {
+        recordDiagnostic("export.started", { format: opts.format, fps: opts.fps, quality: opts.quality, authoredDimensions, outputDimensions: directOutputDimensions });
+        let lastProgress = state.progress;
+        let lastStage = state.stage;
+        let lastChangeAt = Date.now();
+        const heartbeat = setInterval(() => {
+          if (state.progress !== lastProgress || state.stage !== lastStage) {
+            lastProgress = state.progress; lastStage = state.stage; lastChangeAt = Date.now();
+          }
+          recordDiagnostic("export.heartbeat", { progress: state.progress, stage: state.stage, durationMs: Date.now() - startTime, noProgressForMs: Date.now() - lastChangeAt, aborted: cancellation.signal.aborted });
+        }, 10_000);
+        heartbeat.unref();
+        let loggedProgress = -5;
+        let loggedStage: string | undefined;
+        const progress = () => {
+          if (state.progress !== lastProgress || state.stage !== lastStage) { lastProgress = state.progress; lastStage = state.stage; lastChangeAt = Date.now(); }
+          const stageKind = state.stage?.replace(/\d+(?:\.\d+)?/g, "#");
+          if (stageKind !== loggedStage || Math.abs(state.progress - loggedProgress) >= 5) {
+            recordDiagnostic("export.progress", { progress: state.progress, stage: state.stage, durationMs: Date.now() - startTime });
+            loggedProgress = state.progress; loggedStage = stageKind;
+          }
+        };
+        const onAbort = () => recordDiagnostic("export.cancel_requested", { progress: state.progress, stage: state.stage });
+        cancellation.signal.addEventListener("abort", onAbort, { once: true });
         try {
           let rendered = false;
           let directRenderedFinalSize = false;
@@ -441,6 +466,7 @@ export function createStandaloneAdapter(
             directOutputDimensions
           ) {
             state.stage = "Checking direct media export";
+            progress();
             try {
               rendered = await tryDirectMediaExport({
                 html: requestedCompositionSource,
@@ -452,14 +478,17 @@ export function createStandaloneAdapter(
                 dimensions: authoredDimensions,
                 outputDimensions: directOutputDimensions,
                 signal: cancellation.signal,
-                onProgress: (progress) => {
-                  state.progress = progress;
+                onProgress: (value) => {
+                  state.progress = value;
                   state.stage = "Exporting media directly";
+                  progress();
                 },
               });
               directRenderedFinalSize = rendered;
+              recordDiagnostic("export.direct_result", { rendered });
             } catch (error) {
               if (cancellation.signal.aborted) throw error;
+              recordDiagnostic("export.direct_fallback", { error }, "warn");
               // A failed optimization must not turn an otherwise renderable
               // project into an export failure. Remove its staging fragment
               // and continue through the complete compatibility renderer.
@@ -476,6 +505,7 @@ export function createStandaloneAdapter(
           }
 
           if (!rendered) {
+            recordDiagnostic("export.renderer_selected", { mode: "composition" });
             if (!process.env.PRODUCER_HEADLESS_SHELL_PATH) {
               const systemChrome = findSystemChrome();
               if (systemChrome) process.env.PRODUCER_HEADLESS_SHELL_PATH = systemChrome;
@@ -504,12 +534,14 @@ export function createStandaloneAdapter(
             producerConfig.producerConfig = buildStudioExportPerformanceProfile({
               extractCacheDir: resolve(dataDir, "../cache/export-frames"),
             });
+            recordDiagnostic("export.renderer_configuration", { profile: producerConfig.producerConfig });
             const job = createRenderJob(producerConfig);
             const onProgress = (j: { progress: number; currentStage?: string }) => {
               state.progress = dimensionPlan.resizeDimensions
                 ? Math.min(90, j.progress * 0.9)
                 : j.progress;
               if (j.currentStage) state.stage = j.currentStage;
+              progress();
             };
             await executeRenderJob(
               job,
@@ -528,6 +560,7 @@ export function createStandaloneAdapter(
           if (dimensionPlan.resizeDimensions && !directRenderedFinalSize) {
             state.stage = "Fitting output dimensions";
             state.progress = 92;
+            progress();
             await resizeStandaloneExport({
               format: opts.format,
               quality: opts.quality as "draft" | "standard" | "high",
@@ -567,6 +600,7 @@ export function createStandaloneAdapter(
           }
           state.status = "failed";
           state.error = err instanceof Error ? err.message : String(err);
+          recordDiagnostic("export.failed", { error: err, progress: state.progress, stage: state.stage, durationMs: Date.now() - startTime }, "error");
           for (const path of [opts.outputPath]) {
             try {
               if (existsSync(path)) unlinkSync(path);
@@ -581,6 +615,9 @@ export function createStandaloneAdapter(
             /* ignore */
           }
         } finally {
+          clearInterval(heartbeat);
+          cancellation.signal.removeEventListener("abort", onAbort);
+          recordDiagnostic("export.finished", { status: state.status, progress: state.progress, stage: state.stage, durationMs: Date.now() - startTime });
           try {
             rmSync(staging.directory, { recursive: true, force: true });
           } catch {
@@ -588,7 +625,7 @@ export function createStandaloneAdapter(
           }
           cancellation.finish();
         }
-      })();
+      });
 
       return state;
     },

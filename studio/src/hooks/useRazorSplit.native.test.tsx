@@ -240,7 +240,7 @@ describe("useRazorSplit native-canonical integration", () => {
         startFrame: 60,
         durationFrames: 90,
         sourceInFrame: 70,
-        binding: { sourceFile: "index.html", domId: "clip-split-2" },
+        binding: { sourceFile: "index.html", domId: "clip-split-2", hfId: "clip-split-2-node-0" },
         staticParameters: { opacity: 0.75 },
         effects: [{ id: "fx:blur", effectId: "blur", enabled: true }],
       }),

@@ -161,6 +161,7 @@ describe("standalone custom export bridge", () => {
     );
 
     expect(detectGpuEncoder).toHaveBeenCalledOnce();
+    expect(spawnProcess.mock.calls[0]?.[2]).toMatchObject({ windowsHide: true });
     expect(spawnProcess.mock.calls[0]?.[1]).toEqual(
       expect.arrayContaining(["-c:v", "h264_videotoolbox", "-allow_sw", "1"]),
     );

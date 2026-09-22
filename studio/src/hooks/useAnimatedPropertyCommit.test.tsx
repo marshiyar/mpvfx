@@ -2,7 +2,7 @@
 
 import React, { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { GsapAnimation } from "@hyperframes/core/gsap-parser";
+import { classifyPropertyGroup, type GsapAnimation } from "@hyperframes/core/gsap-parser";
 import type { DomEditSelection } from "../components/editor/domEditingTypes";
 import { usePlayerStore } from "../player/store/playerStore";
 import { useAnimatedPropertyCommit } from "./useAnimatedPropertyCommit";
@@ -12,7 +12,12 @@ import { mountReactHarness } from "./domSelectionTestHarness";
 
 afterEach(() => {
   document.body.innerHTML = "";
-  usePlayerStore.setState({ autoKeyframeEnabled: true, currentTime: 0 });
+  usePlayerStore.setState({
+    autoKeyframeEnabled: true,
+    currentTime: 0,
+    activeKeyframeTarget: null,
+    activeKeyframePct: null,
+  });
 });
 
 const selection = { id: "box", selector: "#box" } as DomEditSelection;
@@ -33,10 +38,199 @@ const keyframedAnim = {
   },
 } as unknown as GsapAnimation;
 
+it("preserves key B when a property is first changed at key A", async () => {
+  const mutations: Array<Record<string, unknown>> = [];
+  let commit!: Commit;
+  const root = renderHookWith(
+    [keyframedAnim],
+    (mutation) => mutations.push(mutation),
+    (ready) => (commit = ready),
+  );
+  usePlayerStore.setState({
+    currentTime: 0,
+    activeKeyframeTarget: null,
+    autoKeyframeEnabled: false,
+  });
+  await act(async () => commit(selection, { opacity: 0.25 }));
+  expect(mutations[0]).toMatchObject({
+    type: "add-with-keyframes",
+    keyframes: [
+      { percentage: 0, properties: { opacity: 0.25 } },
+      { percentage: 100, properties: { opacity: 1 } },
+    ],
+  });
+  act(() => root.unmount());
+});
+
+it("preserves the selected key's other channels while its seek is still pending", async () => {
+  const element = document.createElement("div");
+  element.id = "box";
+  document.body.appendChild(element);
+  const mutations: Array<Record<string, unknown>> = [];
+  let commit!: Commit;
+  const root = renderHookWith(
+    [keyframedAnim],
+    (mutation) => mutations.push(mutation),
+    (ready) => (commit = ready),
+    vi.fn(),
+    undefined,
+    {
+      current: {
+        contentDocument: document,
+        contentWindow: { gsap: { getProperty: () => 20 } },
+      } as unknown as HTMLIFrameElement,
+    },
+  );
+  usePlayerStore.setState({
+    currentTime: 1,
+    activeKeyframeTarget: {
+      elementId: "index.html#box",
+      animationId: keyframedAnim.id,
+      tweenPercentage: 100,
+    },
+  });
+  await act(async () => commit(selection, { x: 200 }));
+  expect(mutations[0]).toMatchObject({ percentage: 100, properties: { x: 200, y: 0 } });
+  act(() => root.unmount());
+});
+
+it("saves a combined position/rotation edit in separate property tracks and one transaction", async () => {
+  const single = vi.fn();
+  const batch = vi.fn();
+  let commit!: Commit;
+  const root = renderHookWith([keyframedAnim], single, (ready) => (commit = ready), vi.fn(), batch);
+  usePlayerStore.setState({
+    currentTime: 2,
+    activeKeyframeTarget: null,
+    autoKeyframeEnabled: false,
+  });
+  await act(async () => commit(selection, { x: 200, rotation: 45 }));
+  expect(single).not.toHaveBeenCalled();
+  expect(batch).toHaveBeenCalledOnce();
+  const mutations = batch.mock.calls[0]![0].map(
+    (call: { mutation: Record<string, unknown> }) => call.mutation,
+  );
+  expect(mutations).toMatchObject([
+    {
+      type: "update-keyframe",
+      animationId: keyframedAnim.id,
+      percentage: 100,
+      properties: { x: 200 },
+    },
+    {
+      type: "add-with-keyframes",
+      keyframes: [
+        { percentage: 0, properties: { rotation: 0 } },
+        { percentage: 100, properties: { rotation: 45 } },
+      ],
+    },
+  ]);
+  expect(mutations[0].properties).not.toHaveProperty("rotation");
+  act(() => root.unmount());
+});
+
+it.each([
+  "x",
+  "y",
+  "rotation",
+  "scale",
+  "scaleX",
+  "scaleY",
+  "opacity",
+  "width",
+  "height",
+  "z",
+  "rotationX",
+  "rotationY",
+  "scaleZ",
+  "transformPerspective",
+])(
+  "edits the selected %s keyframe even when the seek acknowledgment has not reached the playhead",
+  async (property) => {
+    const animation = {
+      ...keyframedAnim,
+      id: `#box-${property}`,
+      propertyGroup: classifyPropertyGroup(property),
+      keyframes: {
+        keyframes: [
+          { percentage: 0, properties: { [property]: 1 } },
+          { percentage: 100, properties: { [property]: 1 } },
+        ],
+      },
+    } as GsapAnimation;
+    usePlayerStore.setState({
+      autoKeyframeEnabled: false,
+      currentTime: 1,
+      activeKeyframeTarget: {
+        elementId: "index.html#box",
+        animationId: animation.id,
+        tweenPercentage: 100,
+      },
+    });
+    const mutations: Array<Record<string, unknown>> = [];
+    let commit!: Commit;
+    const root = renderHookWith(
+      [animation],
+      (m) => mutations.push(m),
+      (ready) => (commit = ready),
+    );
+    try {
+      await act(async () => {
+        await commit(selection, { [property]: 0.5 });
+      });
+      expect(mutations).toHaveLength(1);
+      expect(mutations[0]).toMatchObject({
+        type: "update-keyframe",
+        animationId: animation.id,
+        percentage: 100,
+        properties: { [property]: 0.5 },
+      });
+    } finally {
+      act(() => root.unmount());
+    }
+  },
+);
+
 type Commit = (
   selection: DomEditSelection,
   props: Record<string, number | string>,
 ) => Promise<void>;
+
+it("gives a newly animated axis its own baseline even when its property group already exists", async () => {
+  const position = {
+    ...keyframedAnim,
+    id: "position",
+    propertyGroup: "position",
+    keyframes: {
+      format: "object-array",
+      keyframes: [
+        { percentage: 0, properties: { x: 10 } },
+        { percentage: 100, properties: { x: 90 } },
+      ],
+    },
+  } as GsapAnimation;
+  const mutations: Array<Record<string, unknown>> = [];
+  let commit!: Commit;
+  const root = renderHookWith(
+    [position],
+    (mutation) => mutations.push(mutation),
+    (ready) => (commit = ready),
+  );
+  usePlayerStore.setState({
+    currentTime: 2,
+    activeKeyframeTarget: null,
+    autoKeyframeEnabled: false,
+  });
+  await act(async () => commit(selection, { y: 45 }));
+  expect(mutations[0]).toMatchObject({
+    type: "replace-with-keyframes",
+    keyframes: [
+      { percentage: 0, properties: { x: 10, y: 0 } },
+      { percentage: 100, properties: { x: 90, y: 45 } },
+    ],
+  });
+  act(() => root.unmount());
+});
 
 /** Renders the hook and hands its commit function to the caller via a ref callback. */
 function renderHookWith(
@@ -268,7 +462,7 @@ describe("useAnimatedPropertyCommit — extending keyframed tweens", () => {
     expect(replacement?.keyframes).toEqual([
       { percentage: 0, properties: { x: 0, y: 0 }, ease: "sine.in" },
       { percentage: 66.6666666667, properties: { x: 100, y: 0 }, ease: "back.out(1.7)" },
-      { percentage: 100, properties: { x: 150 } },
+      { percentage: 100, properties: { x: 150, y: 0 } },
     ]);
     act(() => root.unmount());
   });
@@ -396,7 +590,9 @@ describe("useAnimatedPropertyCommit — extending keyframed tweens", () => {
     const previewIframeRef = {
       current: {
         contentWindow: {
-          gsap: { getProperty: (_el: Element, property: string) => (property === "rotationX" ? 0 : 0) },
+          gsap: {
+            getProperty: (_el: Element, property: string) => (property === "rotationX" ? 0 : 0),
+          },
         },
         contentDocument: document,
       } as unknown as HTMLIFrameElement,
@@ -421,6 +617,7 @@ describe("useAnimatedPropertyCommit — extending keyframed tweens", () => {
       easeEach: "power2.inOut",
       keyframes: [
         { percentage: 0, properties: { rotationX: 0 } },
+        { percentage: 50, properties: { rotationX: 0 } },
         { percentage: adjacentFrame, properties: { rotationX: 12 } },
       ],
     });
@@ -446,6 +643,7 @@ describe("useAnimatedPropertyCommit — extending keyframed tweens", () => {
       keyframes: [
         { percentage: 0, properties: { opacity: 1 } },
         { percentage: 50, properties: { opacity: 0.25 } },
+        { percentage: 100, properties: { opacity: 1 } },
       ],
     });
     act(() => root.unmount());

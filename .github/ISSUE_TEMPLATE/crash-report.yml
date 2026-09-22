@@ -12,8 +12,8 @@ body:
     id: version
     attributes:
       label: MpVFX version or commit
-      value: v0.0.1 # latest release; updated automatically
-      placeholder: 0.0.1 or commit SHA
+      value: v0.0.3 # latest release; updated automatically
+      placeholder: 0.0.3 or commit SHA
       description: Defaults to the latest release. Change it if you are reporting against another version or commit.
     validations:
       required: true

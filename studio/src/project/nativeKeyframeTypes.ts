@@ -43,6 +43,7 @@ export type NativeInterpolation =
 
 export interface NativeKeyframe<T extends NativeParameterValue = NativeParameterValue> {
   readonly id: string;
+  /** Clip-local frame; signed values retain animation before the visible In. */
   readonly frame: number;
   readonly value: T;
   /** Controls the segment that starts at this keyframe. */
@@ -213,16 +214,10 @@ export const createNativeParameterTrack = <K extends NativeValueType>(
     }
     keyframeIds.add(keyframe.id);
 
-    if (!Number.isInteger(keyframe.frame)) {
+    if (!Number.isSafeInteger(keyframe.frame)) {
       throwValidation(
         "invalid-keyframe-frame",
-        `Keyframe ${keyframe.id} must use an integer project frame`,
-      );
-    }
-    if (keyframe.frame < 0) {
-      throwValidation(
-        "invalid-keyframe-frame",
-        `Keyframe ${keyframe.id} project frame must not be negative`,
+        `Keyframe ${keyframe.id} must use a safe integer clip-local frame`,
       );
     }
     if (keyframeFrames.has(keyframe.frame)) {

@@ -455,6 +455,7 @@ function FormatExportButton({
       )}
       <Button
         variant="primary"
+        data-diagnostic-action="export-video"
         size="md"
         loading={isRendering}
         disabled={missingFfmpeg !== null || !validation.ok}

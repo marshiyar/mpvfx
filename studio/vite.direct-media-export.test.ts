@@ -96,7 +96,7 @@ describe("direct media export eligibility", () => {
     ]));
     expect(args).not.toContain("copy");
     expect(args.at(-1)).toBe(paths.outputPath);
-    expect(options).toMatchObject({ shell: false, stdio: ["ignore", "ignore", "pipe"] });
+    expect(options).toMatchObject({ shell: false, windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
     expect(onProgress).toHaveBeenNthCalledWith(1, 0);
     expect(onProgress).toHaveBeenLastCalledWith(100);
   });
@@ -516,6 +516,10 @@ describe("direct media export eligibility", () => {
       return true;
     });
     const controller = new AbortController();
+    const spawnProcess = vi.fn(() => {
+      signalSpawned();
+      return probeChild;
+    });
     let signalSpawned!: () => void;
     const spawned = new Promise<void>((resolve) => {
       signalSpawned = resolve;
@@ -531,10 +535,7 @@ describe("direct media export eligibility", () => {
       },
       {
         findBinary: () => "/opt/bin",
-        spawnProcess: vi.fn(() => {
-          signalSpawned();
-          return probeChild;
-        }) as never,
+        spawnProcess: spawnProcess as never,
         cancelGraceMs: 0,
       },
     );
@@ -543,5 +544,6 @@ describe("direct media export eligibility", () => {
 
     await expect(pending).rejects.toMatchObject({ name: "AbortError" });
     expect(probeChild.kills).toEqual(["SIGTERM", "SIGKILL"]);
+    expect(spawnProcess.mock.calls[0]?.[2]).toMatchObject({ shell: false, windowsHide: true });
   });
 });

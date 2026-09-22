@@ -1,15 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  planNativePropertyEdit,
-  projectFrameFromSeconds,
-} from "./nativePropertyEditPlan";
+import { planNativePropertyEdit, projectFrameFromSeconds } from "./nativePropertyEditPlan";
 import {
   NATIVE_PROJECT_DOCUMENT_SCHEMA_VERSION,
   parseNativeProjectDocument,
   type NativeProjectDocument,
 } from "./nativeProjectDocument";
 import { createNativeParameterTrack } from "./nativeKeyframeTypes";
+import { applyNativeProjectPropertyCommand } from "./nativeProjectPropertyCommands";
+import { evaluateNativeParameterTrack } from "./nativeKeyframeEvaluator";
 
 const frameRate = { numerator: 30_000, denominator: 1_001 } as const;
 
@@ -73,6 +72,73 @@ const secondsAtFrame = (frame: number): number =>
   (frame * frameRate.denominator) / frameRate.numerator;
 
 describe("native property edit planner", () => {
+  it.each([
+    ["x", "transform.position.x", 20, 120],
+    ["y", "transform.position.y", 30, 130],
+    ["z", "transform.position.z", 0, 100],
+    ["rotation", "transform.rotation", 15, 105],
+    ["rotationX", "transform.rotationX", 0, 90],
+    ["rotationY", "transform.rotationY", 0, 90],
+    ["scale", "transform.scale", 1, 2],
+    ["scaleX", "transform.scaleX", 1, 2],
+    ["scaleY", "transform.scaleY", 1, 2],
+    ["scaleZ", "transform.scaleZ", 1, 2],
+    ["transformPerspective", "transform.perspective", 0, 500],
+    ["opacity", "visual.opacity", 1, 0.2],
+    ["width", "layout.width", 640, 320],
+    ["height", "layout.height", 360, 180],
+  ] as const)(
+    "animates a first %s edit at timeline key B and preserves A after reopening",
+    (property, parameterId, baseline, value) => {
+      const before = documentFixture();
+      const anchorParameter =
+        parameterId === "transform.position.x" ? "transform.position.y" : "transform.position.x";
+      before.sequence.tracks[0]!.clips[0]!.parameterTracks = [
+        createNativeParameterTrack({
+          id: "timeline-anchors",
+          parameterId: anchorParameter,
+          valueType: "number",
+          frameRate,
+          keyframes: [0, 60].map((frame) => ({
+            id: `anchor:${frame}`,
+            frame,
+            value: 0,
+            outgoing: { type: "linear" },
+          })),
+        }),
+      ];
+      const plan = planNativePropertyEdit(before, {
+        selectedElement: { id: "clip:first" },
+        playheadSeconds: secondsAtFrame(90),
+        properties: { [property]: value },
+        propertyBaselines: { [property]: baseline },
+        selectionBounds: { width: 640, height: 360 },
+        intent: "edit",
+        autoKeyframeEnabled: false,
+      });
+      expect(plan.ok).toBe(true);
+      if (!plan.ok) return;
+      const applied = applyNativeProjectPropertyCommand(before, plan.command);
+      expect(applied.ok).toBe(true);
+      if (!applied.ok) return;
+      const reopened = parseNativeProjectDocument(JSON.parse(JSON.stringify(applied.document)));
+      const track = reopened.sequence.tracks[0]!.clips[0]!.parameterTracks.find(
+        (item) => item.parameterId === parameterId,
+      );
+      expect(
+        track,
+        "an edit on a timeline key must animate this property, not change it globally",
+      ).toBeDefined();
+      if (!track) return;
+      expect([0, 30, 60].map((frame) => evaluateNativeParameterTrack(track, frame))).toEqual([
+        baseline,
+        (baseline + value) / 2,
+        value,
+      ]);
+      expect(reopened.sequence.tracks[0]!.clips[1]).toEqual(before.sequence.tracks[0]!.clips[1]);
+    },
+  );
+
   it("quantizes seconds with the same floor rule used by preview and export", () => {
     expect(projectFrameFromSeconds(secondsAtFrame(45), frameRate)).toBe(45);
     expect(projectFrameFromSeconds(secondsAtFrame(45) + secondsAtFrame(0.49), frameRate)).toBe(45);
@@ -290,17 +356,23 @@ describe("native property edit planner", () => {
     if (!result.ok) expect(result.failure.code).toBe("ambiguous-clip");
   });
 
-  it.each([[29, 0], [120, 89]])("edits nearest visible frame when project frame %s is outside the selected clip", (frame, expectedFrame) => {
-    const result = planNativePropertyEdit(documentFixture(), {
-      selectedElement: { id: "clip:first" },
-      playheadSeconds: secondsAtFrame(frame),
-      properties: { x: 20 },
-      selectionBounds: { width: 640, height: 360 },
-    });
+  it.each([
+    [29, 0],
+    [120, 89],
+  ])(
+    "edits nearest visible frame when project frame %s is outside the selected clip",
+    (frame, expectedFrame) => {
+      const result = planNativePropertyEdit(documentFixture(), {
+        selectedElement: { id: "clip:first" },
+        playheadSeconds: secondsAtFrame(frame),
+        properties: { x: 20 },
+        selectionBounds: { width: 640, height: 360 },
+      });
 
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(result.clipLocalFrame).toBe(expectedFrame);
-  });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.clipLocalFrame).toBe(expectedFrame);
+    },
+  );
 
   it("maps every supported property to number parameters with deterministic baselines", () => {
     const result = planNativePropertyEdit(documentFixture(), {
@@ -332,9 +404,27 @@ describe("native property edit planner", () => {
         frame: command.type === "upsert" ? command.frame : null,
       })),
     ).toEqual([
-      { parameterId: "transform.position.x", valueType: "number", value: 10, baseline: 0, frame: 30 },
-      { parameterId: "transform.position.y", valueType: "number", value: -20, baseline: 0, frame: 30 },
-      { parameterId: "transform.rotation", valueType: "number", value: -180, baseline: 0, frame: 30 },
+      {
+        parameterId: "transform.position.x",
+        valueType: "number",
+        value: 10,
+        baseline: 0,
+        frame: 30,
+      },
+      {
+        parameterId: "transform.position.y",
+        valueType: "number",
+        value: -20,
+        baseline: 0,
+        frame: 30,
+      },
+      {
+        parameterId: "transform.rotation",
+        valueType: "number",
+        value: -180,
+        baseline: 0,
+        frame: 30,
+      },
       { parameterId: "transform.scale", valueType: "number", value: 1.5, baseline: 1, frame: 30 },
       { parameterId: "transform.scaleX", valueType: "number", value: 2, baseline: 1, frame: 30 },
       { parameterId: "transform.scaleY", valueType: "number", value: 0.5, baseline: 1, frame: 30 },
