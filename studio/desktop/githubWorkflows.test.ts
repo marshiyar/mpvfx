@@ -10,6 +10,16 @@ function readRepositoryFile(path: string): string {
 }
 
 describe("GitHub Actions readiness", () => {
+  it("initializes and analyzes CodeQL with the same pinned action release", () => {
+    const workflow = readRepositoryFile(".github/workflows/security.yml");
+    const init = workflow.match(/github\/codeql-action\/init@([a-f0-9]{40})\b/);
+    const analyze = workflow.match(/github\/codeql-action\/analyze@([a-f0-9]{40})\b/);
+
+    expect(init).not.toBeNull();
+    expect(analyze).not.toBeNull();
+    expect(init?.[1]).toBe(analyze?.[1]);
+  });
+
   it("keeps tests and source compilation in a dedicated non-publishing workflow", () => {
     const workflow = readRepositoryFile(".github/workflows/tests.yml");
 
