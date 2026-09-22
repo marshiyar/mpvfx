@@ -53,6 +53,7 @@ jobs:
 
       - name: Check publication boundaries and attribution
         run: |
+          node --test scripts/release-policy.test.mjs
           node scripts/check-release-readiness.mjs
           node scripts/generate-third-party-notices.mjs --check
 
