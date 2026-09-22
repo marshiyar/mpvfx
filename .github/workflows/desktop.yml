@@ -2,6 +2,11 @@ name: Desktop builds
 
 on:
   workflow_dispatch:
+    inputs:
+      verify_only:
+        description: Test the current source in the native app on all four platforms, without building installers
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -12,6 +17,7 @@ concurrency:
 
 jobs:
   make:
+    if: ${{ !inputs.verify_only }}
     name: ${{ matrix.label }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
@@ -69,3 +75,7 @@ jobs:
         run: npm --prefix studio run ${{ matrix.script }}
 
       # Main-branch validation only.
+
+  verify:
+    if: ${{ inputs.verify_only }}
+    uses: ./.github/workflows/native-verification.yml

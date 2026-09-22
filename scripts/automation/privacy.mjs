@@ -55,7 +55,7 @@ export function publicResult(raw) {
   return clean;
 }
 
-function inspectPng(bytes) {
+export function inspectPng(bytes) {
   if (!bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))) fail('image');
   let offset = 8, header = false, pixels = false, ended = false;
   // Reject metadata chunks (including text/EXIF) even in an allowed filename.
