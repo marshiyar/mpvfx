@@ -60,10 +60,6 @@ jobs:
             os: macos-15
             script: desktop:make:mac:arm64
             artifact: mpvfx-macos-arm64
-          - label: macOS Intel
-            os: macos-15-intel
-            script: desktop:make:mac:x64
-            artifact: mpvfx-macos-x64
           - label: Windows x64
             os: windows-2025
             script: desktop:make:windows
