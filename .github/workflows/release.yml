@@ -118,26 +118,22 @@ jobs:
           path: studio/out/make/**
           if-no-files-found: error
           retention-days: 14
-
   source:
     name: FFmpeg source archive
     needs: prepare
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Use Node 22
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: studio/.nvmrc
-          package-manager-cache: false
-
-      - name: Build source archive
-        run: node scripts/collect-ffmpeg-corresponding-source.mjs release-source/ffmpeg-corresponding-source-n8.1.2-1.tar.gz
+      - name: Get matching FFmpeg source archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p release-source
+          gh release download v0.0.3 \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'ffmpeg-corresponding-source-n8.1.2-1.tar.gz' \
+            --dir release-source
+          echo 'ba106c32a04effc26c7b585da63c503bf67cbd2a40a7a1b3e0d076693a12add9  release-source/ffmpeg-corresponding-source-n8.1.2-1.tar.gz' | sha256sum --check
 
       - name: Upload source archive
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
