@@ -1,5 +1,5 @@
 import type { TimelineElement } from "../store/playerStore";
-import { isAudioTimelineElement } from "../../utils/timelineInspector";
+import { isAudioTimelineElement } from "../../features/timeline/timelineInspector";
 import { INSERT_BOUNDARY_BAND } from "./timelineLayout";
 
 function isSameMediaZone(element: TimelineElement, isAudio: boolean): boolean {

@@ -1,9 +1,10 @@
+import { desktopRequest } from "../../lib/desktopClient";
 import { useCallback, useRef } from "react";
 import { useCaptionStore } from "../store";
-import { useMountEffect } from "../../hooks/useMountEffect";
+import { useMountEffect } from "../../app/useMountEffect";
 import { trackEvent } from "../../telemetry/client";
 import type { CaptionStyle } from "../types";
-import { studioWriteHeaders } from "../../utils/studioFileVersion";
+import { studioWriteHeaders } from "../../features/history/studioFileVersion";
 
 interface CaptionOverrideEntry {
   wordId?: string;
@@ -92,7 +93,7 @@ export function useCaptionSync(projectId: string | null) {
     const seqAtSave = editSeqRef.current;
     const overrides = buildOverrides(state.model);
 
-    fetch(`/api/projects/${pid}/files/${encodeURIComponent("caption-overrides.json")}`, {
+    desktopRequest(`/api/projects/${pid}/files/${encodeURIComponent("caption-overrides.json")}`, {
       method: "PUT",
       headers: { "Content-Type": "text/plain", ...studioWriteHeaders() },
       body: JSON.stringify(overrides, null, 2),
@@ -170,7 +171,7 @@ export function useCaptionSync(projectId: string | null) {
 
     let data: { content?: string };
     try {
-      const res = await fetch(
+      const res = await desktopRequest(
         `/api/projects/${pid}/files/${encodeURIComponent("caption-overrides.json")}`,
       );
       if (!res.ok) return; // no overrides file yet — normal

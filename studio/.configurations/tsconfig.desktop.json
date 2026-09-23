@@ -1,0 +1,23 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "..",
+    "types": [
+      "node"
+    ],
+    "noEmit": true,
+    "tsBuildInfoFile": "../node_modules/.cache/tsconfig.desktop.tsbuildinfo"
+  },
+  "include": [
+    "../desktop/**/*.ts",
+    "../runtime/**/*.ts",
+    "vite.config.ts"
+  ],
+  "exclude": [
+    "../.build",
+    "../**/*.test.ts",
+    "../dist",
+    "../desktop-dist",
+    "../node_modules"
+  ]
+}

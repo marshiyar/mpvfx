@@ -8,7 +8,7 @@ import {
 import { TimelinePropertyLanes } from "./TimelinePropertyLanes";
 import { TimelineAutomationLaneSlot } from "./TimelineAutomationLaneSlot";
 import { useAutomationLanes } from "./useAutomationLanes";
-import { useAutomationSelectionKeyboard } from "../../hooks/useAutomationSelectionKeyboard";
+import { useAutomationSelectionKeyboard } from "../../features/animation/useAutomationSelectionKeyboard";
 import { TimelineTrackHeader } from "./TimelineTrackHeader";
 import { TimelineGroupRow } from "./TimelineGroupRow";
 import { useTimelineLaneRowIndexes, useTimelineGroupDisclosure } from "./useTimelineLaneRowIndexes";
@@ -18,14 +18,14 @@ import {
   trackShowsBeatStrip,
 } from "./useTimelineTrackLayout";
 import { trackDisplayNumber, trackDisplaySuffix } from "./timelineTrackDisplay";
-import { clipTimingStart } from "../../hooks/gsapShared";
+import { clipTimingStart } from "../../features/animation/GSAP/gsapShared";
 import { getTimelineEditCapabilities } from "./timelineEditing";
 import { CLIP_Y, EFFECT_STRIP_H, timelineMediaRowCount, getTimelineLaneTop } from "./timelineLayout";
 import { usePlayerStore } from "../store/playerStore";
 import { isMultiDragPassenger, multiDragPassengerOffsetPx } from "./timelineMultiDragPreview";
 import { useTimelineMultiDragActorWindows } from "./useTimelineMultiDragActorWindows";
 import type { TimelineLanesProps } from "./timelineLaneProps";
-import { isAudioTimelineElement, isMusicTrack } from "../../utils/timelineInspector";
+import { isAudioTimelineElement, isMusicTrack } from "../../features/timeline/timelineInspector";
 import { createClipGestureHandlers } from "./timelineClipGestureHandlers";
 import { renderClipChildren, resolveClipRenderContext } from "./timelineClipChildren";
 import { TimelineTrackRow } from "./TimelineTrackRow";

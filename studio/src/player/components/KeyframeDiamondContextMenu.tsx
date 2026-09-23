@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
-import { useContextMenuDismiss } from "../../hooks/useContextMenuDismiss";
+import { useContextMenuDismiss } from "../../app/useContextMenuDismiss";
 import { useMenuKeyboardNav } from "./menuKeyboardNav";
 import type { TimelineElement } from "../store/playerStore";
 import type {
   NativeTimelineKeyframeTarget,
   TimelineKeyframeTarget,
 } from "./timelineKeyframeIdentity";
-import type { NativeInterpolation } from "../../project/nativeKeyframeTypes";
+import type { NativeInterpolation } from "../../../shared/project/nativeKeyframeTypes";
 
 export interface KeyframeDiamondContextMenuState {
   x: number;

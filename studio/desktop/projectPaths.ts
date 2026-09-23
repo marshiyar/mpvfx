@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { ensureStandaloneProject } from "../vite.standalone-project";
+import { ensureStandaloneProject } from "../runtime/projects";
 
 export interface DesktopDataPaths {
   root: string;

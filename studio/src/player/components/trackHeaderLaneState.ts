@@ -9,13 +9,13 @@ import type { PropertyGroupName } from "@hyperframes/core/gsap-parser";
 import {
   clipToTweenPercentage,
   getKeyframeNavigationState,
-} from "../../components/editor/KeyframeNavigation";
+} from "../../features/animation/Keyframe/KeyframeNavigation";
 import {
   absoluteToPercentageForAnimation,
   isTimeWithinTween,
   resolveTweenDuration,
   resolveTweenStart,
-} from "../../utils/globalTimeCompiler";
+} from "../../features/legacy/globalTimeCompiler";
 import type { TimelinePropertyGroupKeyframeToggle } from "./timelineCallbacks";
 import { getTimelinePropertyLanes } from "./TimelinePropertyLanes";
 import { groupLabel, valuesAt, type LaneValues } from "./trackHeaderLaneValues";
@@ -23,9 +23,9 @@ import {
   getTimelineNativePropertyLanes,
   type NativeTimelinePropertyLane,
 } from "./TimelinePropertyLanes";
-import { evaluateNativeParameterTrack } from "../../project/nativeKeyframeEvaluator";
-import type { NativeParameterTrack, RationalFrameRate } from "../../project/nativeKeyframeTypes";
-import { projectFrameFromSeconds } from "../../project/nativePropertyEditPlan";
+import { evaluateNativeParameterTrack } from "../../../shared/project/nativeKeyframeEvaluator";
+import type { NativeParameterTrack, RationalFrameRate } from "../../../shared/project/nativeKeyframeTypes";
+import { projectFrameFromSeconds } from "../../../shared/project/nativePropertyEditPlan";
 import type { TimelineDiamondKeyframe } from "./timelineDiamondTypes";
 
 export type TimelinePropertyLane = ReturnType<typeof getTimelinePropertyLanes>[number];

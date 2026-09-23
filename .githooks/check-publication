@@ -8,11 +8,11 @@ find_mpvfx_node() {
   for node_candidate in \
     "${MPVFX_NODE:-}" \
     node \
-    /opt/homebrew/opt/node@22/bin/node \
-    /usr/local/opt/node@22/bin/node
+    /opt/homebrew/opt/node@24/bin/node \
+    /usr/local/opt/node@24/bin/node
   do
     [ -n "$node_candidate" ] || continue
-    if "$node_candidate" -e 'process.exit(process.versions.node === "22.23.2" ? 0 : 1)' \
+    if "$node_candidate" -e 'process.exit(process.versions.node.split(".")[0] === "24" ? 0 : 1)' \
       >/dev/null 2>&1
     then
       printf '%s\n' "$node_candidate"
@@ -24,7 +24,7 @@ find_mpvfx_node() {
 
 node_binary=$(find_mpvfx_node) || {
   printf '%s\n' \
-    "MpVFX publication checks require Node.js 22.23.2. Set MPVFX_NODE to that executable." \
+    "MpVFX publication checks use Node.js 24 LTS. Set MPVFX_NODE to that executable." \
     >&2
   exit 1
 }

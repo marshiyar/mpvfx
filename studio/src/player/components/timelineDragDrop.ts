@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
-import { TIMELINE_ASSET_MIME, TIMELINE_BLOCK_MIME } from "../../utils/timelineAssetDrop";
+import { TIMELINE_ASSET_MIME, TIMELINE_BLOCK_MIME } from "../../features/timeline/timelineAssetDrop";
 import {
   parseTimelineCompositionPayload,
   TIMELINE_COMPOSITION_MIME,
-} from "../../utils/timelineCompositionDrop";
+} from "../../features/timeline/timelineCompositionDrop";
 import { usePlayerStore } from "../store/playerStore";
 import { resolveTimelineAssetDrop, type TimelineRowGeometry } from "./timelineLayout";
 import type { TimelineDropCallbacks } from "./timelineCallbacks";

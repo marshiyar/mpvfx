@@ -1,6 +1,6 @@
 import { memo, useCallback, useMemo, useRef, useState } from "react";
-import { useMountEffect } from "../../hooks/useMountEffect";
-import { useThumbnailLease } from "../../hooks/useThumbnailLease";
+import { useMountEffect } from "../../app/useMountEffect";
+import { useThumbnailLease } from "../../features/preview/useThumbnailLease";
 import { createThumbnailKey, type ThumbnailPriority } from "../lib/thumbnailScheduler";
 import { TIMELINE_VIEWPORT_BUDGETS } from "../lib/timelineViewportBudgets";
 import { computeThumbnailStrip, probeImageAspect } from "./thumbnailUtils";

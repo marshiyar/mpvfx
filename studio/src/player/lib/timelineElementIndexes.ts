@@ -1,4 +1,4 @@
-import { isAudioTimelineElement, isMusicTrack } from "../../utils/timelineInspector";
+import { isAudioTimelineElement, isMusicTrack } from "../../features/timeline/timelineInspector";
 import type { TimelineElement } from "../store/playerStore";
 import { getTimelineElementIdentity } from "./timelineElementHelpers";
 

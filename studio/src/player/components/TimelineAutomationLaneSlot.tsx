@@ -8,7 +8,7 @@ import {
 import { AUTOMATION_LANE_H } from "./automationLaneHeight";
 import { getTimelineLaneTop } from "./timelineLayout";
 import { groupAutomationLanes, isCarveLane } from "./automationLaneData";
-import { isAudioTimelineElement } from "../../utils/timelineInspector";
+import { isAudioTimelineElement } from "../../features/timeline/timelineInspector";
 import { getTimelineElementIdentity } from "../lib/timelineElementHelpers";
 import type { TimelineElement } from "../store/playerStore";
 import type { UseAutomationLanesResult } from "./useAutomationLanes";

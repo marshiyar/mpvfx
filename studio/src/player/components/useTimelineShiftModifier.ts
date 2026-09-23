@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMountEffect } from "../../hooks/useMountEffect";
+import { useMountEffect } from "../../app/useMountEffect";
 
 export function useTimelineShiftModifier(): boolean {
   const [shiftHeld, setShiftHeld] = useState(false);

@@ -1,4 +1,4 @@
-import { isAudioTimelineElement } from "../../utils/timelineInspector";
+import { isAudioTimelineElement } from "../../features/timeline/timelineInspector";
 import type { GsapAnimation } from "@hyperframes/core/gsap-parser";
 import {
   HF_AUDIO_FX_ATTR,
@@ -9,9 +9,9 @@ import { classifyAudioName } from "@hyperframes/core/audio-carve";
 import { usePlayerStore, type TimelineElement } from "../store/playerStore";
 import { VisibilityButton, PlainTrackHeader } from "./TimelineTrackPlainHeader";
 import type { TimelineEditCallbacks } from "./timelineCallbacks";
-import { useTimelineEditContextOptional } from "../../contexts/TimelineEditContext";
-import { useDomEditActionsContextOptional } from "../../contexts/DomEditContext";
-import { mintGroupId } from "../../components/editor/useFxCarveGrouping";
+import { useTimelineEditContextOptional } from "../../features/timeline/TimelineEditContext";
+import { useDomEditActionsContextOptional } from "../../features/canvas/DomEditContext";
+import { mintGroupId } from "../../features/inspector/useFxCarveGrouping";
 import { runtimeAudioId } from "../lib/timelineElementHelpers";
 import { TimelineFxButton } from "./TimelineFxButton";
 import {
@@ -20,7 +20,7 @@ import {
 } from "./TimelinePropertyLanes";
 import { elementFxChain, groupAutomationLanes, isCarveLane } from "./automationLaneData";
 import { AUTOMATION_LANE_H } from "./automationLaneHeight";
-import { clipTimingStart } from "../../hooks/gsapShared";
+import { clipTimingStart } from "../../features/animation/GSAP/gsapShared";
 import { LayerDisclosureRow } from "./LayerDisclosureRow";
 import { LABEL_COL_W, timelineMediaRowCount, getTimelineLaneTop } from "./timelineLayout";
 import type { TimelineTheme } from "./timelineTheme";

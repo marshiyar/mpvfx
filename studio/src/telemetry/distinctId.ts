@@ -10,15 +10,15 @@
 // CLI→Studio identity stitch (Layer 1, no login / no PII):
 // When the CLI launches Studio it injects its own `config.anonymousId`
 // (a random UUID from ~/.hyperframes/config.json) as `window.__HF_CLI_DISTINCT_ID`
-// (see packages/cli/src/server/studioServer.ts). When present we ADOPT it as the
+// (see packages/cli/src/runtime/studioServer.ts). When present we ADOPT it as the
 // Studio distinct_id and persist it, so CLI `cli_command*` events and the
 // browser's `studio:*` / `studio_*` / render events are attributed to the same
 // PostHog person. When absent (Studio opened standalone) we fall back to the
 // previous per-browser localStorage id — behaviour is unchanged.
 // ---------------------------------------------------------------------------
 
-import { generateId } from "../utils/generateId";
-import { safeLocalStorage } from "../utils/safeStorage";
+import { generateId } from "../lib/generateId";
+import { safeLocalStorage } from "../lib/safeStorage";
 
 // Canonical storage key. Both legacy keys are kept in sync (below) so any code
 // still reading them directly, plus older cached values, resolve to one id.

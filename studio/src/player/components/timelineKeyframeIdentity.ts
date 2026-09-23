@@ -1,5 +1,5 @@
-import type { AnimationKeyframeTarget } from "../../hooks/gsapTweenSynth";
-import type { NativeInterpolation } from "../../project/nativeKeyframeTypes";
+import type { AnimationKeyframeTarget } from "../../features/animation/GSAP/gsapTweenSynth";
+import type { NativeInterpolation } from "../../../shared/project/nativeKeyframeTypes";
 
 /** Complete native command address carried by a rendered project keyframe. */
 export interface NativeTimelineKeyframeTarget {

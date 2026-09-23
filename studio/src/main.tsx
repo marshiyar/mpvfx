@@ -1,8 +1,8 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { StudioApp } from "./App";
-import { StudioErrorBoundary } from "./components/StudioErrorBoundary";
-import { trackStudioEvent } from "./utils/studioTelemetry";
+import { StudioApp } from "./app/App";
+import { StudioErrorBoundary } from "./app/StudioErrorBoundary";
+import { trackStudioEvent } from "./lib/studioTelemetry";
 import "./styles/studio.css";
 
 trackStudioEvent("session_start");

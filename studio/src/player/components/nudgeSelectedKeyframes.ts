@@ -1,8 +1,8 @@
 import {
   applyNativeProjectKeyframeCommand,
   type NativeProjectParameterAddress,
-} from "../../project/nativeProjectKeyframeCommands";
-import type { NativeProjectClip, NativeProjectDocument } from "../../project/nativeProjectDocument";
+} from "../../../shared/project/nativeProjectKeyframeCommands";
+import type { NativeProjectClip, NativeProjectDocument } from "../../../shared/project/nativeProjectDocument";
 import {
   nativeParameterAddressKey,
   type NativeKeyframeProjectCommit,

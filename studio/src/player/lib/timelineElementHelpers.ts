@@ -10,9 +10,10 @@
 import type { TimelineElement } from "../store/playerStore";
 import type { ClipManifestClip } from "./playbackTypes";
 import { isFinitePositive } from "./playbackAdapter";
-import { getSourceScopedSelectorIndex } from "../../utils/sourceScopedSelectorIndex";
+import { getSourceScopedSelectorIndex } from "../../features/canvas/sourceScopedSelectorIndex";
 import { HF_AUDIO_GROUP_TAG } from "@hyperframes/core/audio-groups";
 import { HF_COLOR_GRADING_CANVAS_ID_PREFIX } from "@hyperframes/core/color-grading";
+import { parseSourceDocument } from "../../lib/sourceDocument";
 
 // ---------------------------------------------------------------------------
 // Layer-reveal lift transparency
@@ -148,7 +149,9 @@ export function readTimelineDurationFromDocument(doc: Document | null | undefine
  */
 export function furthestClipEndFromSource(source: string): number {
   if (!source) return 0;
-  return furthestClipEndFromDocument(new DOMParser().parseFromString(source, "text/html"));
+  // Source inspection must not create browser video/audio objects. Their
+  // pending playback activities can retain a whole document after each edit.
+  return furthestClipEndFromDocument(parseSourceDocument(source));
 }
 
 // ---------------------------------------------------------------------------

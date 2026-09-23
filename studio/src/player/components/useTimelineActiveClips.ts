@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useRef } from "react";
 import { liveTime, type TimelineElement } from "../store/playerStore";
-import { useMountEffect } from "../../hooks/useMountEffect";
+import { useMountEffect } from "../../app/useMountEffect";
 
 interface ActiveClipRecord {
   id: string;

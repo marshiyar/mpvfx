@@ -1,6 +1,6 @@
 import { memo } from "react";
-import { Tooltip } from "../../components/ui";
-import { trackStudioEvent } from "../../utils/studioTelemetry";
+import { Tooltip } from "../../ui/index";
+import { trackStudioEvent } from "../../lib/studioTelemetry";
 
 interface VolumeControlProps {
   audioMuted: boolean;

@@ -2,8 +2,8 @@ import {
   applyNativeProjectKeyframeCommand,
   type NativeProjectKeyframeCommand,
   type NativeProjectParameterAddress,
-} from "../../project/nativeProjectKeyframeCommands";
-import type { NativeProjectDocument } from "../../project/nativeProjectDocument";
+} from "../../../shared/project/nativeProjectKeyframeCommands";
+import type { NativeProjectDocument } from "../../../shared/project/nativeProjectDocument";
 
 export interface NativeSelectedKeyframeAddress {
   readonly address: NativeProjectParameterAddress;

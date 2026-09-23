@@ -16,7 +16,7 @@ import { sampleAutomationLane } from "@hyperframes/core/audio-automation";
 import { groupAutomationLanes } from "./automationLaneData";
 import { AUTOMATION_LANE_H } from "./automationLaneHeight";
 import type { TimelineElement } from "../store/playerStore";
-import { useLivePlayheadTime } from "../../hooks/useLivePlayheadTime";
+import { useLivePlayheadTime } from "../../features/preview/useLivePlayheadTime";
 
 export function TimelineGroupLaneLabels({
   groupElement,

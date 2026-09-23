@@ -2,7 +2,7 @@ import { trackEvent } from "./client";
 import { breadcrumbTrail } from "./breadcrumbs";
 
 // Studio frontend events. The corresponding `render_complete` / `render_error`
-// events are emitted server-side by `packages/cli/src/server/studioServer.ts`
+// events are emitted server-side by `packages/cli/src/runtime/studioServer.ts`
 // with `source: "studio"` — keeping rich perf data on a single unified event.
 
 export function trackStudioSessionStart(props: { has_project: boolean }): void {

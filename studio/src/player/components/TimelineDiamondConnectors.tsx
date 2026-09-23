@@ -1,6 +1,6 @@
 import { Fragment, useRef } from "react";
-import { KEYFRAME_DRAG_THRESHOLD_PX } from "../../components/editor/keyframeDrag";
-import { MiniCurveSvg } from "../../components/editor/EaseCurveSection";
+import { KEYFRAME_DRAG_THRESHOLD_PX } from "../../features/animation/Keyframe/keyframeDrag";
+import { MiniCurveSvg } from "../../features/animation/EaseCurve/EaseCurveSection";
 import type { TimelineKeyframeTarget } from "./timelineKeyframeIdentity";
 import { keyframeTimeLabel, type TimelineDiamondKeyframe } from "./timelineDiamondTypes";
 import { timelineEaseFocusId } from "./timelineNavigationIdentity";

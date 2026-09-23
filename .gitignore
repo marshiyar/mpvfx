@@ -23,8 +23,8 @@ editor-reliability-plugin/
 .opencode/
 .gemini/
 .aider*
-.cache/
-.tmp/
+*.cache/
+*.tmp/
 
 # Private exports
 /chat-history/
@@ -48,6 +48,7 @@ editor-reliability-plugin/
 *.stdout
 
 # Local secrets and logs
+*.env
 .env
 .env.*
 !.env.example
@@ -139,3 +140,7 @@ studio/fixtures/storyboard-sample/
 *.rpm
 /release-source/
 /ffmpeg-corresponding-source-*.tar.gz
+
+*/dist/*
+*/node_modules/*
+studio/desktop-dist/

@@ -8,7 +8,7 @@
  *  - onIframeLoad             — orchestrates initializeAdapter with a message-based fallback
  */
 
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { liveTime, usePlayerStore } from "../store/playerStore";
 import type { TimelineElement } from "../store/playerStore";
 import type { PlaybackAdapter, IframeWindow } from "../lib/playbackTypes";
@@ -114,6 +114,9 @@ export function useTimelineSyncCallbacks({
   attachIframeShortcutListeners,
   applyPreviewAudioState,
 }: UseTimelineSyncCallbacksParams) {
+  const readinessCleanupRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => readinessCleanupRef.current?.(), []);
+
   // Convert a runtime timeline message (from iframe postMessage) into TimelineElements
   const processTimelineMessage = useCallback(
     (data: RuntimeTimelineMessage) => {
@@ -264,8 +267,8 @@ export function useTimelineSyncCallbacks({
   ]);
 
   const onIframeLoad = useCallback(() => {
+    readinessCleanupRef.current?.();
     applyPreviewAudioState();
-    if (probeIntervalRef.current) clearInterval(probeIntervalRef.current);
 
     // Fast path: adapter already available (in-place reloads, cached compositions)
     if (initializeAdapter()) return;
@@ -273,32 +276,37 @@ export function useTimelineSyncCallbacks({
     // The runtime posts "state" or "timeline" messages once ready.
     // Listen for those instead of polling.
     const iframe = iframeRef.current;
-    let settled = false;
+    let active = true;
+    let timeout: ReturnType<typeof setInterval> | undefined;
+    const cleanup = () => {
+      active = false;
+      window.removeEventListener("message", onMessage);
+      if (timeout !== undefined) clearTimeout(timeout);
+      if (probeIntervalRef.current === timeout) probeIntervalRef.current = undefined;
+      if (readinessCleanupRef.current === cleanup) readinessCleanupRef.current = null;
+    };
 
     const trySettle = () => {
-      if (settled) return;
-      if (initializeAdapter()) {
-        settled = true;
-        window.removeEventListener("message", onMessage);
-        if (probeIntervalRef.current) clearInterval(probeIntervalRef.current);
-      }
+      if (!active) return;
+      if (initializeAdapter()) cleanup();
     };
 
     const onMessage = (e: MessageEvent) => {
       if (isPreviewReadinessMessage(e, iframe)) trySettle();
     };
+    readinessCleanupRef.current = cleanup;
     window.addEventListener("message", onMessage);
 
     // Safety net: if no message arrives within 5s, try one last time then give up.
-    probeIntervalRef.current = setTimeout(() => {
-      if (!settled) {
-        trySettle();
-      }
-      window.removeEventListener("message", onMessage);
+    timeout = setTimeout(() => {
+      if (!active) return;
+      trySettle();
+      cleanup();
       // Never leave the preview stuck invisible if the runtime never settled
       // (initializeAdapter reveals on success; this covers the give-up case).
       revealIframe(iframeRef.current);
     }, 5000) as unknown as ReturnType<typeof setInterval>;
+    probeIntervalRef.current = timeout;
   }, [initializeAdapter, iframeRef, probeIntervalRef, applyPreviewAudioState]);
 
   // Stable refs so mount-effect closures always call the latest version

@@ -1,5 +1,5 @@
 import type { StoreApi } from "zustand";
-import { readStudioUiPreferences, writeStudioUiPreferences } from "../../utils/studioUiPreferences";
+import { readStudioUiPreferences, writeStudioUiPreferences } from "../../app/studioUiPreferences";
 import { defaultThumbnailMode, type ThumbnailMode } from "../lib/thumbnailPolicy";
 
 export interface ThumbnailSlice {

@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { useStudioPlaybackContextOptional } from "../../contexts/StudioContext";
+import { useStudioPlaybackContextOptional } from "../../app/StudioContext";
 
 export function useTimelineLaneMoveRefresh(): () => void {
   const setRefreshKey = useStudioPlaybackContextOptional()?.setRefreshKey;

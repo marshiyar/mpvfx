@@ -9,9 +9,9 @@ import {
 } from "./KeyframeDiamondContextMenu";
 import { ClipContextMenu } from "./ClipContextMenu";
 import { TrackGapContextMenu } from "./TrackGapContextMenu";
-import { copyTextToClipboard } from "../../utils/clipboard";
+import { copyTextToClipboard } from "../../features/canvas/clipboard";
 import { trackStudioSegmentEaseEdit } from "../../telemetry/events";
-import { isRenderedKeyframeIdentityMatch } from "../../hooks/gsapShared";
+import { isRenderedKeyframeIdentityMatch } from "../../features/animation/GSAP/gsapShared";
 import { getTimelineElementIdentity } from "../lib/timelineElementHelpers";
 
 export interface ClipContextMenuState {

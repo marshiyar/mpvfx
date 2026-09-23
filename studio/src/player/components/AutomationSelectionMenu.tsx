@@ -6,7 +6,7 @@
  */
 import { memo } from "react";
 import { createPortal } from "react-dom";
-import { useContextMenuDismiss } from "../../hooks/useContextMenuDismiss";
+import { useContextMenuDismiss } from "../../app/useContextMenuDismiss";
 import { AUTOMATION_SHAPES, type AutomationShapeId } from "./automationShapes";
 
 interface AutomationSelectionMenuProps {

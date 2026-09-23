@@ -1,3 +1,7 @@
+/out/*
+.build
+/.puppeteer-cache
+/.build/
 /node_modules/
 /dist/
 /desktop-dist/

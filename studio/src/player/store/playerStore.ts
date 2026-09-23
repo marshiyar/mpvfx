@@ -3,13 +3,13 @@ import { attachPlayerStoreDevHandle } from "./playerStoreDevHandle";
 import { nextSelectionSet, revealTargetsSelection } from "./playerStoreSelection";
 import type { MusicBeatAnalysis } from "@hyperframes/core/beats";
 import type { GsapAnimation } from "@hyperframes/core/gsap-parser";
-import type { BeatEditState } from "../../utils/beatEditing";
+import type { BeatEditState } from "../../features/media/beatEditing";
 import type { ClipManifestClip } from "../lib/playbackTypes";
 import {
   readStudioUiPreferences,
   writeStudioUiPreferences,
   type TimelineTimeDisplayMode,
-} from "../../utils/studioUiPreferences";
+} from "../../app/studioUiPreferences";
 import { clampTimelineZoomPercent, computePinnedZoomPercent } from "../components/timelineZoom";
 import { createKeyframeSlice, type KeyframeCacheEntry, type KeyframeSlice } from "./keyframeSlice";
 import {

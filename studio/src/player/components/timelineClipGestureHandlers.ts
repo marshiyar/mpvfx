@@ -8,7 +8,7 @@ import {
 import type { TimelineEditCapabilities } from "./timelineEditCapabilities";
 import type { TimelineEditCallbacks } from "./timelineCallbacks";
 import { CLIP_HANDLE_W } from "./timelineLayout";
-import { SPLIT_BOUNDARY_EPSILON_S } from "../../utils/timelineElementSplit";
+import { SPLIT_BOUNDARY_EPSILON_S } from "../../features/timeline/timelineElementSplit";
 
 export interface ClipGestureDeps {
   pps: number;

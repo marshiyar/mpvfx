@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "../shared",
+    "lib": ["ES2023"],
+    "types": [],
+    "incremental": false
+  },
+  "include": ["../shared/**/*.ts"],
+  "exclude": ["../shared/**/*.test.ts"]
+}

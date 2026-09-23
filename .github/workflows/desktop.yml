@@ -4,16 +4,14 @@ on:
   pull_request:
     paths:
       - "studio/**"
-      - "NOTICE"
-      - "THIRD_PARTY_NOTICES.md"
+      - "scripts/**"
       - ".github/workflows/desktop.yml"
   push:
     branches:
       - main
     paths:
       - "studio/**"
-      - "NOTICE"
-      - "THIRD_PARTY_NOTICES.md"
+      - "scripts/**"
       - ".github/workflows/desktop.yml"
   workflow_dispatch:
 
@@ -63,10 +61,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Use Node 22
+      - name: Use Node 24
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version-file: studio/.nvmrc
+          node-version-file: studio/.configurations/.nvmrc
           cache: npm
           cache-dependency-path: studio/package-lock.json
 

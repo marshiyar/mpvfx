@@ -1,9 +1,10 @@
 import { memo, useCallback, useMemo, useRef, useState } from "react";
-import { useMountEffect } from "../../hooks/useMountEffect";
-import { useThumbnailLease } from "../../hooks/useThumbnailLease";
+import { useMountEffect } from "../../app/useMountEffect";
+import { useThumbnailLease } from "../../features/preview/useThumbnailLease";
 import { createThumbnailKey, type ThumbnailPriority } from "../lib/thumbnailScheduler";
 import { TIMELINE_VIEWPORT_BUDGETS } from "../lib/timelineViewportBudgets";
 import { computeThumbnailStrip, probeImageAspect } from "./thumbnailUtils";
+import { revisionedMediaUrl } from "../lib/mediaSourceChanges";
 
 interface ImageThumbnailProps {
   imageSrc: string;
@@ -30,14 +31,16 @@ export const ImageThumbnail = memo(function ImageThumbnail({
     () => ({
       key: createThumbnailKey({ kind: "image", source: imageSrc }),
       projectId,
+      source: imageSrc,
       sessionEpoch,
       kind: "image" as const,
       priority,
       rich: false,
-      load: async (signal: AbortSignal) => {
-        const aspect = await probeImageAspect(imageSrc, signal, true);
+      load: async (signal: AbortSignal, revision?: string) => {
+        const source = revisionedMediaUrl(imageSrc, revision);
+        const aspect = await probeImageAspect(source, signal, true);
         return {
-          value: { kind: "image" as const, url: imageSrc, aspect },
+          value: { kind: "image" as const, url: source, aspect },
           weight:
             TIMELINE_VIEWPORT_BUDGETS.posterMaxPhysicalWidth *
             TIMELINE_VIEWPORT_BUDGETS.posterMaxPhysicalHeight *

@@ -7,7 +7,7 @@ import type {
   NativeTimelineKeyframeTarget,
   TimelineKeyframeTarget,
 } from "./timelineKeyframeIdentity";
-import type { AnimationKeyframeTarget } from "../../hooks/gsapTweenSynth";
+import type { AnimationKeyframeTarget } from "../../features/animation/GSAP/gsapTweenSynth";
 
 export interface TimelineDiamondKeyframe {
   percentage: number;

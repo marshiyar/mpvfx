@@ -1,8 +1,8 @@
 import { memo } from "react";
 import { createPortal } from "react-dom";
 import type { TimelineElement } from "../store/playerStore";
-import { canSplitElement } from "../../utils/timelineElementSplit";
-import { useContextMenuDismiss } from "../../hooks/useContextMenuDismiss";
+import { canSplitElement } from "../../features/timeline/timelineElementSplit";
+import { useContextMenuDismiss } from "../../app/useContextMenuDismiss";
 import { useMenuKeyboardNav } from "./menuKeyboardNav";
 import { usePlayerStore } from "../store/playerStore";
 

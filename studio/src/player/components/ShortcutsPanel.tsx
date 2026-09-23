@@ -1,9 +1,9 @@
 import { useState, useCallback, useEffect, useId, useRef, memo } from "react";
 import { formatTime, frameToSeconds } from "../lib/time";
-import { Tooltip } from "../../components/ui";
-import { useContextMenuDismiss } from "../../hooks/useContextMenuDismiss";
-import { getHistoryShortcutLabel } from "../../utils/studioHelpers";
-import { trackStudioEvent } from "../../utils/studioTelemetry";
+import { Tooltip } from "../../ui/index";
+import { useContextMenuDismiss } from "../../app/useContextMenuDismiss";
+import { getHistoryShortcutLabel } from "../../lib/studioHelpers";
+import { trackStudioEvent } from "../../lib/studioTelemetry";
 
 const SHORTCUT_SECTIONS = [
   {

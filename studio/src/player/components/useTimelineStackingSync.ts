@@ -1,15 +1,13 @@
-import { useCallback, useEffect, type RefObject } from "react";
+import { useCallback, type RefObject } from "react";
 import type { TimelineElement } from "../store/playerStore";
-import { useDomEditActionsContextOptional } from "../../contexts/DomEditContext";
-import { useStudioShellContextOptional } from "../../contexts/StudioContext";
-import { findElementForSelection } from "../../components/editor/domEditingElement";
-import { readEffectiveZIndex } from "../../components/editor/canvasContextMenuZOrder";
+import { useDomEditActionsContextOptional } from "../../features/canvas/DomEditContext";
+import { useStudioShellContextOptional } from "../../app/StudioContext";
+import { findElementForSelection } from "../../features/canvas/domEditingElement";
+import { readEffectiveZIndex } from "../../features/canvas/canvasContextMenuZOrder";
 import type { StackingPatch } from "./timelineStackingSync";
-import { computeStackingPatches } from "./timelineStackingSync";
 
 interface UseTimelineStackingSyncInput {
   expandedElementsRef: RefObject<TimelineElement[]>;
-  expandedElements?: TimelineElement[];
 }
 
 // Lane ↔ stacking unification (research/STAGE3-NEEDED-WIRING.md). Provision the
@@ -21,7 +19,6 @@ interface UseTimelineStackingSyncInput {
 // commit's z-sync is a no-op (backward compatible).
 export function useTimelineStackingSync({
   expandedElementsRef,
-  expandedElements,
 }: UseTimelineStackingSyncInput) {
   const domEditActions = useDomEditActionsContextOptional();
   const shell = useStudioShellContextOptional();
@@ -97,39 +94,8 @@ export function useTimelineStackingSync({
   // Engage the z-sync only when the persist path is present (inside the NLE).
   const zSyncEnabled = Boolean(handleDomZIndexReorderCommit && zSyncPreviewIframeRef);
 
-  // Older Studio imports assigned z by insertion order, which could leave a
-  // lower timeline row painting over an upper one after reopening the project.
-  // Reconcile only overlapping visual clips, through the normal durable
-  // z-reorder path, so existing projects adopt the lane-order invariant too.
-  useEffect(() => {
-    if (!zSyncEnabled || !expandedElements) return;
-    const stackingElements = expandedElements.map((element, domIndex) => ({
-      key: element.key ?? element.id,
-      start: element.start,
-      duration: element.duration,
-      track: element.track,
-      zIndex: readClipZIndex(element),
-      isAudio: element.kind === "audio" || element.tag === "audio",
-      sourceFile: element.sourceFile ?? zSyncActiveCompPath ?? "index.html",
-      stackingContextId: element.stackingContextId ?? null,
-      domIndex,
-    }));
-    const patches = computeStackingPatches(
-      stackingElements,
-      stackingElements.filter((element) => !element.isAudio).map((element) => element.key),
-    );
-    if (patches.length > 0) {
-      void applyStackingPatches(patches, "timeline-stacking-reconcile").catch((error) => {
-        console.error("[Timeline] Failed to reconcile lane stacking", error);
-      });
-    }
-  }, [
-    applyStackingPatches,
-    expandedElements,
-    readClipZIndex,
-    zSyncActiveCompPath,
-    zSyncEnabled,
-  ]);
+  // Stacking is authored state. Only explicit lane/layer commands apply patches;
+  // opening, timing changes and history reloads must never create a new edit.
 
   return { readClipZIndex, applyStackingPatches, zSyncEnabled };
 }

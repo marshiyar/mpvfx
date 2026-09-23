@@ -17,12 +17,12 @@ import {
   type HfAudioFxChain,
 } from "@hyperframes/core/audio-fx";
 import type { HfAudioNameKind } from "@hyperframes/core/audio-carve";
-import { TimelineFxPopover } from "../../components/editor/TimelineFxPopover.js";
-import { resolveFloatingPanelPosition } from "../../components/editor/floatingPanel.js";
+import { TimelineFxPopover } from "../../features/canvas/TimelineFxPopover.js";
+import { resolveFloatingPanelPosition } from "../../features/inspector/floatingPanel.js";
 import {
   useAuditionTransport,
   type AuditionSpan,
-} from "../../components/editor/useAuditionTransport.js";
+} from "../../features/inspector/useAuditionTransport.js";
 
 /**
  * Naming a group is the moment the whole feature is explained.

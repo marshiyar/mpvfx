@@ -1,5 +1,5 @@
 import { useRef, useMemo, useCallback, useState, memo } from "react";
-import { useAdjustedBeatAnalysis, useMusicBeatAnalysis } from "../../hooks/useMusicBeatAnalysis";
+import { useAdjustedBeatAnalysis, useMusicBeatAnalysis } from "../../features/media/useMusicBeatAnalysis";
 import { usePlayerStore, type TimelineElement } from "../store/playerStore";
 import { useExpandedTimelineElements } from "../hooks/useExpandedTimelineElements";
 import { defaultTimelineTheme } from "./timelineTheme";
@@ -43,7 +43,7 @@ import { useTimelineClipRenderWindow } from "./useTimelineClipRenderWindow";
 import { useTimelineActiveClips } from "./useTimelineActiveClips";
 import { useTimelineLaneMoveRefresh } from "./useTimelineLaneMoveRefresh";
 import { useTimelineLogicalFocus } from "./useTimelineLogicalFocus";
-import { useDomEditSelectionContextOptional } from "../../contexts/DomEditContext";
+import { useDomEditSelectionContextOptional } from "../../features/canvas/DomEditContext";
 import {
   buildNativeTimelineLaneProjectionMap,
 } from "./nativeTimelinePropertyLaneBridge";
@@ -168,7 +168,6 @@ export const Timeline = memo(function Timeline({
     trackOrderRef,
     laneCounts,
     rowGeometry,
-    rowGeometryRef,
     groups,
     trackGroupOf,
   } = useTimelineTrackLayout(
@@ -183,6 +182,8 @@ export const Timeline = memo(function Timeline({
     () => padTimelineTrackOrder(trackOrder, expandedElements.map((element) => element.track)),
     [expandedElements, trackOrder],
   );
+  // Hit testing must include the same empty rows and heights that we draw.
+  const rowGeometryRef = useRef(rowGeometry);
   const displayTrackOrderRef = useRef(baselineDisplayTrackOrder);
   displayTrackOrderRef.current = baselineDisplayTrackOrder;
   const expandedElementsRef = useRef(expandedElements);
@@ -215,7 +216,6 @@ export const Timeline = memo(function Timeline({
   });
   const { readClipZIndex, applyStackingPatches, zSyncEnabled } = useTimelineStackingSync({
     expandedElementsRef,
-    expandedElements,
   });
   const {
     gapMenuModel,
@@ -276,6 +276,8 @@ export const Timeline = memo(function Timeline({
     baselineDisplayTrackOrder,
     rowGeometry,
   );
+  rowGeometryRef.current = displayLayout.rowGeometry;
+  displayTrackOrderRef.current = displayLayout.displayTrackOrder;
   const resizingElementIds =
     resizingClip?.groupPreview?.map((change) => change.key) ??
     (resizingClip ? [getTimelineElementIdentity(resizingClip.element)] : undefined);

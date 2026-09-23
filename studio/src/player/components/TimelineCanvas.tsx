@@ -14,8 +14,8 @@ import {
 import { usePlayerStore } from "../store/playerStore";
 import type { ResizingClipState } from "./useTimelineClipDrag";
 import { type MultiDragPreviewInput } from "./timelineMultiDragPreview";
-import { useTimelineEditContextOptional } from "../../contexts/TimelineEditContext";
-import type { Rect } from "../../utils/marqueeGeometry";
+import { useTimelineEditContextOptional } from "../../features/timeline/TimelineEditContext";
+import type { Rect } from "../../features/canvas/marqueeGeometry";
 import { TimelineLanes } from "./TimelineLanes";
 import type { TimelineLaneBaseProps } from "./timelineLaneProps";
 import type { TimelineLaneGapStrips } from "./useTimelineGapHighlights";
