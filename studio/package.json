@@ -67,7 +67,7 @@
     "gsap": "^3.13.0",
     "linkedom": "0.18.13",
     "mediabunny": "^1.45.3",
-    "puppeteer": "^25.9.0",
+    "puppeteer": "^25.11.0",
     "puppeteer-core": "^25.9.0"
   },
   "devDependencies": {
