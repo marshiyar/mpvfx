@@ -1,7 +1,7 @@
 import { useState, useCallback, memo } from "react";
-import { trackStudioEvent } from "../../utils/studioTelemetry";
-import { Tooltip } from "../../components/ui";
-import { useContextMenuDismiss } from "../../hooks/useContextMenuDismiss";
+import { trackStudioEvent } from "../../lib/studioTelemetry";
+import { Tooltip } from "../../ui/index";
+import { useContextMenuDismiss } from "../../app/useContextMenuDismiss";
 
 const SPEED_OPTIONS = [0.25, 0.5, 1, 1.5, 2] as const;
 

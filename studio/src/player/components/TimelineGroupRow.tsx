@@ -14,9 +14,9 @@ import { groupAutomationElement } from "./groupAutomationElement";
 import { TimelineAutomationLaneSlot } from "./TimelineAutomationLaneSlot";
 import { TimelineGroupLaneLabels } from "./TimelineGroupLaneLabels";
 import type { UseAutomationLanesResult } from "./useAutomationLanes";
-import { useDomEditSelectionContextOptional } from "../../contexts/DomEditContext";
-import { useTimelineEditContextOptional } from "../../contexts/TimelineEditContext";
-import { useDomEditActionsContextOptional } from "../../contexts/DomEditContext";
+import { useDomEditSelectionContextOptional } from "../../features/canvas/DomEditContext";
+import { useTimelineEditContextOptional } from "../../features/timeline/TimelineEditContext";
+import { useDomEditActionsContextOptional } from "../../features/canvas/DomEditContext";
 import { usePlayerStore } from "../store/playerStore";
 
 /** Accent rail on a group-owned lane — the same green the member rail uses, so

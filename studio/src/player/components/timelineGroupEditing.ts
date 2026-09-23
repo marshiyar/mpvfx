@@ -1,4 +1,4 @@
-import { roundToCenti } from "../../utils/rounding";
+import { roundToCenti } from "../../lib/rounding";
 import type { TimelineElement } from "../store/playerStore";
 import { getTimelineEditCapabilities } from "./timelineEditCapabilities";
 

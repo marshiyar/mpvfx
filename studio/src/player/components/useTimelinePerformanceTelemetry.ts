@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { useMountEffect } from "../../hooks/useMountEffect";
+import { useMountEffect } from "../../app/useMountEffect";
 import {
   trackStudioTimelinePerformance,
   type StudioTimelinePerformanceSample,

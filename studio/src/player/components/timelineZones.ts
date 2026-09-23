@@ -1,5 +1,5 @@
 import type { TimelineElement } from "../store/playerStore";
-import { isAudioTimelineElement } from "../../utils/timelineInspector";
+import { isAudioTimelineElement } from "../../features/timeline/timelineInspector";
 
 /** Media classification for icons and audio controls, independent of row placement. */
 export type TrackZone = "visual" | "audio";

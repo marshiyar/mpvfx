@@ -6,7 +6,7 @@
  * is active and the user is navigating caption segments).
  */
 
-import { isTypingTarget } from "../../utils/typingTarget";
+import { isApplicationControlKey, isTypingTarget } from "../../lib/typingTarget";
 
 const PLAYBACK_FRAME_STEP_CODES = new Set(["ArrowLeft", "ArrowRight"]);
 
@@ -46,7 +46,7 @@ interface PlaybackShortcutCaptionState {
 
 type PlaybackShortcutEvent = Pick<
   KeyboardEvent,
-  "altKey" | "ctrlKey" | "metaKey" | "code" | "target"
+  "altKey" | "ctrlKey" | "metaKey" | "code" | "key" | "target"
 >;
 
 export function shouldIgnorePlaybackShortcutEvent(
@@ -57,6 +57,7 @@ export function shouldIgnorePlaybackShortcutEvent(
   },
 ): boolean {
   if (event.metaKey || event.ctrlKey || event.altKey) return true;
+  if (isApplicationControlKey(event)) return true;
   if (shouldIgnorePlaybackShortcutTarget(event.target)) return true;
   return (
     PLAYBACK_FRAME_STEP_CODES.has(event.code) &&

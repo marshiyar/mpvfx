@@ -9,12 +9,12 @@ import {
   canMoveTimelineElement as canMoveElement,
   resolveExpandedHostAlias,
 } from "./timelineAuthoredMoveTarget";
-import type { TimelineMoveOperation } from "../../hooks/timelineMoveAdapter";
+import type { TimelineMoveOperation } from "../../features/timeline/timelineMoveAdapter";
 import {
   beginTimelineOptimisticGesture,
   isLatestTimelineOptimisticGesture,
 } from "./timelineOptimisticRevision";
-import { runLaneZGesture } from "../../components/nle/zLaneGesture";
+import { runLaneZGesture } from "../../features/timeline/zLaneGesture";
 import { refreshAfterDurableLaneMove } from "./timelineLaneMoveRefresh";
 import { authoredTrackForLane, sameSourceFile } from "./timelineAuthoredTrack";
 
@@ -88,8 +88,9 @@ let laneChangeGestureSeq = 0;
  * Optimistically apply + persist a batch of moves with rollback on failure.
  *
  * Returns a promise that resolves `true` once the write lands, or `false` after a
- * rejected write has been rolled back. The caller uses this to SERIALIZE the
- * lane→z stacking patch: the z-sync is a separate server style-patch, and firing
+ * rejected write has been rolled back or the gesture was superseded. The caller
+ * uses this to SERIALIZE the lane→z stacking patch: the z-sync is a separate
+ * server style-patch, and firing
  * it before this full-file write resolves let the move (computed from a pre-z
  * snapshot) land after — and clobber — the z change. A failed move resolves
  * `false` so the caller also skips the z-sync (no orphaned z patch).
@@ -160,11 +161,14 @@ export function persistMoveEdits(
       // restore the preview manifest's pre-gesture lane. Reassert the durable
       // result after persistence, but only while this remains the latest
       // optimistic gesture so an older save can never clobber a newer drag.
+      let stillCurrent = true;
       for (const e of edits) {
         const key = keyOf(e.element);
         if (isLatestTimelineOptimisticGesture(updateElement, revision, key)) applyEdit(e);
+        else stillCurrent = false;
       }
-      return true;
+      // An obsolete gesture must not start its later stacking/preview phase.
+      return stillCurrent;
     },
     (error) => {
       for (const p of prev) {

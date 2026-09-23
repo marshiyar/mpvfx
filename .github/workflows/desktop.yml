@@ -1,12 +1,19 @@
 name: Desktop builds
 
 on:
+  pull_request:
+    paths:
+      - "studio/**"
+      - "scripts/**"
+      - ".github/workflows/desktop.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "studio/**"
+      - "scripts/**"
+      - ".github/workflows/desktop.yml"
   workflow_dispatch:
-    inputs:
-      verify_only:
-        description: Test the current source in the native app on all four platforms, without building installers
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -17,7 +24,6 @@ concurrency:
 
 jobs:
   make:
-    if: ${{ !inputs.verify_only }}
     name: ${{ matrix.label }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
@@ -30,11 +36,6 @@ jobs:
             arch: arm64
             platform: macos
             script: desktop:make:mac:arm64
-          - label: macOS Intel
-            os: macos-15-intel
-            arch: x64
-            platform: macos
-            script: desktop:make:mac:x64
           - label: Windows x64
             os: windows-2025
             arch: x64
@@ -55,10 +56,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Use Node 22
+      - name: Use Node 24
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version-file: studio/.nvmrc
+          node-version-file: studio/.configurations/.nvmrc
           cache: npm
           cache-dependency-path: studio/package-lock.json
 
@@ -75,7 +76,3 @@ jobs:
         run: npm --prefix studio run ${{ matrix.script }}
 
       # Main-branch validation only.
-
-  verify:
-    if: ${{ inputs.verify_only }}
-    uses: ./.github/workflows/native-verification.yml

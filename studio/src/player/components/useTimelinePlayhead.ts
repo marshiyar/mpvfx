@@ -1,6 +1,6 @@
 import { useRef, useCallback, useEffect, useLayoutEffect } from "react";
 import { liveTime, usePlayerStore, type ZoomMode } from "../store/playerStore";
-import { useMountEffect } from "../../hooks/useMountEffect";
+import { useMountEffect } from "../../app/useMountEffect";
 import { getPinchTimelineZoomPercent } from "./timelineZoom";
 import {
   getTimelinePlaybackFollowScrollLeft,

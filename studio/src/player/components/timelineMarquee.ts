@@ -1,5 +1,5 @@
 import { RULER_H, CLIP_Y, TRACK_H, type TimelineRowGeometry } from "./timelineLayout";
-import { rectsOverlap, type Rect } from "../../utils/marqueeGeometry";
+import { rectsOverlap, type Rect } from "../../features/canvas/marqueeGeometry";
 import { queryTimelineClipIndex, type TimelineClipIndex } from "../lib/timelineClipIndex";
 import type { TimelineElement } from "../store/playerStore";
 

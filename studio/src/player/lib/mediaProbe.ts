@@ -1,5 +1,6 @@
 import { resolveMediaPreviewUrl } from "../components/thumbnailUtils";
 import { TIMELINE_VIEWPORT_BUDGETS } from "./timelineViewportBudgets";
+import { projectMediaSourcePath } from "./mediaSourceChanges";
 
 export interface MediaProbeResult {
   duration: number;
@@ -15,18 +16,22 @@ interface CachedProbe {
 }
 
 const cache = new Map<string, CachedProbe>();
-const inflight = new Map<string, Promise<MediaProbeResult | null>>();
+interface ProbeJob {
+  key: string;
+  epoch: number;
+  cancelled: boolean;
+  controller: AbortController;
+  promise: Promise<MediaProbeResult | null>;
+  resolve: (result: MediaProbeResult | null) => void;
+}
+const inflight = new Map<string, ProbeJob>();
 // URLs whose probe failed (CORS, 404, non-media). Remembered so the rAF-driven
 // timeline re-derive doesn't re-fetch them every frame and flood the console.
 const failed = new Map<string, { failedAt: number; lastAccess: number }>();
 let accessSequence = 0;
 let activeProbes = 0;
 let registryEpoch = 0;
-const probeQueue: Array<{
-  key: string;
-  epoch: number;
-  resolve: (result: MediaProbeResult | null) => void;
-}> = [];
+const probeQueue: ProbeJob[] = [];
 
 let mediabunnyModule: typeof import("mediabunny") | null | false = null;
 
@@ -50,14 +55,16 @@ function normalizeUrl(url: string): string {
   }
 }
 
-async function probeOne(url: string): Promise<MediaProbeResult | null> {
+async function probeOne(url: string, signal: AbortSignal): Promise<MediaProbeResult | null> {
   const mb = await loadMediabunny();
-  if (!mb) return null;
+  if (!mb || signal.aborted) return null;
 
   const input = new mb.Input({
-    source: new mb.UrlSource(url),
+    source: new mb.UrlSource(url, { requestInit: { cache: "no-store" } }),
     formats: mb.ALL_FORMATS,
   });
+  const dispose = () => input.dispose();
+  signal.addEventListener("abort", dispose, { once: true });
   try {
     const duration = await input.getDurationFromMetadata();
     if (duration == null || !Number.isFinite(duration) || duration <= 0) return null;
@@ -76,7 +83,8 @@ async function probeOne(url: string): Promise<MediaProbeResult | null> {
   } catch {
     return null;
   } finally {
-    input.dispose();
+    signal.removeEventListener("abort", dispose);
+    if (!signal.aborted) input.dispose();
   }
 }
 
@@ -87,7 +95,22 @@ function getCachedProbe(url: string): MediaProbeResult | undefined {
 }
 
 function resolveProbeSource(src: string, projectId: string | null): string {
-  return projectId ? resolveMediaPreviewUrl(src, projectId, window.location.origin) : src;
+  return normalizeUrl(
+    projectId ? resolveMediaPreviewUrl(src, projectId, window.location.href) : src,
+  );
+}
+
+export interface MediaProbeTarget {
+  projectId: string | null;
+  source: string;
+  tag: string;
+}
+
+export function matchesMediaProbeSource(
+  source: string | undefined,
+  target: MediaProbeTarget,
+): boolean {
+  return !!source && resolveProbeSource(source, target.projectId) === target.source;
 }
 
 function evictMetadataOverflow(): void {
@@ -104,19 +127,17 @@ function evictMetadataOverflow(): void {
 }
 
 /**
- * Re-apply the cached probe `sourceDuration` to media elements that arrive
- * without it. Re-deriving the timeline (e.g. after a clip move) produces fresh
- * objects whose duration the DOM scan may not have, and the async probe skips
- * already-cached srcs — so without this, trimmed waveforms lose their window.
+ * The current source probe owns duration facts. Timeline rediscovery can omit
+ * them or report the old decoder's duration after same-path media replacement.
  */
 export function applyCachedSourceDurations<
   T extends { src?: string; tag: string; sourceDuration?: number },
 >(elements: T[], projectId: string | null): T[] {
   return elements.map((el) => {
     const tag = el.tag.toLowerCase();
-    if (!el.src || el.sourceDuration != null || (tag !== "audio" && tag !== "video")) return el;
+    if (!el.src || (tag !== "audio" && tag !== "video")) return el;
     const cached = getCachedProbe(resolveProbeSource(el.src, projectId));
-    return cached?.duration && cached.duration > 0
+    return cached?.duration && cached.duration > 0 && cached.duration !== el.sourceDuration
       ? { ...el, sourceDuration: cached.duration }
       : el;
   });
@@ -132,7 +153,7 @@ export async function probeMissingSourceDurations<
 >(
   elements: T[],
   projectId: string | null,
-  apply: (key: string, durationSeconds: number) => void,
+  apply: (key: string, durationSeconds: number, target: MediaProbeTarget) => void,
 ): Promise<void> {
   const needs = elements.flatMap((el) => {
     if (
@@ -144,14 +165,15 @@ export async function probeMissingSourceDurations<
     }
     const source = resolveProbeSource(el.src, projectId);
     return !getCachedProbe(source) && !hasFreshFailure(normalizeUrl(source))
-      ? [{ el, source }]
+      ? [{ key: el.key ?? el.id, tag: el.tag.toLowerCase(), source }]
       : [];
   });
   if (needs.length === 0) return;
   await Promise.allSettled(
-    needs.map(async ({ el, source }) => {
+    needs.map(async ({ key, tag, source }) => {
       const result = await probeMediaUrl(source);
-      if (result) apply(el.key ?? el.id, result.duration);
+      if (result && getCachedProbe(source) === result)
+        apply(key, result.duration, { projectId, source, tag });
     }),
   );
 }
@@ -173,29 +195,39 @@ export async function probeMediaUrl(url: string): Promise<MediaProbeResult | nul
   if (cached) return cached;
   if (hasFreshFailure(key)) return null;
 
-  let pending = inflight.get(key);
-  if (pending) return pending;
-
-  pending = new Promise<MediaProbeResult | null>((resolve) => {
-    probeQueue.push({ key, epoch: registryEpoch, resolve });
-    pumpProbeQueue();
+  const pending = inflight.get(key);
+  if (pending) return pending.promise;
+  let resolve!: ProbeJob["resolve"];
+  const promise = new Promise<MediaProbeResult | null>((accept) => {
+    resolve = accept;
   });
-  inflight.set(key, pending);
-  return pending;
+  const job: ProbeJob = {
+    key,
+    epoch: registryEpoch,
+    cancelled: false,
+    controller: new AbortController(),
+    promise,
+    resolve,
+  };
+  inflight.set(key, job);
+  probeQueue.push(job);
+  pumpProbeQueue();
+  return promise;
 }
 
 function pumpProbeQueue(): void {
   while (activeProbes < TIMELINE_VIEWPORT_BUDGETS.concurrentMetadataJobs) {
     const queued = probeQueue.shift();
     if (!queued) return;
-    if (queued.epoch !== registryEpoch) {
+    if (queued.cancelled || queued.epoch !== registryEpoch) {
       queued.resolve(null);
       continue;
     }
     activeProbes++;
-    void probeOne(queued.key)
+    void probeOne(queued.key, queued.controller.signal)
+      .catch(() => null)
       .then((result) => {
-        if (queued.epoch !== registryEpoch) return null;
+        if (queued.cancelled || queued.epoch !== registryEpoch) return null;
         inflight.delete(queued.key);
         if (result) cache.set(queued.key, { result, lastAccess: ++accessSequence });
         else failed.set(queued.key, { failedAt: Date.now(), lastAccess: ++accessSequence });
@@ -214,8 +246,28 @@ export function getMediaProbeDiagnostics() {
   return { cached: cache.size, failed: failed.size, inflight: inflight.size };
 }
 
+/** Forget only facts and work whose exact project file has changed. */
+export function invalidateMediaProbeSource(projectId: string, path: string): void {
+  for (const key of new Set([...cache.keys(), ...failed.keys(), ...inflight.keys()])) {
+    if (projectMediaSourcePath(key, projectId) !== path) continue;
+    cache.delete(key);
+    failed.delete(key);
+    const job = inflight.get(key);
+    if (job) {
+      job.cancelled = true;
+      job.controller.abort();
+      job.resolve(null);
+      inflight.delete(key);
+    }
+  }
+}
+
 export function resetMediaProbeRegistry(): void {
   registryEpoch++;
+  for (const job of inflight.values()) {
+    job.controller.abort();
+    job.resolve(null);
+  }
   for (const queued of probeQueue.splice(0)) queued.resolve(null);
   cache.clear();
   failed.clear();

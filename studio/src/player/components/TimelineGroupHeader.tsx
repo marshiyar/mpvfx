@@ -2,7 +2,7 @@ import type { HfAudioFxChain } from "@hyperframes/core/audio-fx";
 import { TRACK_H } from "./timelineLayout";
 import type { TimelineTheme } from "./timelineTheme";
 import { TimelineFxButton } from "./TimelineFxButton";
-import type { AuditionSpan } from "../../components/editor/useAuditionTransport.js";
+import type { AuditionSpan } from "../../features/inspector/useAuditionTransport.js";
 
 interface TimelineGroupHeaderProps {
   label: string;

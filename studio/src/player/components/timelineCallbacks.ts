@@ -1,14 +1,14 @@
 // fallow-ignore-file code-duplication
 // fallow-ignore-file dead-code
 import type { TimelineElement } from "../store/playerStore";
-import type { TimelineMoveOperation } from "../../hooks/timelineMoveAdapter";
+import type { TimelineMoveOperation } from "../../features/timeline/timelineMoveAdapter";
 import type { BlockedTimelineEditIntent } from "./timelineEditing";
 import type { PropertyGroupName } from "@hyperframes/core/gsap-parser";
 import type {
   NativeTimelineKeyframeTarget,
   TimelineKeyframeTarget,
 } from "./timelineKeyframeIdentity";
-import type { NativeInterpolation } from "../../project/nativeKeyframeTypes";
+import type { NativeInterpolation } from "../../../shared/project/nativeKeyframeTypes";
 
 export interface TimelinePropertyGroupKeyframeToggle {
   animationId: string;

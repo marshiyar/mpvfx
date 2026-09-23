@@ -1,7 +1,7 @@
 import { memo, useState, useCallback, useRef } from "react";
 import { useCaptionStore } from "../store";
-import { usePlayerStore } from "../../player";
-import { useMountEffect } from "../../hooks/useMountEffect";
+import { usePlayerStore } from "../../player/index";
+import { useMountEffect } from "../../app/useMountEffect";
 import { shouldHandleCaptionNudgeKey, isEditableEventTarget } from "../keyboard";
 import {
   readWordBoxes,

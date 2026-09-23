@@ -11,6 +11,10 @@ export function timelineElementsChanged(
     return (
       !prior ||
       element.id !== prior.id ||
+      element.key !== prior.key ||
+      element.src !== prior.src ||
+      element.tag !== prior.tag ||
+      element.sourceFile !== prior.sourceFile ||
       element.start !== prior.start ||
       element.duration !== prior.duration ||
       element.track !== prior.track ||

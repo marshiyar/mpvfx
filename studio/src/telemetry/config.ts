@@ -6,7 +6,7 @@
 // ---------------------------------------------------------------------------
 
 import { resolveStudioDistinctId } from "./distinctId";
-import { safeLocalStorage, safeSessionStorage } from "../utils/safeStorage";
+import { safeLocalStorage, safeSessionStorage } from "../lib/safeStorage";
 
 const OPT_OUT_KEY = "mpvfx:telemetryDisabled";
 const NOTICE_KEY = "mpvfx:telemetryNoticeShown";

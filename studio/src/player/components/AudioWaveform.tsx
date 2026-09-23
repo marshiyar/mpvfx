@@ -1,6 +1,6 @@
 import { memo, useCallback, useMemo, useRef } from "react";
-import { useMountEffect } from "../../hooks/useMountEffect";
-import { useThumbnailLease } from "../../hooks/useThumbnailLease";
+import { useMountEffect } from "../../app/useMountEffect";
+import { useThumbnailLease } from "../../features/preview/useThumbnailLease";
 import { createThumbnailKey, type ThumbnailPriority } from "../lib/thumbnailScheduler";
 
 interface AudioWaveformProps {
@@ -51,7 +51,7 @@ async function loadWaveform(
 }
 
 async function fetchWaveformPeaks(url: string, signal: AbortSignal): Promise<number[]> {
-  const response = await fetch(url, { signal });
+  const response = await fetch(url, { signal, cache: "no-store" });
   if (!response.ok) throw new Error(`Waveform request failed (${response.status})`);
   const data: unknown = await response.json();
   if (
@@ -67,7 +67,7 @@ async function fetchWaveformPeaks(url: string, signal: AbortSignal): Promise<num
 }
 
 async function decodeWaveformPeaks(url: string, signal: AbortSignal): Promise<number[]> {
-  const response = await fetch(url, { signal });
+  const response = await fetch(url, { signal, cache: "no-store" });
   if (!response.ok) throw new Error(`Audio request failed (${response.status})`);
   const buffer = await response.arrayBuffer();
   if (signal.aborted) throw new DOMException("Aborted", "AbortError");
@@ -100,6 +100,7 @@ export const AudioWaveform = memo(function AudioWaveform({
     () => ({
       key: createThumbnailKey({ kind: "waveform", source: cacheKey }),
       projectId,
+      source: audioUrl,
       sessionEpoch,
       kind: "waveform" as const,
       priority,

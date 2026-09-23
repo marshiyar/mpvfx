@@ -6,7 +6,7 @@ import {
   getTimelineRowHeight,
   getTimelineRowPositionFromY,
 } from "./timelineLayout";
-import { isMusicTrack, isAudioTimelineElement } from "../../utils/timelineInspector";
+import { isMusicTrack, isAudioTimelineElement } from "../../features/timeline/timelineInspector";
 import {
   TIMELINE_SNAP_PX,
   snapMoveToTargets,
@@ -20,7 +20,7 @@ import {
 } from "./timelineGroupEditing";
 import { clampGroupMoveDelta } from "./timelineMultiDragPreview";
 import type { DraggedClipState, ResizingClipState } from "./timelineClipDragTypes";
-import type { RationalFrameRate } from "../../project/nativeKeyframeTypes";
+import type { RationalFrameRate } from "../../../shared/project/nativeKeyframeTypes";
 
 /** Snap-target builder closure supplied by the hook (closes over refs + store). */
 type BuildSnapTargets = (

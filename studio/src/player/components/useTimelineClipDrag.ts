@@ -1,12 +1,12 @@
 import { useRef, useState, useCallback, useMemo, useEffect } from "react";
-import { useMountEffect } from "../../hooks/useMountEffect";
+import { useMountEffect } from "../../app/useMountEffect";
 import {
   applyTimelineAutoScrollStep,
   resolveTimelineAutoScrollLoopAction,
 } from "./timelineEditing";
 import { usePlayerStore } from "../store/playerStore";
 import type { TimelineElement } from "../store/playerStore";
-import { mergeUserBeats } from "../../utils/beatEditing";
+import { mergeUserBeats } from "../../features/media/beatEditing";
 import {
   buildTimelineGroupResizeMembers,
   type TimelineGroupResizeSession,
@@ -14,7 +14,7 @@ import {
 import { collectTimelineSnapTargets, type TimelineSnapTarget } from "./timelineSnapping";
 import type { StackingPatch } from "./timelineStackingSync";
 import type { TimelineEditCallbacks } from "./timelineCallbacks";
-import type { RationalFrameRate } from "../../project/nativeKeyframeTypes";
+import type { RationalFrameRate } from "../../../shared/project/nativeKeyframeTypes";
 import {
   computeDragPreview,
   computeResizePreview,

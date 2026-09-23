@@ -1,6 +1,6 @@
 import type { GsapAnimation } from "@hyperframes/core/gsap-parser";
 import type { StoreApi } from "zustand";
-import type { AnimationKeyframeTarget } from "../../hooks/gsapTweenSynth";
+import type { AnimationKeyframeTarget } from "../../features/animation/GSAP/gsapTweenSynth";
 import type { NativeTimelineKeyframeTarget } from "../components/timelineKeyframeIdentity";
 
 /** Minimal keyframe cache types — mirrors GsapKeyframesData without pulling in Node-only gsap-parser. */

@@ -1,4 +1,4 @@
-export interface DesktopServerHandle {
+export interface DesktopRuntimeHandle {
   origin: string;
   close(): Promise<void>;
 }
@@ -18,7 +18,7 @@ export interface DesktopAppController {
 }
 
 interface DesktopAppDependencies {
-  startServer(): Promise<DesktopServerHandle>;
+  startRuntime(): Promise<DesktopRuntimeHandle>;
   prepareRenderer(): Promise<void>;
   createWindow(): DesktopWindowHandle;
   closeSharedBrowser(): Promise<void>;
@@ -28,11 +28,11 @@ export function shouldQuitWhenAllWindowsClosed(platform: NodeJS.Platform): boole
   return platform !== "darwin";
 }
 
-/** Owns the one server and current window; Electron event wiring lives in main.ts. */
+/** Owns the one runtime and current window; Electron event wiring lives in main.ts. */
 export function createDesktopAppController(
   dependencies: DesktopAppDependencies,
 ): DesktopAppController {
-  let server: DesktopServerHandle | null = null;
+  let runtime: DesktopRuntimeHandle | null = null;
   let window: DesktopWindowHandle | null = null;
   let startPromise: Promise<void> | null = null;
   let closePromise: Promise<void> | null = null;
@@ -55,7 +55,7 @@ export function createDesktopAppController(
 
   const openWindow = async () => {
     if (stopping) return;
-    if (!server) throw new Error("Desktop server is not running");
+    if (!runtime) throw new Error("Desktop runtime is not running");
     await prepareRenderer();
     if (stopping) return;
     const nextWindow = dependencies.createWindow();
@@ -64,28 +64,28 @@ export function createDesktopAppController(
       return;
     }
     window = nextWindow;
-    await nextWindow.loadURL(server.origin);
+    await nextWindow.loadURL(runtime.origin);
     if (stopping && !nextWindow.isDestroyed()) nextWindow.destroy();
   };
 
   const start = async () => {
     if (stopping) return;
-    if (server && window && !window.isDestroyed()) return;
+    if (runtime && window && !window.isDestroyed()) return;
     if (startPromise) return startPromise;
     const pending = (async () => {
-      if (!server) {
-        const startedServer = await dependencies.startServer();
+      if (!runtime) {
+        const startedRuntime = await dependencies.startRuntime();
         if (stopping) {
-          await startedServer.close();
+          await startedRuntime.close();
           return;
         }
-        server = startedServer;
+        runtime = startedRuntime;
       }
       try {
         if (!window || window.isDestroyed()) await openWindow();
       } catch (error) {
-        const partiallyStarted = server;
-        server = null;
+        const partiallyStarted = runtime;
+        runtime = null;
         await partiallyStarted?.close();
         throw error;
       }
@@ -102,7 +102,7 @@ export function createDesktopAppController(
     start,
     async activate() {
       if (stopping) return;
-      if (!server) await start();
+      if (!runtime) await start();
       else if (!window || window.isDestroyed()) await openWindow();
     },
     forgetWindow() {
@@ -124,15 +124,15 @@ export function createDesktopAppController(
           windowCloseError = error;
         }
         await startPromise?.catch(() => {});
-        const activeServer = server;
-        server = null;
+        const activeRuntime = runtime;
+        runtime = null;
         try {
           destroyActiveWindow();
         } catch (error) {
           windowCloseError ??= error;
         }
         const results = await Promise.allSettled([
-          activeServer?.close() ?? Promise.resolve(),
+          activeRuntime?.close() ?? Promise.resolve(),
           dependencies.closeSharedBrowser(),
         ]);
         if (windowCloseError) throw windowCloseError;
@@ -145,7 +145,7 @@ export function createDesktopAppController(
       return pending;
     },
     origin() {
-      return server?.origin ?? null;
+      return runtime?.origin ?? null;
     },
   };
 }

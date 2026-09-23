@@ -15,7 +15,6 @@ editor-reliability-plugin/
 .codex/
 *.codex/
 /scripts/*
-!/scripts/automation/
 .claude/
 .chatgpt/
 .cursor/
@@ -24,11 +23,10 @@ editor-reliability-plugin/
 .opencode/
 .gemini/
 .aider*
-.cache/
-.tmp/
+*.cache/
+*.tmp/
 
 # Private exports
-*.[cC][sS][vV]
 /chat-history/
 /chat-exports/
 /conversation-exports/
@@ -48,11 +46,9 @@ editor-reliability-plugin/
 *.verification-tmp
 *.stderr
 *.stdout
-*.jsonl
-*.dmp
-*diagnostics*.json.gz
 
 # Local secrets and logs
+*.env
 .env
 .env.*
 !.env.example
@@ -64,7 +60,6 @@ yarn-error.log*
 *.key
 *.p12
 *.pfx
-*.p8
 *.jks
 *.keystore
 *.mobileprovision
@@ -120,11 +115,7 @@ studio/cache/
 **/*cache*/
 studio/data/cache/
 studio/data/renders/
-studio/scripts/*
-!studio/scripts/apply-windows-browser-patch.cjs
-!studio/scripts/verify-packaged-privacy.cjs
-!studio/scripts/apply-streaming-png-patch.cjs
-!studio/scripts/apply-audio-animation-handles-patch.cjs
+studio/scripts/
 **/knip.jsonc
 **/ffmpeg-runtime-manifest.json
 *.puppeteer-cache
@@ -149,3 +140,7 @@ studio/fixtures/storyboard-sample/
 *.rpm
 /release-source/
 /ffmpeg-corresponding-source-*.tar.gz
+
+*/dist/*
+*/node_modules/*
+studio/desktop-dist/

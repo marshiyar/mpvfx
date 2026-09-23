@@ -49,12 +49,13 @@ export function applyBundledMediaBinaryEnvironment(input: {
 
 export function applyDesktopRuntimeEnvironment(input: DesktopRuntimeEnvironmentInput): void {
   const configured = createDesktopRuntimeEnvironment(input);
-  for (const key of [
-    "HYPERFRAMES_FFMPEG_PATH",
-    "HYPERFRAMES_FFPROBE_PATH",
+  applyBundledMediaBinaryEnvironment(input);
+  for ( const key of [
+     // TODO: reason why ESBUILD cache dir is necessary
     "ESBUILD_BINARY_PATH",
-    "MPVFX_BUNDLED_MEDIA_ROOT",
+    // TODO: reason why puppeteer cache dir is necessary
     "PUPPETEER_CACHE_DIR",
+     // TODO: reason why MPVFX BROWSER cache dir is necessary Didn't we rule it out and not use it?
     "MPVFX_PREFER_BUNDLED_BROWSER",
   ] as const) {
     const value = configured[key];

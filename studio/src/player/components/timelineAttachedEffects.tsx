@@ -4,8 +4,8 @@ import {
   hasHfColorGradingAuthoredValues,
   normalizeHfColorGrading,
 } from "@hyperframes/core/color-grading";
-import type { NativeClipEffect, NativeProjectDocument } from "../../project/nativeProjectDocument";
-import { resolveNativeClipSelection } from "../../project/nativePropertyEditPlan";
+import type { NativeClipEffect, NativeProjectDocument } from "../../../shared/project/nativeProjectDocument";
+import { resolveNativeClipSelection } from "../../../shared/project/nativePropertyEditPlan";
 import type { TimelineElement } from "../store/playerStore";
 import { elementFxChain } from "./automationLaneData";
 import { timelineNestedStripColor } from "./timelineNestedStrip";

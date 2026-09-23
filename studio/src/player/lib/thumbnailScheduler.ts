@@ -1,4 +1,5 @@
 import { TIMELINE_VIEWPORT_BUDGETS, type TimelineViewportBudgets } from "./timelineViewportBudgets";
+import { projectMediaSourcePath } from "./mediaSourceChanges";
 
 export type ThumbnailPriority = "overscan" | "visible" | "interaction";
 export type ThumbnailJobKind = "video" | "image" | "composition" | "waveform";
@@ -23,7 +24,9 @@ export interface ThumbnailRequest {
   priority: ThumbnailPriority;
   /** Rich work is paused while the timeline is fast-scrolling. */
   rich?: boolean;
-  load: (signal: AbortSignal) => Promise<ThumbnailLoadedResult>;
+  /** Original media dependency, distinct from e.g. a waveform endpoint/cache key. */
+  source?: string;
+  load: (signal: AbortSignal, sourceRevision?: string) => Promise<ThumbnailLoadedResult>;
 }
 
 export type ThumbnailSnapshot =
@@ -65,6 +68,7 @@ interface ThumbnailEntry {
   cached: boolean;
   lastAccess: number;
   snapshot: ThumbnailSnapshot;
+  sourceRevision?: string;
 }
 
 const PRIORITY_SCORE: Readonly<Record<ThumbnailPriority, number>> = {
@@ -220,6 +224,28 @@ export class ThumbnailScheduler {
     }
   }
 
+  /** Keep mounted leases, but discard their stale work and reload the changed source. */
+  invalidateSource(projectId: string, path: string, revision: string): void {
+    for (const [key, entry] of this.entries) {
+      if (entry.request.projectId !== projectId || !entry.request.source ||
+          projectMediaSourcePath(entry.request.source, projectId) !== path) continue;
+      entry.controller?.abort();
+      if (entry.leases.size === 0) { this.deleteEntry(key, entry); continue; }
+      if (entry.cached) this.uncache(entry);
+      this.safeDispose(entry.dispose);
+      entry.dispose = undefined;
+      entry.value = undefined;
+      entry.error = undefined;
+      entry.failedAt = undefined;
+      entry.weight = 0;
+      entry.sourceRevision = revision;
+      entry.state = "queued";
+      entry.snapshot = Object.freeze({ status: "queued" });
+      this.notify(entry);
+    }
+    this.pump();
+  }
+
   getDiagnostics(): ThumbnailSchedulerDiagnostics {
     let queued = 0;
     let active = 0;
@@ -276,7 +302,8 @@ export class ThumbnailScheduler {
     void pending
       .then((result) => this.acceptResult(entry, controller, result))
       .catch((reason: unknown) => {
-        if (this.entries.get(entry.scopedKey) !== entry) return;
+        if (this.entries.get(entry.scopedKey) !== entry || entry.controller !== controller) return;
+        if (controller.signal.aborted && entry.state === "queued") return;
         if (controller.signal.aborted && entry.leases.size === 0) {
           this.deleteEntry(entry.scopedKey, entry);
           return;
@@ -407,7 +434,7 @@ export class ThumbnailScheduler {
   ): Promise<ThumbnailLoadedResult> {
     let load: Promise<ThumbnailLoadedResult>;
     try {
-      load = entry.request.load(controller.signal);
+      load = entry.request.load(controller.signal, entry.sourceRevision);
     } catch (reason) {
       load = Promise.reject(reason);
     }

@@ -9,7 +9,7 @@
 import { useRef, useCallback } from "react";
 import { useCaptionStore } from "../../captions/store";
 import { shouldIgnorePlaybackShortcutEvent, SHUTTLE_SPEEDS } from "../lib/playbackShortcuts";
-import { canvasNudgeKeysClaimed } from "../../utils/canvasNudgeGate";
+import { canvasNudgeKeysClaimed } from "../../features/canvas/canvasNudgeGate";
 import { usePlayerStore } from "../store/playerStore";
 import { stepFrameTime, STUDIO_PREVIEW_FPS } from "../lib/time";
 import type { PlaybackAdapter } from "../lib/playbackTypes";

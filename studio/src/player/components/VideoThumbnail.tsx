@@ -1,6 +1,6 @@
 import { memo, useCallback, useMemo, useRef, useState } from "react";
-import { useMountEffect } from "../../hooks/useMountEffect";
-import { useThumbnailLease } from "../../hooks/useThumbnailLease";
+import { useMountEffect } from "../../app/useMountEffect";
+import { useThumbnailLease } from "../../features/preview/useThumbnailLease";
 import { createThumbnailKey, type ThumbnailPriority } from "../lib/thumbnailScheduler";
 import { decodeVideoThumbnail } from "../lib/thumbnailVideoDecoder";
 import { computeThumbnailStrip, THUMBNAIL_CLIP_HEIGHT } from "./thumbnailUtils";
@@ -26,7 +26,7 @@ export const VideoThumbnail = memo(function VideoThumbnail({
   duration = 5,
   sourceStart,
   sourceRangeDuration,
-  projectId = videoSrc,
+  projectId,
   sessionEpoch = 0,
   priority = "visible",
   rich = false,
@@ -45,7 +45,8 @@ export const VideoThumbnail = memo(function VideoThumbnail({
         duration: sourceRangeDuration ?? duration,
         frames: 1,
       }),
-      projectId,
+      projectId: projectId ?? videoSrc,
+      source: videoSrc,
       sessionEpoch,
       kind: "video" as const,
       priority,
@@ -54,10 +55,10 @@ export const VideoThumbnail = memo(function VideoThumbnail({
         decodeVideoThumbnail(
           {
             source: videoSrc,
+            projectId,
             sourceStart,
             sourceRangeDuration: sourceRangeDuration ?? duration,
             frameCount: 1,
-            fit: "cover",
           },
           signal,
         ),
@@ -75,7 +76,8 @@ export const VideoThumbnail = memo(function VideoThumbnail({
               duration: sourceRangeDuration ?? duration,
               frames: 6,
             }),
-            projectId,
+            projectId: projectId ?? videoSrc,
+            source: videoSrc,
             sessionEpoch,
             kind: "video" as const,
             priority,
@@ -84,10 +86,10 @@ export const VideoThumbnail = memo(function VideoThumbnail({
               decodeVideoThumbnail(
                 {
                   source: videoSrc,
+                  projectId,
                   sourceStart,
                   sourceRangeDuration: sourceRangeDuration ?? duration,
                   frameCount: 6,
-                  fit: "cover",
                 },
                 signal,
               ),

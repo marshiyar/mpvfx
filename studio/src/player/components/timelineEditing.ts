@@ -1,4 +1,4 @@
-import { roundToCenti } from "../../utils/rounding";
+import { roundToCenti } from "../../lib/rounding";
 import type { StackingTimelineLayer, TimelineLayerId } from "./timelineTrackOrder";
 import { resolveTimelineLayerStackingMove } from "./timelineLayerDrag";
 import type { TimelineStackingElement, TimelineStackingReorderIntent } from "./timelineStacking";
@@ -28,7 +28,7 @@ export {
   type TimelineStackingElement,
   type TimelineStackingReorderIntent,
 } from "./timelineStacking";
-import type { RationalFrameRate } from "../../project/nativeKeyframeTypes";
+import type { RationalFrameRate } from "../../../shared/project/nativeKeyframeTypes";
 
 const roundToCentiseconds = roundToCenti;
 

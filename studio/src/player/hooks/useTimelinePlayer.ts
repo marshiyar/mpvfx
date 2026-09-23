@@ -1,10 +1,10 @@
 import { useRef, useCallback, useEffect } from "react";
 import { usePlayerStore, liveTime, type TimelineElement } from "../store/playerStore";
-import { useMountEffect } from "../../hooks/useMountEffect";
+import { useMountEffect } from "../../app/useMountEffect";
 import { usePlaybackKeyboard } from "./usePlaybackKeyboard";
 import { useTimelineSyncCallbacks } from "./useTimelineSyncCallbacks";
 import { useTimelinePlayerLoop } from "./useTimelinePlayerLoop";
-import { logReload } from "../../utils/reloadDebug";
+import { logReload } from "../../lib/reloadDebug";
 
 export type { ClipManifestClip } from "../lib/playbackTypes";
 export { createStaticSeekPlaybackAdapter } from "../lib/playbackAdapter";
@@ -40,7 +40,8 @@ import { normalizeDiscoveredTimelineElements } from "../components/timelineZones
 import { applyPreviewAudioFlags, setPreviewPlaybackRate } from "../lib/timelineIframeHelpers";
 import { scrubMusicAtSeek, stopScrubPreviewAudio } from "../lib/playbackScrub";
 import { hasTimelinePerformanceFixtureLease } from "../lib/timelinePerformanceFixture";
-import { applyCachedSourceDurations, probeMissingSourceDurations } from "../lib/mediaProbe";
+import { applyCachedSourceDurations } from "../lib/mediaProbe";
+import { enrichTimelineSourceDurations } from "../lib/timelineMediaMetadata";
 import {
   shouldResumeForwardPlaybackAfterSeek,
   shouldStopAfterSeek,
@@ -62,6 +63,7 @@ export function useTimelinePlayer() {
   const lastTimelineMessageRef = useRef<number>(0);
   const staticSeekAdapterRef = useRef<StaticSeekCacheEntry | null>(null);
   const staticSeekWarnedRef = useRef(false);
+  const metadataLifecycleRef = useRef(0);
 
   const { setIsPlaying, setCurrentTime, setDuration, setTimelineReady, setElements } =
     usePlayerStore.getState();
@@ -109,19 +111,8 @@ export function useTimelinePlayer() {
 
       // Asynchronously enrich media elements still missing sourceDuration
       // (header-only probe, cheap), applying each resolved value to the store.
-      void probeMissingSourceDurations(
-        mergedElements,
-        state.timelineProjectId,
-        (key, durationSeconds) => {
-          usePlayerStore.setState((state) => {
-            const idx = state.elements.findIndex((e) => (e.key ?? e.id) === key);
-            if (idx === -1 || state.elements[idx].sourceDuration != null) return {};
-            const patched = state.elements.slice();
-            patched[idx] = { ...state.elements[idx], sourceDuration: durationSeconds };
-            return { elements: patched };
-          });
-        },
-      );
+      const lifecycle = metadataLifecycleRef.current;
+      enrichTimelineSourceDurations(mergedElements, () => metadataLifecycleRef.current === lifecycle);
     },
     [setElements, setTimelineReady, setDuration],
   );
@@ -526,6 +517,7 @@ export function useTimelinePlayer() {
     window.addEventListener("message", handleMessage);
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
+      metadataLifecycleRef.current++;
       window.removeEventListener("keydown", handleWindowKeyDown, true);
       window.removeEventListener("keyup", handleWindowKeyUp, true);
       iframeShortcutCleanupRef.current?.();
@@ -541,6 +533,7 @@ export function useTimelinePlayer() {
   });
 
   const resetPlayer = useCallback(() => {
+    metadataLifecycleRef.current++;
     stopRAFLoop();
     stopReverseLoop();
     if (probeIntervalRef.current) clearInterval(probeIntervalRef.current);

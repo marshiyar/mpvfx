@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState, type RefObject } from "react";
-import { useMountEffect } from "../../hooks/useMountEffect";
+import { useMountEffect } from "../../app/useMountEffect";
 import { STUDIO_TIMELINE_ROW_VIRTUALIZATION_ENABLED } from "./timelineRowVirtualizationFlag";
 
 export interface TimelineScrollViewportSnapshot {

@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { createPortal } from "react-dom";
-import { useContextMenuDismiss } from "../../hooks/useContextMenuDismiss";
+import { useContextMenuDismiss } from "../../app/useContextMenuDismiss";
 
 interface TrackGapContextMenuProps {
   x: number;
@@ -24,7 +24,7 @@ interface TrackGapContextMenuProps {
 
 /**
  * Context menu for right-clicking EMPTY space on a timeline lane
- * (CapCut/Premiere-style). Offers "Close gap" (collapse the clicked gap by
+ * "Close gap" (collapse the clicked gap by
  * shifting the following clips on that lane left) and "Close all gaps"
  * (compact the whole lane contiguous from 0). Both rows are ALWAYS present —
  * an inapplicable action dims with a tooltip explaining why, rather than

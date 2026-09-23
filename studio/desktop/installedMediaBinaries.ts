@@ -55,6 +55,10 @@ export function resolveInstalledMediaBinaryPaths(input: {
   return {
     ffmpegPath: join(dirname(ffmpegPackageJson), specifiers.ffmpegFile),
     ffprobePath: resolveModule(specifiers.ffprobeSpecifier),
-    esbuildPath: resolveModule(specifiers.esbuildSpecifier),
+    // Preview compilation uses core's esbuild, which may differ from Vite's.
+    esbuildPath: input.resolveModule
+      ? resolveModule(specifiers.esbuildSpecifier)
+      : createRequire(createRequire(import.meta.url).resolve("@hyperframes/core/package.json"))
+          .resolve(specifiers.esbuildSpecifier),
   };
 }

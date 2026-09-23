@@ -3,18 +3,18 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { clipToTweenPercentage } from "../../components/editor/KeyframeNavigation";
+import { clipToTweenPercentage } from "../../features/animation/Keyframe/KeyframeNavigation";
 import {
   KEYFRAME_DRAG_THRESHOLD_PX,
   previewClipPct,
   resolveKeyframeDrag,
-} from "../../components/editor/keyframeDrag";
+} from "../../features/animation/Keyframe/keyframeDrag";
 import { trackStudioSegmentEaseEdit } from "../../telemetry/events";
-import type { AnimationKeyframeTarget } from "../../hooks/gsapTweenSynth";
+import type { AnimationKeyframeTarget } from "../../features/animation/GSAP/gsapTweenSynth";
 import {
   isRenderedKeyframeIdentityMatch,
   keyframesShareOutputFrame,
-} from "../../hooks/gsapShared";
+} from "../../features/animation/GSAP/gsapShared";
 import type { TimelineElement, KeyframeCacheEntry } from "../store/playerStore";
 import { usePlayerStore } from "../store/playerStore";
 import type { KeyframeDiamondContextMenuState } from "./KeyframeDiamondContextMenu";

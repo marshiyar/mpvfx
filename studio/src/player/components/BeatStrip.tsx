@@ -3,7 +3,7 @@ import {
   deleteBeatAtCompositionTime,
   moveBeatCompositionTime,
   remapBeatAnalysisToComposition,
-} from "../../utils/beatEditActions";
+} from "../../features/media/beatEditActions";
 import { usePlayerStore } from "../store/playerStore";
 import { CLIP_Y, getTimelineBeatEntries } from "./timelineLayout";
 import type { TimelineTimeRange } from "../lib/timelineClipIndex";

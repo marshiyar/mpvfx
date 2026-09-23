@@ -1,9 +1,8 @@
 import { memo } from "react";
-import { useClipboardActions } from "../../contexts/ClipboardActionsContext";
 import { createPortal } from "react-dom";
 import type { TimelineElement } from "../store/playerStore";
-import { canSplitElement } from "../../utils/timelineElementSplit";
-import { useContextMenuDismiss } from "../../hooks/useContextMenuDismiss";
+import { canSplitElement } from "../../features/timeline/timelineElementSplit";
+import { useContextMenuDismiss } from "../../app/useContextMenuDismiss";
 import { useMenuKeyboardNav } from "./menuKeyboardNav";
 import { usePlayerStore } from "../store/playerStore";
 
@@ -28,7 +27,6 @@ export const ClipContextMenu = memo(function ClipContextMenu({
   onDelete,
   onToggleMuted,
 }: ClipContextMenuProps) {
-  const clipboard = useClipboardActions();
   const thumbnailMode = usePlayerStore((state) => state.thumbnailMode);
   const setThumbnailMode = usePlayerStore((state) => state.setThumbnailMode);
   const menuRef = useContextMenuDismiss(onClose);
@@ -42,12 +40,12 @@ export const ClipContextMenu = memo(function ClipContextMenu({
     element.kind !== "composition" &&
     (element.tag === "video" || element.tag === "audio");
   const isMuted = element.muted === true;
-  const menuHeight = (showsVisualThumbnails ? 116 : 80) + (canMute ? 36 : 0) + (clipboard ? 160 : 0);
+  const menuHeight = (showsVisualThumbnails ? 116 : 80) + (canMute ? 36 : 0);
   const overflowY = y + menuHeight - window.innerHeight;
   const adjustedX = x + menuWidth > window.innerWidth ? x - menuWidth : x;
   const adjustedY = overflowY > 0 ? y - overflowY - 8 : y;
 
-  const isSplittable = canSplitElement(element);
+  const isSplittable = canSplitElement(element) && ["video", "audio", "img"].includes(element.tag);
   const canSplit =
     isSplittable && currentTime > element.start && currentTime < element.start + element.duration;
 
@@ -61,35 +59,6 @@ export const ClipContextMenu = memo(function ClipContextMenu({
       className="fixed z-[200] bg-neutral-900 border border-neutral-700 rounded-md py-1 min-w-[180px]"
       style={{ left: adjustedX, top: adjustedY }}
     >
-      {clipboard && (
-        <>
-          {(
-            [
-              ["Copy", "⌘/Ctrl C", clipboard.copy],
-              ["Cut", "⌘/Ctrl X", clipboard.cut],
-              ["Paste", "⌘/Ctrl V", clipboard.paste],
-              ["Duplicate", "⌘/Ctrl D", clipboard.duplicate],
-              ["Select all clips", "⌘/Ctrl A", clipboard.selectAll],
-            ] as const
-          ).map(([label, shortcut, action]) => (
-            <button
-              type="button"
-              role="menuitem"
-              key={label}
-              className="w-full flex items-center justify-between px-3 py-1.5 text-xs text-left text-neutral-300 outline-none hover:bg-neutral-800 focus-visible:bg-neutral-800"
-              onClick={() => {
-                usePlayerStore.getState().clearSelectedKeyframes();
-                void action();
-                onClose();
-              }}
-            >
-              <span>{label}</span>
-              <span className="text-neutral-500 text-[10px] ml-3">{shortcut}</span>
-            </button>
-          ))}
-          <div className="my-1 border-t border-neutral-700/60" />
-        </>
-      )}
       {splitLabel && (
         <>
           <button

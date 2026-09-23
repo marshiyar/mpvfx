@@ -15,7 +15,7 @@ import type { TimelineLogicalRow } from "./timelineKeyboardNavigation";
 import type { TimelineClipRenderContext } from "./TimelineTypes";
 import type { TimelineTrackGroupInfo } from "./useTimelineTrackDerivations";
 import type { NativeTimelineElementLaneProjection } from "./nativeTimelinePropertyLaneBridge";
-import type { NativeClipEffect } from "../../project/nativeProjectDocument";
+import type { NativeClipEffect } from "../../../shared/project/nativeProjectDocument";
 
 /**
  * Props shared by the scroll container ({@link import("./TimelineCanvas")}) and

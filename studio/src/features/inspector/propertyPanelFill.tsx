@@ -1,0 +1,646 @@
+import { FlatSlider } from "./propertyPanelFlatPrimitives";
+import { useMemo, useRef, useState } from "react";
+import { Plus, RotateCcw, X } from "../../icons/SystemIcons";
+import {
+  buildDefaultGradientModel,
+  insertGradientStop,
+  parseGradient,
+  serializeGradient,
+  type GradientModel,
+} from "./gradientValue";
+import { IMAGE_EXT } from "../media/mediaTypes";
+import { IMAGE_IMPORT_ACCEPT } from "../../../shared/media/mediaImportPolicy";
+import { FIELD, LABEL, RESPONSIVE_GRID } from "./propertyPanelHelpers";
+import {
+  DetailField,
+  SelectField,
+  SegmentedControl,
+} from "./propertyPanelPrimitives";
+import { ColorField } from "./propertyPanelColor";
+import { useTrackDesignInput } from "./DesignPanelInputContext";
+import { useInspectorGestureDraft } from "./useInspectorGestureTransaction";
+
+/* ------------------------------------------------------------------ */
+/*  Asset path helpers                                                 */
+/* ------------------------------------------------------------------ */
+
+function normalizeProjectPath(value: string): string {
+  const trimmed = value.trim();
+  const maybeUrl = /^[a-z]+:\/\//i.test(trimmed)
+    ? new URL(trimmed).pathname
+    : trimmed;
+  return decodeURIComponent(maybeUrl)
+    .replace(/\\/g, "/")
+    .replace(/^\.?\//, "");
+}
+
+function toRelativeProjectAssetPath(
+  sourceFile: string,
+  assetPath: string,
+): string {
+  const fromParts = normalizeProjectPath(sourceFile).split("/").filter(Boolean);
+  const targetParts = normalizeProjectPath(assetPath)
+    .split("/")
+    .filter(Boolean);
+  fromParts.pop();
+  while (
+    fromParts.length > 0 &&
+    targetParts.length > 0 &&
+    fromParts[0] === targetParts[0]
+  ) {
+    fromParts.shift();
+    targetParts.shift();
+  }
+  return [...fromParts.map(() => ".."), ...targetParts].join("/") || assetPath;
+}
+
+function toProjectRootAssetPath(assetPath: string): string {
+  return normalizeProjectPath(assetPath);
+}
+
+function resolveSelectedAsset(
+  imageUrl: string,
+  sourceFile: string,
+  assets: string[],
+): string | null {
+  const normalizedUrl = normalizeProjectPath(imageUrl);
+  if (!normalizedUrl) return null;
+  for (const asset of assets) {
+    const normalizedAsset = normalizeProjectPath(asset);
+    const relativeAsset = toRelativeProjectAssetPath(sourceFile, asset);
+    if (
+      normalizedUrl === normalizedAsset ||
+      normalizedUrl === relativeAsset ||
+      normalizedUrl.endsWith(`/${normalizedAsset}`) ||
+      normalizedUrl.endsWith(`/${relativeAsset}`)
+    ) {
+      return asset;
+    }
+  }
+  return null;
+}
+
+/* ------------------------------------------------------------------ */
+/*  ImageFillField                                                     */
+/* ------------------------------------------------------------------ */
+
+export function ImageFillField({
+  projectId,
+  sourceFile,
+  value,
+  assets,
+  disabled,
+  onCommit,
+  onImportAssets,
+}: {
+  projectId: string;
+  sourceFile: string;
+  value: string;
+  assets: string[];
+  disabled?: boolean;
+  onCommit: (nextValue: string) => void;
+  onImportAssets?: (files: FileList) => Promise<string[]>;
+}) {
+  const track = useTrackDesignInput();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const imageAssets = useMemo(
+    () => assets.filter((a) => IMAGE_EXT.test(a)),
+    [assets],
+  );
+  const selectedAsset = useMemo(
+    () => resolveSelectedAsset(value, sourceFile, imageAssets),
+    [imageAssets, sourceFile, value],
+  );
+  const externalUrlValue = selectedAsset ? "" : value;
+
+  const handleUpload = async (files: FileList | null) => {
+    if (!files?.length || !onImportAssets) return;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const uploaded = await onImportAssets(files);
+      const nextImage = uploaded.find((a) => IMAGE_EXT.test(a));
+      if (nextImage) {
+        track("button", "Upload image");
+        onCommit(`url("${toProjectRootAssetPath(nextImage)}")`);
+      }
+    } catch {
+      setUploadError("Upload failed — check the file and try again.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="grid min-w-0 gap-1.5">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+          <span className={LABEL}>Project asset</span>
+          <button
+            type="button"
+            disabled={disabled || uploading}
+            onClick={() => fileInputRef.current?.click()}
+            className={`inline-flex h-7 max-w-full items-center gap-1.5 rounded-lg border border-neutral-700 bg-neutral-950 px-2.5 text-[11px] font-medium text-neutral-300 transition-colors ${
+              disabled || uploading
+                ? "cursor-not-allowed text-neutral-600"
+                : "cursor-pointer hover:border-neutral-600 hover:text-white"
+            }`}
+          >
+            <Plus size={12} className="flex-shrink-0" />
+            <span className="truncate">
+              {uploading ? "Uploading…" : "Upload image"}
+            </span>
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={IMAGE_IMPORT_ACCEPT}
+            aria-label="Upload image asset"
+            disabled={disabled || uploading}
+            className="hidden"
+            onChange={async (event) => {
+              await handleUpload(event.target.files);
+              event.target.value = "";
+            }}
+          />
+        </div>
+        {uploadError && (
+          <div className="text-[10px] text-red-400" role="alert">
+            {uploadError}
+          </div>
+        )}
+        {imageAssets.length > 0 ? (
+          <div className="space-y-3">
+            {selectedAsset && (
+              <div className="overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900/80">
+                <img
+                  src={`/api/projects/${projectId}/preview/${selectedAsset}`}
+                  alt={selectedAsset.split("/").pop() ?? selectedAsset}
+                  className="h-28 w-full object-contain bg-neutral-950/80"
+                />
+              </div>
+            )}
+            <div className={FIELD}>
+              <select
+                value={selectedAsset ?? ""}
+                disabled={disabled}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  track("select", "Project asset");
+                  if (!next) {
+                    onCommit("none");
+                    return;
+                  }
+                  onCommit(`url("${toProjectRootAssetPath(next)}")`);
+                }}
+                className="min-w-0 w-full appearance-none bg-transparent text-[11px] font-medium text-neutral-100 outline-none disabled:cursor-not-allowed disabled:text-neutral-600"
+              >
+                <option value="">None</option>
+                {imageAssets.map((asset) => (
+                  <option key={asset} value={asset}>
+                    {asset}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-neutral-800 bg-neutral-900/50 px-3 py-3 text-[11px] leading-5 text-neutral-500">
+            No image assets yet. Upload one here and Studio will also add it to
+            the Assets tab.
+          </div>
+        )}
+      </div>
+
+      <DetailField
+        label="External URL"
+        value={externalUrlValue}
+        disabled={disabled}
+        onCommit={(next) =>
+          onCommit(next.trim() ? `url("${next.trim()}")` : "none")
+        }
+      />
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  GradientField                                                      */
+/* ------------------------------------------------------------------ */
+
+export function GradientField({
+  value,
+  fallbackColor,
+  disabled,
+  onPreview,
+  onCommit,
+}: {
+  value: string;
+  fallbackColor: string | undefined;
+  disabled?: boolean;
+  onPreview?: (nextValue: string) => void;
+  onCommit: (nextValue: string) => void | Promise<unknown>;
+}) {
+  const track = useTrackDesignInput();
+  const [selectedStop, setSelectedStop] = useState(0);
+  const previewRef = useRef<HTMLDivElement | null>(null);
+  const { draft, transaction } = useInspectorGestureDraft({
+    sourceValue: value,
+    onPreview: (next) => onPreview?.(next),
+    onCommit,
+  });
+  const parsed =
+    parseGradient(draft) ?? buildDefaultGradientModel(fallbackColor);
+
+  const preview = (next: GradientModel) => transaction.preview(serializeGradient(next));
+  const commit = (next: GradientModel) => { preview(next); transaction.settle(); };
+  const patch = (partial: Partial<GradientModel>) =>
+    commit({ ...parsed, ...partial });
+  const previewPatch = (partial: Partial<GradientModel>) => preview({ ...parsed, ...partial });
+  const endNestedPreview = () => { if (transaction.activeRef.current) transaction.cancel(); };
+
+  const updateStop = (
+    index: number,
+    partial: Partial<GradientModel["stops"][number]>,
+    previewOnly = false,
+  ) => {
+    const stops = parsed.stops.map((stop, i) =>
+      i === index ? { ...stop, ...partial } : stop,
+    );
+    (previewOnly ? preview : commit)({ ...parsed, stops });
+  };
+
+  const addStop = (position?: number) => {
+    if (parsed.stops.length >= 6) return;
+    const ordered = [...parsed.stops].sort((a, b) => a.position - b.position);
+    let largestGap = -1;
+    let midpoint = 50;
+    for (let index = 1; index < ordered.length; index++) {
+      const left = ordered[index - 1]!.position;
+      const right = ordered[index]!.position;
+      if (right - left > largestGap) {
+        largestGap = right - left;
+        midpoint = (left + right) / 2;
+      }
+    }
+    const requestedPosition = position ?? midpoint;
+    const nextGradient = insertGradientStop(parsed, requestedPosition);
+    setSelectedStop(
+      nextGradient.stops.findIndex(
+        (stop) => Math.abs(stop.position - requestedPosition) < 0.1,
+      ),
+    );
+    track("button", "Add gradient stop");
+    commit(nextGradient);
+  };
+
+  const removeStop = (index: number) => {
+    if (parsed.stops.length <= 2) return;
+    track("button", `Remove gradient stop ${index + 1}`);
+    setSelectedStop(Math.max(0, index - 1));
+    commit({ ...parsed, stops: parsed.stops.filter((_, i) => i !== index) });
+  };
+
+  const previewStyle = { backgroundImage: serializeGradient(parsed) };
+
+  return (
+    <details data-gradient-editor="true" className="min-w-0">
+      <summary className="flex cursor-pointer list-none items-center gap-2 py-1 text-[11px] text-panel-text-3">
+        <span className="w-[86px] shrink-0">Gradient</span>
+        <span className="h-5 min-w-0 flex-1 rounded border border-panel-border-input" style={previewStyle} />
+        <span aria-hidden="true">⌄</span>
+      </summary>
+      <div className="space-y-2 pt-2">
+      <div className="space-y-2">
+        <div
+          ref={previewRef}
+          className="relative h-7 rounded border border-panel-border-input"
+          style={previewStyle}
+          onClick={(event) => {
+            if (disabled || parsed.stops.length >= 6) return;
+            const rect = previewRef.current?.getBoundingClientRect();
+            if (!rect || rect.width <= 0) return;
+            addStop(((event.clientX - rect.left) / rect.width) * 100);
+          }}
+        >
+          {parsed.stops.map((stop, index) => (
+            <div
+              key={`stop-preview-${index}`}
+              role="slider"
+              tabIndex={disabled ? -1 : 0}
+              aria-label={`Stop ${index + 1} position`}
+              aria-valuenow={Math.round(stop.position)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              onKeyDown={(event) => {
+                if (disabled) return;
+                if (event.key === "Escape" && transaction.activeRef.current) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  transaction.cancel();
+                  return;
+                }
+                if (event.key !== "ArrowLeft" && event.key !== "ArrowRight")
+                  return;
+                event.preventDefault();
+                const step = event.shiftKey ? 10 : 1;
+                const delta = event.key === "ArrowRight" ? step : -step;
+                updateStop(index, {
+                  position: Math.max(
+                    0,
+                    Math.min(100, Math.round(stop.position + delta)),
+                  ),
+                });
+              }}
+              className="absolute top-1/2 h-4 w-4 -translate-y-1/2 cursor-ew-resize rounded-full border-2 border-neutral-950 bg-white outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-studio-accent"
+              style={{
+                left: `calc(${stop.position}% - 8px)`,
+                backgroundColor: stop.color,
+                boxShadow:
+                  index === selectedStop
+                    ? "0 0 0 2px var(--color-panel-accent, #5d8aff)"
+                    : undefined,
+              }}
+              onClick={(event) => {
+                event.stopPropagation();
+                setSelectedStop(index);
+              }}
+              onDoubleClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (disabled) return;
+                const evenlySpacedPosition =
+                  parsed.stops.length <= 1
+                    ? 0
+                    : Math.round((index / (parsed.stops.length - 1)) * 1000) /
+                      10;
+                track("button", `Reset gradient stop ${index + 1} position`);
+                updateStop(index, { position: evenlySpacedPosition });
+              }}
+              onPointerDown={(event) => {
+                if (disabled) return;
+                event.stopPropagation();
+                setSelectedStop(index);
+                transaction.begin();
+                event.currentTarget.focus();
+                event.currentTarget.setPointerCapture(event.pointerId);
+              }}
+              onPointerMove={(event) => {
+                if (
+                  disabled ||
+                  !transaction.activeRef.current ||
+                  !event.currentTarget.hasPointerCapture(event.pointerId)
+                )
+                  return;
+                const rect = previewRef.current?.getBoundingClientRect();
+                if (!rect || rect.width <= 0) return;
+                const next = Math.max(
+                  0,
+                  Math.min(
+                    100,
+                    ((event.clientX - rect.left) / rect.width) * 100,
+                  ),
+                );
+                updateStop(index, { position: Math.round(next * 10) / 10 }, true);
+              }}
+              onPointerUp={(event) => {
+                transaction.settle();
+                event.currentTarget.releasePointerCapture(event.pointerId);
+              }}
+              onPointerCancel={(event) => {
+                transaction.cancel();
+                event.currentTarget.releasePointerCapture(event.pointerId);
+              }}
+              onLostPointerCapture={endNestedPreview}
+            />
+          ))}
+        </div>
+      </div>
+      <div className="relative space-y-1">
+        <div className="absolute right-7 top-0 z-10">
+          <button
+            type="button"
+            aria-label="Add stop"
+            disabled={disabled || parsed.stops.length >= 6}
+            onClick={() => addStop()}
+            title={
+              parsed.stops.length >= 6
+                ? "Maximum 6 stops"
+                : "Add a gradient stop"
+            }
+            className="flex h-7 w-7 items-center justify-center rounded text-panel-text-3 hover:bg-white/5 disabled:opacity-30"
+          >
+            <Plus size={12} />
+          </button>
+        </div>
+        <div className="space-y-1">
+          {parsed.stops.map((stop, index) =>
+            index ===
+            Math.min(Math.max(0, selectedStop), parsed.stops.length - 1) ? (
+              <div
+                key={`stop-editor-${index}`}
+                data-gradient-stop-editor="true"
+                className="grid min-w-0 grid-cols-[minmax(0,1fr)_56px] items-center gap-x-2"
+              >
+                <ColorField
+                  flat
+                  label={`Stop ${index + 1}`}
+                  value={stop.color}
+                  disabled={disabled}
+                  onPreview={(next) => updateStop(index, { color: next }, true)}
+                  onPreviewEnd={endNestedPreview}
+                  onCommit={(next) => updateStop(index, { color: next })}
+                />
+                <div className="col-span-2">
+                  <FlatSlider
+                    tier="default"
+                    min={0}
+                    max={100}
+                    value={stop.position}
+                    label="Position"
+                    displayValue={`${Math.round(stop.position)}%`}
+                    formatValue={(next) => `${Math.round(next)}%`}
+                    disabled={disabled}
+                    onPreview={(next) => updateStop(index, { position: next }, true)}
+                    onPreviewEnd={endNestedPreview}
+                    onCommit={(next) => updateStop(index, { position: next })}
+                    onPreviewText={(next) => {
+                      const position = Number.parseFloat(next);
+                      if (Number.isFinite(position)) updateStop(index, { position: Math.max(0, Math.min(100, position)) }, true);
+                    }}
+                    onCommitText={(next) =>
+                      updateStop(index, {
+                        position: Math.max(
+                          0,
+                          Math.min(
+                            100,
+                            Number.parseFloat(next.replace("%", "")) || 0,
+                          ),
+                        ),
+                      })
+                    }
+                  />
+                </div>
+                <button
+                  type="button"
+                  disabled={disabled || parsed.stops.length <= 2}
+                  onClick={() => removeStop(index)}
+                  className="col-start-2 row-start-1 ml-auto flex w-7 h-7 items-center justify-center rounded text-panel-text-3 hover:bg-white/5 disabled:opacity-30"
+                  aria-label={`Remove stop ${index + 1}`}
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ) : null,
+          )}
+        </div>
+      </div>
+      <details className="space-y-2">
+        <summary className="cursor-pointer py-1 text-[11px] text-panel-text-3">
+          Gradient options
+        </summary>
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <SegmentedControl
+            trackName="Gradient type"
+            disabled={disabled}
+            value={parsed.kind}
+            onChange={(next) => patch({ kind: next as GradientModel["kind"] })}
+            options={[
+              { label: "Linear", value: "linear" },
+              { label: "Radial", value: "radial" },
+              { label: "Conic", value: "conic" },
+            ]}
+          />
+          <label className="flex items-center gap-2 text-[11px] font-medium text-neutral-400">
+            <input
+              type="checkbox"
+              checked={parsed.repeating}
+              disabled={disabled}
+              onChange={(e) => {
+                track("toggle", "Repeat gradient");
+                patch({ repeating: e.target.checked });
+              }}
+              className="h-4 w-4 rounded border-neutral-700 bg-neutral-950 text-panel-accent focus:outline focus:outline-1 focus:outline-panel-accent"
+            />
+            Repeat
+          </label>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => {
+              track("button", "Reverse gradient");
+              commit({
+                ...parsed,
+                stops: [...parsed.stops].reverse().map((stop) => ({
+                  ...stop,
+                  position: 100 - stop.position,
+                })),
+              });
+            }}
+            className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-neutral-700 bg-neutral-950 px-2.5 text-[11px] font-medium text-neutral-300 transition-colors hover:border-neutral-600 hover:text-white disabled:cursor-not-allowed disabled:text-neutral-600"
+          >
+            <RotateCcw size={12} />
+            Reverse
+          </button>
+        </div>
+
+        {(parsed.kind === "linear" || parsed.kind === "conic") && (
+          <div className="grid gap-1.5">
+            <span className={LABEL}>
+              {parsed.kind === "linear" ? "Angle" : "Start angle"}
+            </span>
+            <FlatSlider
+              label={parsed.kind === "linear" ? "Angle" : "Start angle"}
+              tier="explicitCustom"
+              value={parsed.angle}
+              min={0}
+              max={360}
+              step={1}
+              disabled={disabled}
+              displayValue={`${Math.round(parsed.angle)}°`}
+              formatValue={(next) => `${Math.round(next)}°`}
+              onPreview={(next) => previewPatch({ angle: next })}
+              onPreviewEnd={endNestedPreview}
+              onReset={() =>
+                patch({ angle: parsed.kind === "conic" ? 0 : 180 })
+              }
+              onCommit={(next) => patch({ angle: next })}
+            />
+          </div>
+        )}
+
+        {parsed.kind === "radial" && (
+          <div className={RESPONSIVE_GRID}>
+            <SelectField
+              label="Shape"
+              value={parsed.shape}
+              disabled={disabled}
+              onChange={(next) =>
+                patch({ shape: next as GradientModel["shape"] })
+              }
+              options={["ellipse", "circle"]}
+            />
+            <SelectField
+              label="Size"
+              value={parsed.radialSize}
+              disabled={disabled}
+              onChange={(next) =>
+                patch({ radialSize: next as GradientModel["radialSize"] })
+              }
+              options={[
+                "closest-side",
+                "closest-corner",
+                "farthest-side",
+                "farthest-corner",
+              ]}
+            />
+          </div>
+        )}
+
+        {(parsed.kind === "radial" || parsed.kind === "conic") && (
+          <div className={RESPONSIVE_GRID}>
+            <div className="grid min-w-0 gap-1.5">
+              <span className={LABEL}>Center X</span>
+              <FlatSlider
+                label="Center X"
+                tier="explicitCustom"
+                value={parsed.centerX}
+                min={0}
+                max={100}
+                step={1}
+                disabled={disabled}
+                displayValue={`${Math.round(parsed.centerX)}%`}
+                formatValue={(next) => `${Math.round(next)}%`}
+                onPreview={(next) => previewPatch({ centerX: next })}
+                onPreviewEnd={endNestedPreview}
+                onReset={() => patch({ centerX: 50 })}
+                onCommit={(next) => patch({ centerX: next })}
+              />
+            </div>
+            <div className="grid min-w-0 gap-1.5">
+              <span className={LABEL}>Center Y</span>
+              <FlatSlider
+                label="Center Y"
+                tier="explicitCustom"
+                value={parsed.centerY}
+                min={0}
+                max={100}
+                step={1}
+                disabled={disabled}
+                displayValue={`${Math.round(parsed.centerY)}%`}
+                formatValue={(next) => `${Math.round(next)}%`}
+                onPreview={(next) => previewPatch({ centerY: next })}
+                onPreviewEnd={endNestedPreview}
+                onReset={() => patch({ centerY: 50 })}
+                onCommit={(next) => patch({ centerY: next })}
+              />
+            </div>
+          </div>
+        )}
+      </details>
+      </div>
+    </details>
+  );
+}

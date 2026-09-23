@@ -1,8 +1,8 @@
-import type { NativeProjectDocument } from "../../project/nativeProjectDocument";
+import type { NativeProjectDocument } from "../../../shared/project/nativeProjectDocument";
 import {
   projectNativeTimelineKeyframes,
   type NativeTimelinePropertyGroupId,
-} from "../../project/nativeTimelineKeyframeProjection";
+} from "../../../shared/project/nativeTimelineKeyframeProjection";
 import type { TimelineElement } from "../store/playerStore";
 import type { NativeTimelinePropertyLane } from "./TimelinePropertyLanes";
 import type { NativeTrackHeaderSource } from "./trackHeaderLaneState";
@@ -78,9 +78,7 @@ export function nativeTimelinePropertyLanesForElement(
               frame: diamond.frame,
               clipDurationFrames: result.clipDurationFrames,
               hasFollowingKeyframe:
-                clip.parameterTracks
-                  .find((track) => track.parameterId === lane.parameterId)
-                  ?.keyframes.some((key) => key.frame > diamond.frame) ?? false,
+                diamond.frame < lane.diamonds[lane.diamonds.length - 1]!.frame,
               properties: { [lane.property]: diamond.value },
               outgoing: diamond.interpolation,
             },

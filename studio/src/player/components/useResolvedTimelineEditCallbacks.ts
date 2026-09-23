@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useTimelineEditContextOptional } from "../../contexts/TimelineEditContext";
+import { useTimelineEditContextOptional } from "../../features/timeline/TimelineEditContext";
 import type { TimelineEditCallbacks } from "./timelineCallbacks";
 
 // Props a parent (e.g. NLELayout) may pass to <Timeline> to intercept edits —

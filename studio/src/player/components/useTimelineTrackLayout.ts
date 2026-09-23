@@ -1,7 +1,7 @@
 import { useMemo, useRef } from "react";
 import type { GsapAnimation } from "@hyperframes/core/gsap-parser";
 import { animationLaneGroups } from "./TimelinePropertyLanes";
-import { isAudioTimelineElement } from "../../utils/timelineInspector";
+import { isAudioTimelineElement } from "../../features/timeline/timelineInspector";
 import { elementAutomationLanes, groupAutomationLanes } from "./automationLaneData";
 import { usePlayerStore, type TimelineElement } from "../store/playerStore";
 import type { DraggedClipState } from "./timelineClipDragTypes";
@@ -18,7 +18,7 @@ import type { TimelineTrackGroupInfo } from "./useTimelineTrackDerivations";
 import type { NativeTimelineElementLaneProjection } from "./nativeTimelinePropertyLaneBridge";
 import { groupAutomationElement } from "./groupAutomationElement";
 import { AUTOMATION_LANE_H } from "./automationLaneHeight";
-import type { NativeClipEffect } from "../../project/nativeProjectDocument";
+import type { NativeClipEffect } from "../../../shared/project/nativeProjectDocument";
 import { timelineAttachedEffectLaneCount } from "./timelineAttachedEffects";
 
 /** Automation rows the GROUP itself owns — its `data-automation`, not its members'. */

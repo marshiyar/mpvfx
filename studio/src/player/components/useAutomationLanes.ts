@@ -21,8 +21,8 @@ import type { HfAudioFxChain } from "@hyperframes/core/audio-fx";
 import {
   useDomEditActionsContextOptional,
   useDomEditSelectionContextOptional,
-} from "../../contexts/DomEditContext";
-import { resolveTimelineIdForSelection } from "../../utils/studioHelpers";
+} from "../../features/canvas/DomEditContext";
+import { resolveTimelineIdForSelection } from "../../lib/studioHelpers";
 import { getTimelineElementIdentity } from "../lib/timelineElementHelpers";
 import { usePlayerStore, type TimelineElement } from "../store/playerStore";
 import type { AutomationSelection } from "../store/automationSelectionSlice";

@@ -1,14 +1,17 @@
 import { join, resolve } from "node:path";
-import { app, BrowserWindow, dialog, session } from "electron";
+import { app, BrowserWindow, dialog, protocol, session } from "electron";
 import { createDesktopAppController, shouldQuitWhenAllWindowsClosed } from "./appLifecycle";
 import { resolveInstalledMediaBinaryPaths } from "./installedMediaBinaries";
 import { ensureDesktopProject, resolveDesktopDataPaths } from "./projectPaths";
 import { prepareEditorRendererSession } from "./rendererCache";
 import { applyDesktopRuntimeEnvironment } from "./runtimeBinaries";
-import { createWindowOptions, installWindowGuards } from "./windowPolicy";
-import { assertBundledMediaBinariesAvailable } from "../vite.bundled-media-binaries";
-import { startDesktopDiagnostics } from "./diagnostics";
-import { recordDiagnostic } from "../diagnostics/context";
+import { createWindowOptions, installWindowGuards, isEditorFullscreenRequest } from "./windowPolicy";
+import { assertBundledMediaBinariesAvailable } from "../runtime/environment";
+
+protocol.registerSchemesAsPrivileged([{
+  scheme: "mpvfx",
+  privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true },
+}]);
 
 app.setName("MpVFX");
 app.setAppUserModelId("com.mpvfx.editor");
@@ -16,22 +19,20 @@ app.setAppUserModelId("com.mpvfx.editor");
 let mainWindow: BrowserWindow | null = null;
 let quittingAfterCleanup = false;
 let controller: ReturnType<typeof createDesktopAppController> | null = null;
-let diagnostics: ReturnType<typeof startDesktopDiagnostics> | null = null;
-const userDataPath = process.env.MPVFX_USER_DATA_DIR
-  ? resolve(process.env.MPVFX_USER_DATA_DIR)
-  : app.getPath("userData");
-if (process.env.MPVFX_USER_DATA_DIR) app.setPath("userData", userDataPath);
 
 function configurePermissions(): void {
-  session.defaultSession.setPermissionCheckHandler(() => false);
-  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
-    callback(false);
+  session.defaultSession.setPermissionCheckHandler((webContents, permission, _origin, details) => {
+    return webContents === mainWindow?.webContents &&
+      isEditorFullscreenRequest(permission, details, controller?.origin());
+  });
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    callback(webContents === mainWindow?.webContents &&
+      isEditorFullscreenRequest(permission, details, controller?.origin()));
   });
 }
 
 function createEditorWindow(): BrowserWindow {
-  const editorWindow = new BrowserWindow(createWindowOptions());
-  diagnostics?.attachWindow(editorWindow);
+  const editorWindow = new BrowserWindow(createWindowOptions(join(app.getAppPath(), ".build", "desktop-dist", "preload", "preload.cjs")));
   mainWindow = editorWindow;
   editorWindow.setMenu(null);
   editorWindow.once("ready-to-show", () => editorWindow.show());
@@ -49,6 +50,9 @@ function createEditorWindow(): BrowserWindow {
 async function startDesktopApplication(): Promise<void> {
   configurePermissions();
   const appPath = app.getAppPath();
+  const userDataPath = process.env.MPVFX_USER_DATA_DIR
+    ? resolve(process.env.MPVFX_USER_DATA_DIR)
+    : app.getPath("userData");
   const paths = resolveDesktopDataPaths(userDataPath, process.platform);
   ensureDesktopProject(paths);
   const mediaBinaries = resolveInstalledMediaBinaryPaths();
@@ -59,32 +63,30 @@ async function startDesktopApplication(): Promise<void> {
   });
   assertBundledMediaBinariesAvailable();
 
-  // Load the server/render graph only after the packaged paths exist. Several
+  // Load the runtime/render graph only after the packaged paths exist. Several
   // upstream packages cache FFmpeg-family discovery at module scope; a static
   // import here allowed that graph to observe a stale shell override before the
   // desktop runtime replaced it with this build's bundled executables.
-  const { startStudioServer } = await import("./editorServer");
-  const { closeSharedBrowser } = await import("../vite.browser");
+  const { startEditorRuntime } = await import("./editorRuntime");
+  const { closeSharedBrowser } = await import("../runtime/index");
 
   controller = createDesktopAppController({
-    startServer: () =>
-      startStudioServer({
-        staticDir: join(appPath, "dist"),
+    startRuntime: () =>
+      startEditorRuntime({
+        staticDir: join(appPath, ".build", "dist"),
         projectsDir: paths.projects,
         studioDir: appPath,
-        version: app.getVersion(),
-        diagnostics: diagnostics?.log,
+        editorContents: () => mainWindow?.webContents,
       }),
     prepareRenderer: () => prepareEditorRendererSession(session.defaultSession),
     createWindow: createEditorWindow,
     closeSharedBrowser,
   });
   await controller.start();
-  console.log(`[MpVFX] Editor listening on ${controller.origin()}`);
+  console.log(`[MpVFX] Editor ready at ${controller.origin()}`);
 }
 
 function showFatalStartupError(error: unknown): void {
-  recordDiagnostic("app.startup_failed", { error }, "fatal");
   const message = error instanceof Error ? error.message : String(error);
   dialog.showErrorBox("MpVFX could not start", message);
 }
@@ -93,7 +95,6 @@ const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
   app.quit();
 } else {
-  diagnostics = startDesktopDiagnostics(userDataPath);
   app.on("second-instance", () => {
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
@@ -115,12 +116,10 @@ if (!hasSingleInstanceLock) {
     if (quittingAfterCleanup) return;
     event.preventDefault();
     quittingAfterCleanup = true;
-    recordDiagnostic("app.shutdown_requested");
     void (controller?.close() ?? Promise.resolve())
       .catch((error) => console.error("[MpVFX] Shutdown cleanup failed:", error))
       .finally(() => app.quit());
   });
-  app.on("will-quit", () => diagnostics?.close());
 
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.once(signal, () => app.quit());
@@ -132,7 +131,6 @@ if (!hasSingleInstanceLock) {
     .catch(async (error) => {
       showFatalStartupError(error);
       await controller?.close().catch(() => {});
-      diagnostics?.close(false);
       app.exit(1);
     });
 }

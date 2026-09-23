@@ -1,4 +1,4 @@
-import { isAudioTimelineElement } from "../../utils/timelineInspector";
+import { isAudioTimelineElement } from "../../features/timeline/timelineInspector";
 import { useRef, useState, useCallback, useEffect } from "react";
 import {
   applyTimelineAutoScrollStep,
@@ -15,7 +15,7 @@ import {
   isTimelineRulerPress,
   type MarqueeClipInput,
 } from "./timelineMarquee";
-import { rectsOverlap, type Rect } from "../../utils/marqueeGeometry";
+import { rectsOverlap, type Rect } from "../../features/canvas/marqueeGeometry";
 import type { TimelineRowGeometry } from "./timelineLayout";
 import type { TimelineClipIndex } from "../lib/timelineClipIndex";
 

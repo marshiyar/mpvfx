@@ -1,12 +1,17 @@
-import type { TimelineElement } from "../store/playerStore";
+import { usePlayerStore, type TimelineElement } from "../store/playerStore";
 
 type UpdateElement = (key: string, updates: Partial<TimelineElement>) => void;
 const revisionsByUpdater = new WeakMap<UpdateElement, Map<string, number>>();
 
+interface TimelineOptimisticGesture {
+  sessionEpoch: number;
+  revisions: ReadonlyMap<string, number>;
+}
+
 export function beginTimelineOptimisticGesture(
   updateElement: UpdateElement,
   keys: readonly string[],
-): Map<string, number> {
+): TimelineOptimisticGesture {
   let revisions = revisionsByUpdater.get(updateElement);
   if (!revisions) {
     revisions = new Map();
@@ -18,20 +23,25 @@ export function beginTimelineOptimisticGesture(
     revisions.set(key, revision);
     gesture.set(key, revision);
   }
-  return gesture;
+  return { sessionEpoch: usePlayerStore.getState().timelineSessionEpoch, revisions: gesture };
 }
 
 export function isLatestTimelineOptimisticGesture(
   updateElement: UpdateElement,
-  gesture: ReadonlyMap<string, number>,
+  gesture: TimelineOptimisticGesture,
   key: string,
 ): boolean {
-  return revisionsByUpdater.get(updateElement)?.get(key) === gesture.get(key);
+  // The updater is shared across projects, and clip keys may be identical in
+  // copied projects. A save completion can only touch the session that began it.
+  return (
+    gesture.sessionEpoch === usePlayerStore.getState().timelineSessionEpoch &&
+    revisionsByUpdater.get(updateElement)?.get(key) === gesture.revisions.get(key)
+  );
 }
 
 export function rollbackLatestTimelineOptimisticGesture(
   updateElement: UpdateElement,
-  gesture: ReadonlyMap<string, number>,
+  gesture: TimelineOptimisticGesture,
   rollbacks: ReadonlyArray<{ key: string; updates: Partial<TimelineElement> }>,
 ): void {
   for (const rollback of rollbacks) {

@@ -22,7 +22,7 @@ import {
   type HfAutomationLane,
 } from "@hyperframes/core/audio-automation";
 import { parseAudioFxChain, type HfAudioFxChain } from "@hyperframes/core/audio-fx";
-import { isAudioTimelineElement } from "../../utils/timelineInspector";
+import { isAudioTimelineElement } from "../../features/timeline/timelineInspector";
 import type { TimelineElement } from "../store/playerStore";
 
 const EMPTY: HfAutomation = { version: 1, lanes: [] };

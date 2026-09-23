@@ -1,4 +1,4 @@
-import { isAudioTimelineElement } from "../../utils/timelineInspector";
+import { isAudioTimelineElement } from "../../features/timeline/timelineInspector";
 import type { TimelineElement } from "../store/playerStore";
 import { AUTOMATION_LANE_H } from "./automationLaneHeight";
 import type { ZoomMode } from "../store/playerStore";

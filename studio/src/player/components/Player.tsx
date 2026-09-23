@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useRef, useState } from "react";
 import { isLottieAnimationLoaded } from "@hyperframes/core/runtime/lottie-readiness";
-import { useMountEffect } from "../../hooks/useMountEffect";
-import { MpVfxLoader } from "../../components/ui";
+import { useMountEffect } from "../../app/useMountEffect";
+import { MpVfxLoader } from "../../ui/index";
 // NOTE: importing "@hyperframes/player" registers a class extending HTMLElement
 // at module load, which throws under SSR. Defer the import to the mount effect
 // so it only runs in the browser.

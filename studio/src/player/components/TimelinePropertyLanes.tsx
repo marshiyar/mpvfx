@@ -9,8 +9,8 @@ import {
   type GsapAnimation,
   type PropertyGroupName,
 } from "@hyperframes/core/gsap-parser";
-import { toClipKeyframes } from "../../hooks/gsapShared";
-import { synthesizeFlatTweenKeyframes } from "../../hooks/gsapTweenSynth";
+import { toClipKeyframes } from "../../features/animation/GSAP/gsapShared";
+import { synthesizeFlatTweenKeyframes } from "../../features/animation/GSAP/gsapTweenSynth";
 import {
   TimelineDiamondLane,
   type TimelineDiamondKeyframe,

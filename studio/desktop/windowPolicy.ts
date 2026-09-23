@@ -7,6 +7,7 @@ export interface DesktopWindowOptions {
   backgroundColor: string;
   autoHideMenuBar: boolean;
   webPreferences: {
+    preload?: string;
     contextIsolation: true;
     sandbox: true;
     nodeIntegration: false;
@@ -16,8 +17,7 @@ export interface DesktopWindowOptions {
   };
 }
 
-/** BrowserWindow policy kept pure so a security regression does not need Electron to test. */
-export function createWindowOptions(): DesktopWindowOptions {
+export function createWindowOptions(preload?: string): DesktopWindowOptions {
   return {
     width: 1440,
     height: 900,
@@ -27,6 +27,7 @@ export function createWindowOptions(): DesktopWindowOptions {
     backgroundColor: "#0a0a0a",
     autoHideMenuBar: true,
     webPreferences: {
+      ...(preload ? { preload } : {}),
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
@@ -50,13 +51,26 @@ interface GuardedWebContents {
 
 function sameOrigin(url: string, allowedOrigin: string): boolean {
   try {
-    return new URL(url).origin === new URL(allowedOrigin).origin;
+    const target = new URL(url);
+    const allowed = new URL(allowedOrigin);
+    return target.protocol === allowed.protocol && target.host === allowed.host &&
+      target.pathname === "/";
   } catch {
     return false;
   }
 }
 
-/** Keep project HTML and imported content from navigating the privileged app window. */
+/** Fullscreen belongs to the editor pane; embedded project documents get no permissions. */
+export function isEditorFullscreenRequest(
+  permission: string,
+  details: { isMainFrame: boolean; requestingUrl?: string },
+  editorOrigin: string | null | undefined,
+): boolean {
+  return permission === "fullscreen" && details.isMainFrame && !!details.requestingUrl &&
+    !!editorOrigin && sameOrigin(details.requestingUrl, editorOrigin);
+}
+
+/** Only the app entry route may navigate the privileged window. */
 export function installWindowGuards(
   webContents: GuardedWebContents,
   allowedOrigin: string,

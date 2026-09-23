@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { STUDIO_PREVIEW_FPS } from "../lib/time";
-import type { TimelineTimeDisplayMode } from "../../utils/studioUiPreferences";
+import type { TimelineTimeDisplayMode } from "../../app/studioUiPreferences";
 import type { TimelineTimeRange } from "../lib/timelineClipIndex";
 import { generateTicks, getTimelineMajorTickInterval } from "./timelineRulerGeometry";
 

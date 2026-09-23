@@ -1,4 +1,4 @@
-import { isEditableTarget } from "../utils/timelineDiscovery";
+import { isEditableTarget } from "../features/timeline/timelineDiscovery";
 
 const CAPTION_NUDGE_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
 

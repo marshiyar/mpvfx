@@ -233,8 +233,7 @@ export function TimelineAutomationLane({
    * playback. So the automation prop does not move under the pointer, and
    * without a local draft the point would not either.
    */
-  const [draft, setDraft] = useState<{ points: HfAutomationPoint[]; basedOn: HfAutomation;
-  } | null>(
+  const [draft, setDraft] = useState<{ points: HfAutomationPoint[]; basedOn: HfAutomation } | null>(
     null,
   );
   const lane: HfAutomationLane = useMemo(
@@ -503,7 +502,6 @@ export function TimelineAutomationLane({
           yOf={yOf}
         />
         {lane.points.map((p, i) => {
-          if (p.t < 0 || p.t > duration) return null;
           // Endpoint-inclusive, the same rule Delete uses, so what looks caught by
           // the range is exactly what the range will remove. The tinted rectangle
           // says where the selection is; this says which points it has.

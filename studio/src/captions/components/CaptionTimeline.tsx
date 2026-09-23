@@ -1,6 +1,6 @@
 import { memo, useCallback } from "react";
 import { useCaptionStore } from "../store";
-import { usePlayerStore } from "../../player";
+import { usePlayerStore } from "../../player/index";
 
 // ---------------------------------------------------------------------------
 // Constants

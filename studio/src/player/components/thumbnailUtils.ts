@@ -1,4 +1,4 @@
-import { buildProjectApiPath } from "../../utils/projectRouting";
+import { buildProjectApiPath } from "../../app/projectRouting";
 
 /** Rendered height of a timeline-clip thumbnail strip, in CSS px. */
 export const THUMBNAIL_CLIP_HEIGHT = 66;
@@ -92,7 +92,7 @@ export function encodePreviewPath(relativePath: string): string {
  * (parent) document. Composition-relative paths (e.g. "assets/image.png") are
  * routed through the project preview endpoint with each segment encoded.
  *
- * External http(s), `data:`, and `blob:` URLs pass through untouched. A
+ * External http(s), Electron `mpvfx:`, `data:`, and `blob:` URLs pass through untouched. A
  * same-origin absolute URL outside the project preview endpoint is the browser's
  * resolved form of a root-relative authored path, so route it back through the
  * active project instead of accidentally fetching the Studio shell.
@@ -104,17 +104,22 @@ export function resolveMediaPreviewUrl(
 ): string {
   if (!src) return src;
   if (/^(?:data:|blob:)/i.test(src)) return src;
+  if (src.startsWith("/api/")) return src;
 
   let relativePath = src;
   let suffix = "";
-  if (/^https?:/i.test(src)) {
+  if (/^(?:https?|mpvfx):/i.test(src)) {
     let parsed: URL;
+    let origin: URL;
+    if (!studioOrigin) return src;
     try {
       parsed = new URL(src);
+      origin = new URL(studioOrigin);
     } catch {
       return src;
     }
-    if (!studioOrigin || parsed.origin !== studioOrigin) return src;
+    // Custom schemes can have an opaque URL.origin; compare their actual authority.
+    if (parsed.protocol !== origin.protocol || parsed.host !== origin.host) return src;
     const previewPath = new URL(buildProjectApiPath(projectId, "/preview/"), studioOrigin).pathname;
     if (parsed.pathname.startsWith(previewPath)) return src;
     if (parsed.pathname.startsWith("/api/")) return src;

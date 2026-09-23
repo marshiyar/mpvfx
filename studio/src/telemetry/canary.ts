@@ -42,7 +42,7 @@ import {
 import { CANARIES, findCanary } from "@hyperframes/core/canary-registry";
 import { resolveStudioDistinctId } from "./distinctId";
 import { browserTelemetryAllowed } from "./policy";
-import { safeSessionStorage } from "../utils/safeStorage";
+import { safeSessionStorage } from "../lib/safeStorage";
 
 /** `my-feature` → `hf_canary_my_feature`, the query param and storage key. */
 export function canaryParamName(name: string): string {

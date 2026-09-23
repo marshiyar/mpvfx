@@ -1,5 +1,5 @@
-import { applyNativeFrameToDocument, type NativeClipFrameBinding } from "../../project/nativeFrameApplication";
-import { validateRationalFrameRate, type RationalFrameRate } from "../../project/nativeKeyframeTypes";
+import { applyNativeFrameToDocument, type NativeClipFrameBinding } from "../../features/project/nativeFrameApplication";
+import { validateRationalFrameRate, type RationalFrameRate } from "../../../shared/project/nativeKeyframeTypes";
 import { createStaticSeekPlaybackAdapter, getAdapterDuration } from "./playbackAdapter";
 import type {
   PlaybackAdapter,
@@ -111,7 +111,10 @@ function applyNativeMediaTransport(
     media.muted = !active || clip.muted || media.hasAttribute("data-hidden");
     if ((!synchronizeCurrentTime && !entering) || !active) continue;
     const sourceFrame = clip.sourceInFrame + localFrame * playbackRate;
-    media.currentTime = (sourceFrame * frameRate.denominator) / frameRate.numerator;
+    const sourceTime = (sourceFrame * frameRate.denominator) / frameRate.numerator;
+    // Even a same-time assignment starts an asynchronous decoder seek. Keep an
+    // already aligned frame painted when pausing or reasserting transport state.
+    if (Math.abs(media.currentTime - sourceTime) > 1e-7) media.currentTime = sourceTime;
   }
 }
 
