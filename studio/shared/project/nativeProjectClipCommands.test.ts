@@ -319,6 +319,52 @@ describe("native project clip trim, split, and delete commands", () => {
     expect(right.parameterTracks[0]?.id).not.toBe(left.parameterTracks[0]?.id);
   });
 
+  it("splits curved, eased, auto-rotating motion paths so both halves evaluate exactly like the original", () => {
+    const original = documentFixture();
+    const clip = findClip(original, "clip:first")!;
+    const position = createNativeParameterTrack({
+      id: "parameter:position",
+      parameterId: "transform.position",
+      valueType: "vec2",
+      frameRate,
+      autoRotate: true,
+      keyframes: [
+        {
+          id: "a", frame: 0, value: { x: 0, y: 0 },
+          outgoing: { type: "cubic-bezier", controlPoints: { x1: 0.42, y1: 0, x2: 0.58, y2: 1 } },
+          outgoingPath: { type: "bezier", cp1: { x: 0, y: 300 }, cp2: { x: 400, y: 300 } },
+        },
+        { id: "b", frame: 50, value: { x: 400, y: 0 }, outgoing: { type: "linear" }, outgoingPath: { type: "curve", curviness: 1 } },
+        { id: "c", frame: 110, value: { x: 700, y: 250 }, outgoing: { type: "linear" } },
+      ],
+    });
+    clip.parameterTracks = [...clip.parameterTracks, position];
+
+    const result = expectMove(original, { type: "split", address: firstAddress, splitFrame: 60 });
+    const left = findClip(result.document, "clip:first")!.parameterTracks.find((track) => track.parameterId === "transform.position")!;
+    const right = findClip(result.document, nativeSplitClipId("clip:first", 60))!.parameterTracks.find((track) => track.parameterId === "transform.position")!;
+
+    // Every frame of each half equals the original at the matching source frame.
+    for (let frame = 0; frame < 60; frame++) {
+      for (const [half, offset] of [[left, 0], [right, 60]] as const) {
+        const expected = evaluateNativeParameterTrack(position, offset + frame);
+        const actual = evaluateNativeParameterTrack(half, frame);
+        expect(actual.x, `x at ${offset + frame}`).toBeCloseTo(expected.x, 6);
+        expect(actual.y, `y at ${offset + frame}`).toBeCloseTo(expected.y, 6);
+      }
+    }
+    // Auto-rotate and authored keyframe identities survive the cut.
+    expect(left.autoRotate).toBe(true);
+    expect(right.autoRotate).toBe(true);
+    expect(left.keyframes.find((keyframe) => keyframe.frame === 50)?.id).toBe("b");
+    expect(right.keyframes.find((keyframe) => keyframe.frame === 50)?.id).toBe("c");
+    // The cut segment keeps a curved path rather than flattening to a line.
+    expect(left.keyframes.find((keyframe) => keyframe.frame === 0)?.outgoingPath?.type).toBe("bezier");
+    expect(right.keyframes.find((keyframe) => keyframe.frame === 0)?.outgoingPath?.type).toBe("bezier");
+    // The result still round-trips through the project document.
+    expect(() => parseNativeProjectDocument(JSON.parse(serializeNativeProjectDocument(result.document)))).not.toThrow();
+  });
+
   it("advances source media by the exact rational playback rate when trimming and splitting", () => {
     const fast = documentFixture();
     findClip(fast, "clip:first")!.playbackRate = { numerator: 2, denominator: 1 };

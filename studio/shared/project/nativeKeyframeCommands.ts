@@ -3,6 +3,7 @@ import {
   createNativeParameterTrack,
   type NativeInterpolation,
   type NativeKeyframe,
+  type NativeMotionPath,
   type NativeParameterTrack,
   type NativeParameterValueMap,
   type NativeValueType,
@@ -99,7 +100,13 @@ const cloneKeyframe = <K extends NativeValueType>(
   frame: keyframe.frame,
   value: cloneValue(valueType, keyframe.value),
   outgoing: cloneInterpolation(keyframe.outgoing),
+  ...(keyframe.outgoingPath ? { outgoingPath: cloneMotionPath(keyframe.outgoingPath) } : {}),
 });
+
+const cloneMotionPath = (path: NativeMotionPath): NativeMotionPath =>
+  path.type === "curve"
+    ? { type: "curve", curviness: path.curviness }
+    : { type: "bezier", cp1: { ...path.cp1 }, cp2: { ...path.cp2 } };
 
 const cloneTrack = <K extends NativeValueType>(
   track: NativeParameterTrack<K>,
@@ -110,6 +117,7 @@ const cloneTrack = <K extends NativeValueType>(
     valueType: track.valueType,
     frameRate: { ...track.frameRate },
     keyframes: track.keyframes.map((keyframe) => cloneKeyframe(track.valueType, keyframe)),
+    autoRotate: track.autoRotate,
   });
 
 const reject = <K extends NativeValueType>(
@@ -155,6 +163,7 @@ const rebuild = <K extends NativeValueType>(
       valueType: original.valueType,
       frameRate: original.frameRate,
       keyframes,
+      autoRotate: original.autoRotate,
     });
     return succeed(original, track);
   } catch (error) {

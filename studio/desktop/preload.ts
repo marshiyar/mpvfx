@@ -56,6 +56,8 @@ function createEngineBridge(modulePath: string): VkfEngineBridge {
     },
     evaluate: (handle, frame) => engine.evaluateTrack(lookup(handle), frame),
     sample: (handle, firstFrame, count) => engine.sampleTrack(lookup(handle), firstFrame, count),
+    tangentAngle: (handle, frame) => engine.trackTangentAngle(lookup(handle), frame),
+    slice: (handle, fromFrame, until) => engine.sliceTrack(lookup(handle), fromFrame, until),
     release: (handle) => {
       compiled.delete(handle);
     },

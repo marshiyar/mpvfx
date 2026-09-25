@@ -43,12 +43,24 @@ export type NativeInterpolation =
       readonly controlPoints: CubicBezierControlPoints;
     };
 
+/**
+ * Shape of a 2D (vec2) value's path to the next keyframe; absent means a
+ * straight line. "curve" passes smoothly through the neighbouring keyframes
+ * (0 = straight, 1 = standard); "bezier" uses explicit handles. Keyframes are
+ * still reached at their frames; the timing curve sets speed along the path.
+ */
+export type NativeMotionPath =
+  | { readonly type: "curve"; readonly curviness: number }
+  | { readonly type: "bezier"; readonly cp1: Vec2Value; readonly cp2: Vec2Value };
+
 export interface NativeKeyframe<T extends NativeParameterValue = NativeParameterValue> {
   readonly id: string;
   readonly frame: number;
   readonly value: T;
   /** Controls the segment that starts at this keyframe. */
   readonly outgoing: NativeInterpolation;
+  /** vec2 tracks only: path of the segment that starts at this keyframe. */
+  readonly outgoingPath?: NativeMotionPath;
 }
 
 export interface NativeParameterTrack<K extends NativeValueType = NativeValueType> {
@@ -58,6 +70,8 @@ export interface NativeParameterTrack<K extends NativeValueType = NativeValueTyp
   readonly valueType: K;
   readonly frameRate: RationalFrameRate;
   readonly keyframes: readonly NativeKeyframe<NativeParameterValueMap[K]>[];
+  /** vec2 tracks only: the layer turns to face its direction of motion. */
+  readonly autoRotate?: true;
 }
 
 export interface NativeParameterTrackInput<K extends NativeValueType> {
@@ -66,6 +80,7 @@ export interface NativeParameterTrackInput<K extends NativeValueType> {
   readonly valueType: K;
   readonly frameRate: RationalFrameRate;
   readonly keyframes: readonly NativeKeyframe<NativeParameterValueMap[K]>[];
+  readonly autoRotate?: boolean;
 }
 
 export type NativeKeyframeValidationCode =
@@ -78,7 +93,8 @@ export type NativeKeyframeValidationCode =
   | "duplicate-keyframe-frame"
   | "invalid-keyframe-frame"
   | "invalid-value"
-  | "invalid-interpolation";
+  | "invalid-interpolation"
+  | "invalid-path";
 
 export class NativeKeyframeValidationError extends Error {
   readonly code: NativeKeyframeValidationCode;
@@ -152,8 +168,12 @@ export const createNativeParameterTrack = <K extends NativeValueType>(
       frame: keyframe.frame,
       value: keyframe.value,
       outgoing: keyframe.outgoing,
+      ...(keyframe.outgoingPath ? { outgoingPath: keyframe.outgoingPath } : {}),
     };
   });
+  if (input.autoRotate && input.valueType !== "vec2") {
+    throwValidation("invalid-path", `Parameter track ${input.id}: auto-rotate needs a 2D value`);
+  }
 
   // Frames, values and interpolation are engine rules: the C++ engine rejects
   // exactly what it cannot evaluate, so the project and the evaluator agree.
@@ -175,5 +195,6 @@ export const createNativeParameterTrack = <K extends NativeValueType>(
     valueType: input.valueType,
     frameRate,
     keyframes,
+    ...(input.autoRotate ? { autoRotate: true as const } : {}),
   };
 };

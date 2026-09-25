@@ -9,11 +9,11 @@ import {
   type NativeProjectDocument,
   type NativeProjectTrack,
 } from "./nativeProjectDocument";
-import { sliceNativeInterpolation } from "./nativeInterpolationSlice";
-import { evaluateNativeParameterTrack } from "./nativeKeyframeEvaluator";
+import { vkfEngine } from "../engine/vkfEngine";
 import {
   createNativeParameterTrack,
   type NativeParameterTrack,
+  type NativeParameterValue,
   type NativeValueType,
 } from "./nativeKeyframeTypes";
 
@@ -225,17 +225,11 @@ const replaceClip = (
     },
   });
 
-const cloneOutgoing = <K extends NativeValueType>(
-  outgoing: NativeParameterTrack<K>["keyframes"][number]["outgoing"],
-) =>
-  outgoing.type === "cubic-bezier"
-    ? { type: outgoing.type, controlPoints: { ...outgoing.controlPoints } }
-    : { type: outgoing.type };
-
 /**
- * Rebase a native parameter track to a playable subrange. A generated frame-0
- * sample carries the original segment's outgoing interpolation, retaining the
- * exact value at a trim/split boundary without leaving invalid keyframes.
+ * Rebase a native parameter track to a playable subrange. The engine cuts the
+ * track (timing curves and motion paths included) so every remaining frame
+ * evaluates exactly as before; authored keyframes keep their identity and
+ * generated ones get deterministic split-baseline IDs.
  */
 const rebaseTrack = (
   track: NativeParameterTrack,
@@ -244,56 +238,22 @@ const rebaseTrack = (
   nextTrackId: string,
 ): NativeParameterTrack => {
   const typed = track as NativeParameterTrack<NativeValueType>;
-  const sample = (frame: number) => {
-    const authored = typed.keyframes.find((key) => key.frame === frame);
-    return authored ?? {
-      id: nativeSplitBaselineKeyframeId(track.id, frame),
-      frame,
-      value: evaluateNativeParameterTrack(typed, frame),
-      outgoing: { type: "hold" as const },
-    };
-  };
-  const frames = [fromFrame, ...typed.keyframes
-    .filter((key) => key.frame > fromFrame && key.frame < untilFrameExclusive)
-    .map((key) => key.frame)];
-  // Keep the final visible sample if the trim cuts an animated segment.
-  const lastVisible = untilFrameExclusive - 1;
-  if (lastVisible > frames[frames.length - 1]! && typed.keyframes.some((key) => key.frame > lastVisible)) {
-    frames.push(lastVisible);
-  }
-  const keyframes = frames.map((frame) => ({
-    ...sample(frame), frame: frame - fromFrame,
-    outgoing: cloneOutgoing(sample(frame).outgoing),
+  const authoredIdByFrame = new Map(typed.keyframes.map((key) => [key.frame, key.id]));
+  const keyframes = vkfEngine().slice(typed, fromFrame, untilFrameExclusive).map((key) => ({
+    id: (!key.generated && authoredIdByFrame.get(key.sourceFrame)) ||
+      nativeSplitBaselineKeyframeId(track.id, key.sourceFrame),
+    frame: key.frame,
+    value: key.value as NativeParameterValue,
+    outgoing: key.outgoing,
+    ...(key.outgoingPath ? { outgoingPath: key.outgoingPath } : {}),
   }));
-  for (let i = 0; i + 1 < frames.length; i++) {
-    const start = frames[i]!;
-    const end = frames[i + 1]!;
-    const left = typed.keyframes.findLast((key) => key.frame <= start);
-    const right = typed.keyframes.find((key) => key.frame > start);
-    if (!left || !right) {
-      keyframes[i]!.outgoing = { type: "hold" };
-      continue;
-    }
-    const span = right.frame - left.frame;
-    const interpolation = sliceNativeInterpolation(left.outgoing,
-      (start - left.frame) / span, (end - left.frame) / span);
-    if (interpolation) {
-      keyframes[i]!.outgoing = interpolation;
-    } else {
-      // Equal-endpoint returning Bezier segments need explicit frame samples.
-      keyframes[i]!.outgoing = { type: "linear" };
-      for (let frame = start + 1; frame < end; frame++) {
-        keyframes.push({ ...sample(frame), frame: frame - fromFrame, outgoing: { type: "linear" } });
-      }
-    }
-  }
-  keyframes.sort((a, b) => a.frame - b.frame);
   return createNativeParameterTrack({
     id: nextTrackId,
     parameterId: typed.parameterId,
     valueType: typed.valueType,
     frameRate: typed.frameRate,
     keyframes,
+    autoRotate: typed.autoRotate,
   }) as NativeParameterTrack;
 };
 

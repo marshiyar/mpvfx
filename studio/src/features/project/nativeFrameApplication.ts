@@ -1,5 +1,6 @@
 import { applyNativeGestureDraft } from "./nativeGestureDraft";
 import { evaluateNativeParameterTrack } from "../../../shared/project/nativeKeyframeEvaluator";
+import { vkfEngine } from "../../../shared/engine/vkfEngine";
 import type {
   NativeParameterTrack,
   NativeParameterValue,
@@ -132,6 +133,15 @@ function evaluateVisualState(
   if (typeof positionZ === "number") state.depth = positionZ;
   const rotation = values.get("transform.rotation");
   if (typeof rotation === "number") state.rotation = rotation;
+  // Auto-rotate: the layer also turns to face its direction of motion along
+  // the position path (the engine reports it; y down, so clockwise positive).
+  const positionTrack = tracks.find(
+    (track) => track.parameterId === "transform.position" && track.autoRotate,
+  );
+  if (positionTrack) {
+    const angle = vkfEngine().tangentAngle(positionTrack, localFrame);
+    if (Number.isFinite(angle)) state.rotation += (angle * 180) / Math.PI;
+  }
   const rotationX = values.get("transform.rotationX");
   const rotationY = values.get("transform.rotationY");
   if (typeof rotationX === "number") state.rotationX = rotationX;

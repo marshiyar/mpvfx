@@ -563,6 +563,60 @@ describe("native project render body script", () => {
     expect(exportElement.getAttribute("style")).toBe(previewStyle);
   });
 
+  it("renders curved, auto-rotating motion paths identically in preview and export", () => {
+    const project = projectDocument();
+    const clip = project.sequence.tracks[0]!.clips[0]!;
+    clip.parameterTracks = [
+      createNativeParameterTrack({
+        id: "parameter:position",
+        parameterId: "transform.position",
+        valueType: "vec2",
+        frameRate: { numerator: 30, denominator: 1 },
+        autoRotate: true,
+        keyframes: [
+          {
+            id: "a", frame: 0, value: { x: 0, y: 0 },
+            outgoing: { type: "cubic-bezier", controlPoints: { x1: 0.42, y1: 0, x2: 0.58, y2: 1 } },
+            outgoingPath: { type: "bezier", cp1: { x: 0, y: 300 }, cp2: { x: 400, y: 300 } },
+          },
+          { id: "b", frame: 60, value: { x: 400, y: 0 }, outgoing: { type: "linear" }, outgoingPath: { type: "curve", curviness: 1 } },
+          { id: "c", frame: 90, value: { x: 600, y: 200 }, outgoing: { type: "linear" } },
+        ],
+      }),
+    ];
+    const previewElement = document.createElement("div");
+    previewElement.setAttribute("data-studio-clip-id", "clip:1");
+    const exportElement = document.createElement("div");
+    document.body.replaceChildren(previewElement, exportElement);
+
+    for (const frame of [45, 80, 110]) {
+      applyNativeFrameToDocument(document, [{
+        clipId: clip.id,
+        startFrame: clip.startFrame,
+        durationFrames: clip.durationFrames,
+        parameterTracks: clip.parameterTracks,
+      }], frame);
+      const previewStyle = previewElement.getAttribute("style")!;
+      // The path heads down-right early on: auto-rotate adds a clockwise turn.
+      if (frame === 45) expect(previewStyle).toMatch(/rotate\((?!0deg)[0-9.]+deg\)/);
+
+      previewElement.removeAttribute("data-studio-clip-id");
+      exportElement.id = "clip:1";
+      clip.binding = { sourceFile: "index.html", domId: "clip:1" };
+      window.eval(createNativeProjectRenderBodyScript(serializeNativeProjectDocument(project))!);
+      window.dispatchEvent(new CustomEvent("hf-seek", { detail: { time: frame / 30 } }));
+      expect(exportElement.getAttribute("style")).toBe(previewStyle);
+
+      // Reset for the next frame.
+      delete clip.binding;
+      exportElement.removeAttribute("style");
+      exportElement.removeAttribute("data-studio-clip-id");
+      exportElement.removeAttribute("data-studio-native-owned");
+      exportElement.removeAttribute("id");
+      previewElement.setAttribute("data-studio-clip-id", "clip:1");
+    }
+  });
+
   it("rejects malformed sidecar data instead of injecting a partial animation", () => {
     expect(() => createNativeProjectRenderBodyScript('{"schemaVersion":1}')).toThrow();
     expect(createNativeProjectRenderBodyScript("")).toBeNull();

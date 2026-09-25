@@ -35,13 +35,31 @@ export type VkfInterpolation =
       readonly controlPoints: { readonly x1: number; readonly y1: number; readonly x2: number; readonly y2: number };
     };
 
+/** Motion path of a vec2 segment; absent means a straight line. */
+export type VkfMotionPath =
+  | { readonly type: "curve"; readonly curviness: number }
+  | { readonly type: "bezier"; readonly cp1: VkfVec2; readonly cp2: VkfVec2 };
+
 export interface VkfTrack {
   readonly valueType: VkfValueType;
   readonly keyframes: readonly {
     readonly frame: number;
     readonly value: VkfValue;
     readonly outgoing: VkfInterpolation;
+    readonly outgoingPath?: VkfMotionPath;
   }[];
+}
+
+/** A key of a sliced track (see VkfEngine.slice). */
+export interface VkfSlicedKey {
+  readonly frame: number;
+  readonly value: VkfValue;
+  readonly outgoing: VkfInterpolation;
+  readonly outgoingPath?: VkfMotionPath;
+  /** Frame of this key in the original track. */
+  readonly sourceFrame: number;
+  /** Created at a cut point or as a frame sample, not an authored key. */
+  readonly generated: boolean;
 }
 
 /** Error codes raised by the engine for invalid tracks. */
@@ -50,7 +68,8 @@ export type VkfTrackErrorCode =
   | "invalid-keyframe-frame"
   | "duplicate-keyframe-frame"
   | "invalid-value"
-  | "invalid-interpolation";
+  | "invalid-interpolation"
+  | "invalid-path";
 
 const TRACK_ERROR_CODES: ReadonlySet<string> = new Set<VkfTrackErrorCode>([
   "empty-track",
@@ -58,6 +77,7 @@ const TRACK_ERROR_CODES: ReadonlySet<string> = new Set<VkfTrackErrorCode>([
   "duplicate-keyframe-frame",
   "invalid-value",
   "invalid-interpolation",
+  "invalid-path",
 ]);
 
 export class VkfTrackError extends Error {
@@ -78,6 +98,13 @@ export interface VkfEngine {
   evaluate(track: VkfTrack, frame: number): VkfValue;
   /** `count` consecutive frames from `firstFrame`, components interleaved. */
   sample(track: VkfTrack, firstFrame: number, count: number): Float64Array;
+  /** Direction of motion of a vec2 track in radians (y down: clockwise); NaN if it never moves. */
+  tangentAngle(track: VkfTrack, frame: number): number;
+  /**
+   * The track restricted to [fromFrame, untilFrameExclusive), rebased to 0,
+   * evaluating exactly like the original (clip trims and splits).
+   */
+  slice(track: VkfTrack, fromFrame: number, untilFrameExclusive: number): VkfSlicedKey[];
 }
 
 /** Shape of the Node-API module `vkf.node` (engine apiVersion 1). */
@@ -87,6 +114,9 @@ export interface VkfNativeModule {
   compileTrack(track: VkfTrack): unknown;
   evaluateTrack(compiled: unknown, frame: number): VkfValue;
   sampleTrack(compiled: unknown, firstFrame: number, count: number): Float64Array;
+  trackTangentAngle(compiled: unknown, frame: number): number;
+  sampleTrackTangentAngle(compiled: unknown, firstFrame: number, count: number): Float64Array;
+  sliceTrack(compiled: unknown, fromFrame: number, untilFrameExclusive: number): VkfSlicedKey[];
 }
 
 /** Result of compiling across the context bridge, which cannot carry error fields. */
@@ -101,6 +131,8 @@ export interface VkfEngineBridge {
   compile(track: VkfTrack): VkfBridgeCompileResult;
   evaluate(handle: number, frame: number): VkfValue;
   sample(handle: number, firstFrame: number, count: number): Float64Array;
+  tangentAngle(handle: number, frame: number): number;
+  slice(handle: number, fromFrame: number, untilFrameExclusive: number): VkfSlicedKey[];
   release(handle: number): void;
 }
 
@@ -171,6 +203,8 @@ export function createModuleEngine(module: VkfNativeModule): VkfEngine {
     },
     evaluate: (track, frame) => module.evaluateTrack(compile(track), frame),
     sample: (track, firstFrame, count) => module.sampleTrack(compile(track), firstFrame, count),
+    tangentAngle: (track, frame) => module.trackTangentAngle(compile(track), frame),
+    slice: (track, fromFrame, until) => module.sliceTrack(compile(track), fromFrame, until),
   };
 }
 
@@ -206,6 +240,8 @@ export function createBridgeEngine(bridge: VkfEngineBridge): VkfEngine {
     },
     evaluate: (track, frame) => bridge.evaluate(handleOf(track), frame),
     sample: (track, firstFrame, count) => bridge.sample(handleOf(track), firstFrame, count),
+    tangentAngle: (track, frame) => bridge.tangentAngle(handleOf(track), frame),
+    slice: (track, fromFrame, until) => bridge.slice(handleOf(track), fromFrame, until),
   };
 }
 
@@ -216,6 +252,8 @@ export interface VkfBakedTrack {
   readonly valueType: VkfValueType;
   /** Samples for frames 0 .. frameCount-1, components interleaved. */
   readonly samples: readonly number[];
+  /** vec2 only: direction of motion per frame; null where it is undefined (JSON has no NaN). */
+  readonly angles?: readonly (number | null)[];
 }
 
 const COMPONENTS: Readonly<Record<VkfValueType, number>> = { number: 1, vec2: 2, rgba: 4 };
@@ -228,7 +266,14 @@ const COMPONENTS: Readonly<Record<VkfValueType, number>> = { number: 1, vec2: 2,
 export function bakeTrackSamples(engine: VkfEngine, track: VkfTrack, frameCount: number): VkfBakedTrack {
   const lastKey = track.keyframes.reduce((last, key) => Math.max(last, key.frame), 0);
   const count = Math.max(1, Math.floor(frameCount), lastKey + 1);
-  return { valueType: track.valueType, samples: Array.from(engine.sample(track, 0, count)) };
+  const samples = Array.from(engine.sample(track, 0, count));
+  if (track.valueType !== "vec2") return { valueType: track.valueType, samples };
+  const angles: (number | null)[] = [];
+  for (let frame = 0; frame < count; frame += 1) {
+    const angle = engine.tangentAngle(track, frame);
+    angles.push(Number.isNaN(angle) ? null : angle);
+  }
+  return { valueType: track.valueType, samples, angles };
 }
 
 function valueAt(baked: VkfBakedTrack, frame: number): VkfValue {
@@ -270,6 +315,20 @@ export function createBakedEngine(
         throw new TypeError("Pre-computed engine values exist only for integer frames");
       }
       return valueAt(baked(track), frame);
+    },
+    tangentAngle: (track, frame) => {
+      if (fallback && !lookup(track)) return fallback.tangentAngle(track, frame);
+      if (!Number.isInteger(frame)) {
+        throw new TypeError("Pre-computed engine values exist only for integer frames");
+      }
+      const b = baked(track);
+      if (!b.angles) return Number.NaN;
+      const index = Math.min(b.angles.length - 1, Math.max(0, frame));
+      return b.angles[index] ?? Number.NaN;
+    },
+    slice: (track, fromFrame, until) => {
+      if (fallback && !lookup(track)) return fallback.slice(track, fromFrame, until);
+      throw new Error("Editing keyframes is not available on export pages");
     },
     sample: (track, firstFrame, count) => {
       if (fallback && !lookup(track)) return fallback.sample(track, firstFrame, count);
