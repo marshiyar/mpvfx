@@ -4,9 +4,8 @@ import { parseGsapScript } from "@hyperframes/core/gsap-parser";
 import { addAnimationWithKeyframesToScript } from "@hyperframes/parsers/gsap-writer-acorn";
 import type { DomEditSelection } from "../../../canvas/domEditingTypes";
 import { buildStableSelector, getSelectorIndex } from "../../../canvas/domEditingDom";
-import { resolveSelectorElementIds, tweenTargetsElement, writeTargetSelector } from "../gsapShared";
+import { existingTweenTargetSelector, resolveSelectorElementIds, tweenTargetsElement, writeTargetSelector } from "../gsapShared";
 import { commitKeyframeAtTimeImpl } from "../gsapKeyframeCommit";
-import { promoteSetToKeyframes } from "../../Keyframe/useEnableKeyframes";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -203,9 +202,7 @@ describe("existingTweenTargetSelector", () => {
       properties: { x: 10 },
     };
 
-    await promoteSetToKeyframes({ commitMutation } as never, selection, setAnim as never, 0, null);
-
-    const mutation = commitMutation.mock.calls[0]?.[0] as { targetSelector: string };
+    const mutation = { targetSelector: existingTweenTargetSelector(setAnim as never, selection)! };
     expect(mutation.targetSelector).toBe("#scene > div:nth-child(3)");
     expect(document.querySelectorAll(mutation.targetSelector)).toHaveLength(1);
   });
@@ -223,9 +220,7 @@ describe("existingTweenTargetSelector", () => {
       properties: { x: 10 },
     };
 
-    await promoteSetToKeyframes({ commitMutation } as never, selection, setAnim as never, 0, null);
-
-    const mutation = commitMutation.mock.calls[0]?.[0] as { targetSelector: string };
+    const mutation = { targetSelector: existingTweenTargetSelector(setAnim as never, selection)! };
     expect(mutation.targetSelector).toBe(".group");
   });
 });

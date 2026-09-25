@@ -190,9 +190,20 @@ function renderGestureCommit(
       domEditSessionRef: {
         current: {
           domEditSelection: selection,
-          selectedGsapAnimations: animations,
-          commitMutation: async (mutation: Record<string, unknown>) => {
-            mutations.push(mutation);
+          nativeProjectDocument: {
+            schemaVersion: 1, id: "project", revision: 0, frameRate: { numerator: 30, denominator: 1 },
+            canvas: { width: 100, height: 100, background: "#000000" },
+            assets: [{ id: "asset", kind: "element", name: "Group", durationFrames: 60 }],
+            sequence: { id: "sequence", name: "Main", tracks: [{ id: "track", kind: "video",
+              clips: [0, 1, 2, 3, 4].map(index => ({ id: `clip:${index}`, assetId: "asset", startFrame: 0,
+                durationFrames: 60, sourceInFrame: 0, muted: false, effects: [], parameterTracks: [],
+                binding: { sourceFile: "index.html", selector: ".group", selectorIndex: index },
+              })),
+            }] },
+          },
+          commitNativeProject: async (commit: Record<string, unknown>) => {
+            mutations.push(commit);
+            return true;
           },
         },
       } as never,
@@ -207,8 +218,8 @@ function renderGestureCommit(
   return { root, toggle: () => toggle!() };
 }
 
-describe("useGestureCommit — new-tween targets", () => {
-  it("authors the recorded tween against one element", async () => {
+describe("useGestureCommit — native recording targets", () => {
+  it("authors the recording against exactly one native clip", async () => {
     const groups = mountGroupSiblings();
     const mutations: Array<Record<string, unknown>> = [];
     const { root, toggle } = renderGestureCommit([], mutations, classOnlySelection(groups[3]!));
@@ -219,13 +230,13 @@ describe("useGestureCommit — new-tween targets", () => {
       await Promise.resolve();
     });
 
-    const added = mutations.find((m) => m.type === "add-with-keyframes");
-    expect(added).toBeTruthy();
-    expect(attributedTo(added!.targetSelector)).toEqual(["group-3"]);
+    expect(mutations).toHaveLength(1);
+    const saved = mutations[0]!.document as import("../../../../shared/project/nativeProjectDocument").NativeProjectDocument;
+    expect(saved.sequence.tracks[0]!.clips.filter(clip => clip.parameterTracks.length).map(clip => clip.id)).toEqual(["clip:3"]);
     act(() => root.unmount());
   });
 
-  it("leaves a merged existing group tween aimed at its whole group", async () => {
+  it("does not widen a recording to siblings targeted by an old group tween", async () => {
     const groups = mountGroupSiblings();
     const existing = {
       id: "t-pos",
@@ -250,9 +261,9 @@ describe("useGestureCommit — new-tween targets", () => {
       await Promise.resolve();
     });
 
-    const replaced = mutations.find((m) => m.type === "replace-with-keyframes");
-    expect(replaced).toBeTruthy();
-    expect(replaced!.targetSelector).toBe(".group");
+    expect(mutations).toHaveLength(1);
+    const saved = mutations[0]!.document as import("../../../../shared/project/nativeProjectDocument").NativeProjectDocument;
+    expect(saved.sequence.tracks[0]!.clips.filter(clip => clip.parameterTracks.length).map(clip => clip.id)).toEqual(["clip:3"]);
     act(() => root.unmount());
   });
 });

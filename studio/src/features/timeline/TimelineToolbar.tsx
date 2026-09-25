@@ -7,14 +7,8 @@ import {
 import {
   useEnableKeyframes,
   nativeToolbarPosition,
-  isPlayheadWithinTween,
   type EnableKeyframesSession,
 } from "../animation/Keyframe/useEnableKeyframes";
-import {
-  keyframeIsAtOutputTime,
-  resolveEditableTweenDuration,
-} from "../animation/GSAP/gsapShared";
-import { resolveTweenStart } from "../legacy/globalTimeCompiler";
 import { useKeyframeKeyboard } from "../animation/Keyframe/useKeyframeKeyboard";
 import {
   nudgeSelectedKeyframes,
@@ -70,84 +64,16 @@ const NO_KEYFRAME_TOGGLE: KeyframeToggleState = {
   willExtend: false,
 };
 
-function isMotionPathEndpoint(
-  animation: GsapAnimation | undefined,
-  currentTime: number,
-  selection: DomEditSelection,
-): boolean {
-  if (!animation?.keyframes) return false;
-  const keyframes = animation.keyframes.keyframes;
-  const duration = resolveEditableTweenDuration(animation, selection);
-  const start = resolveTweenStart(animation) ?? 0;
-  return (
-    (keyframes[0] !== undefined &&
-      keyframeIsAtOutputTime(keyframes[0].percentage, currentTime, {
-        start,
-        duration,
-      })) ||
-    (keyframes.at(-1) !== undefined &&
-      keyframeIsAtOutputTime(keyframes.at(-1)!.percentage, currentTime, {
-        start,
-        duration,
-      }))
-  );
-}
-
 function resolveKeyframeToggleState(
   session: DomEditSessionSlice | undefined,
   currentTime: number,
 ): KeyframeToggleState {
-  if (!session?.domEditSelection) return NO_KEYFRAME_TOGGLE;
   const native = nativeToolbarPosition(session, currentTime);
-  if (native)
-    return {
-      state: native.active ? "active" : "inactive",
-      isMotionPath: false,
-      pathEndpoint: false,
-      willExtend: false,
-    };
-  const arcAnimation = session.selectedGsapAnimations.find(
-    (animation) => animation.arcPath && animation.keyframes,
-  );
-  const animation =
-    arcAnimation ??
-    session.selectedGsapAnimations.find(
-      (candidate) => candidate.keyframes && !candidate.arcPath,
-    );
-  if (!animation?.keyframes) return NO_KEYFRAME_TOGGLE;
-
-  const isMotionPath = Boolean(arcAnimation);
-  if (
-    !isPlayheadWithinTween(animation, currentTime, session.domEditSelection)
-  ) {
-    return {
-      state: "inactive",
-      isMotionPath,
-      pathEndpoint: false,
-      willExtend: true,
-    };
-  }
-
-  const duration = resolveEditableTweenDuration(
-    animation,
-    session.domEditSelection,
-  );
-  const start = resolveTweenStart(animation) ?? 0;
-  const pathEndpoint = isMotionPathEndpoint(
-    arcAnimation,
-    currentTime,
-    session.domEditSelection,
-  );
-  const active = animation.keyframes.keyframes.some((keyframe) =>
-    keyframeIsAtOutputTime(keyframe.percentage, currentTime, {
-      start,
-      duration,
-    }),
-  );
+  if (!native) return NO_KEYFRAME_TOGGLE;
   return {
-    state: pathEndpoint ? "none" : active ? "active" : "inactive",
-    isMotionPath,
-    pathEndpoint,
+    state: native.active ? "active" : "inactive",
+    isMotionPath: false,
+    pathEndpoint: false,
     willExtend: false,
   };
 }
@@ -186,7 +112,7 @@ function useKeyframeToggle(session?: DomEditSessionSlice) {
   return {
     ...toggleState,
     onToggle:
-      session?.domEditSelection && !toggleState.pathEndpoint
+      session?.domEditSelection && toggleState.state !== "none"
         ? onToggle
         : undefined,
   };

@@ -129,14 +129,11 @@ describe("TimelineToolbar — motion path endpoints", () => {
     const session = {
       domEditSelection: makeSelection("Element", element),
       selectedGsapAnimations: [animation],
-      handleGsapAddAnimation: vi.fn(),
-      handleGsapConvertToKeyframes: vi.fn(),
-      handleGsapRemoveKeyframe: vi.fn(),
     } satisfies NonNullable<React.ComponentProps<typeof TimelineToolbar>["domEditSession"]>;
 
     const { host, root } = renderToolbar(session);
     const button = host.querySelector<HTMLButtonElement>(
-      'button[aria-label="Motion path endpoint"]',
+      'button[aria-label="Add keyframe at playhead"]',
     );
     expect(button?.disabled).toBe(true);
     act(() => root.unmount());
@@ -161,9 +158,6 @@ describe("TimelineToolbar — keyframes on audio tracks", () => {
     return {
       domEditSelection: makeSelection("Element", element),
       selectedGsapAnimations: [],
-      handleGsapAddAnimation: vi.fn(),
-      handleGsapConvertToKeyframes: vi.fn(),
-      handleGsapRemoveKeyframe: vi.fn(),
     } satisfies NonNullable<React.ComponentProps<typeof TimelineToolbar>["domEditSession"]>;
   }
 
@@ -179,12 +173,12 @@ describe("TimelineToolbar — keyframes on audio tracks", () => {
     act(() => root.unmount());
   });
 
-  it("still offers it for a visual clip", () => {
+  it("keeps an unresolved visual clip disabled until native bootstrap is available", () => {
     const { host, root } = renderToolbar(sessionFor("div"));
     const button = host.querySelector<HTMLButtonElement>(
       'button[aria-label="Add keyframe at playhead"]',
     );
-    expect(button?.disabled).toBe(false);
+    expect(button?.disabled).toBe(true);
     act(() => root.unmount());
   });
 });
@@ -228,9 +222,6 @@ describe("TimelineToolbar — selected keyframe nudging", () => {
     const session = {
       domEditSelection,
       selectedGsapAnimations: [animation],
-      handleGsapAddAnimation: vi.fn(),
-      handleGsapConvertToKeyframes: vi.fn(),
-      handleGsapRemoveKeyframe: vi.fn(),
       handleGsapMoveKeyframes,
     } satisfies NonNullable<React.ComponentProps<typeof TimelineToolbar>["domEditSession"]>;
     const { root } = renderToolbar(session);
