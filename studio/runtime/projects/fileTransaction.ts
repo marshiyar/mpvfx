@@ -331,6 +331,31 @@ async function validateTarget(root: string, path: string): Promise<string> {
   return target;
 }
 
+/**
+ * A file created by the transaction (expectedBefore null) may live in a folder
+ * the project does not have yet, such as `.studio/` on the first native save.
+ * Create it only below the nearest existing ancestor that resolves inside the
+ * project; validateTarget re-checks the created parent afterwards.
+ */
+async function ensureTargetParent(root: string, path: string): Promise<void> {
+  const parent = dirname(resolve(root, path));
+  if (!isWithin(root, parent)) throw new Error(`Unsafe transaction target escaped project: ${path}`);
+  let ancestor = parent;
+  for (;;) {
+    try {
+      const realAncestor = await realpath(ancestor);
+      if (!isWithin(root, realAncestor)) {
+        throw new Error(`Unsafe transaction target parent escapes project: ${path}`);
+      }
+      break;
+    } catch (error) {
+      if (!isMissing(error) || ancestor === root) throw error;
+      ancestor = dirname(ancestor);
+    }
+  }
+  if (ancestor !== parent) await mkdir(parent, { recursive: true });
+}
+
 async function readExact(path: string): Promise<string | null> {
   try {
     return await readFile(path, "utf8");
@@ -655,6 +680,9 @@ export function createDurableFileTransactionStore(
       }
 
       const root = await projectRoot();
+      for (const file of input.files) {
+        if (file.expectedBefore === null) await ensureTargetParent(root, file.path);
+      }
       const resolvedTargets = await Promise.all(
         input.files.map(async (file) => ({ file, target: await validateTarget(root, file.path) })),
       );

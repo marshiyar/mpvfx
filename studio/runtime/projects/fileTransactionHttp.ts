@@ -64,6 +64,8 @@ function errorResponse(error: unknown): Response {
   ) {
     return json({ error: message }, 400);
   }
+  // The client only sees a generic failure; keep the cause diagnosable.
+  console.error("[file-transactions] unexpected failure:", error);
   return json({ error: "Durable transaction service failed" }, 500);
 }
 

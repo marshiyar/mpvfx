@@ -60,6 +60,7 @@ afterEach(() => {
 function renderBootstrap(
   readLegacyAnimations: (projectId: string, sourceFile: string) => Promise<readonly GsapAnimation[] | null>,
   onState: (state: NativeProjectBootstrapState) => void,
+  scope: { elements?: readonly TimelineElement[]; activeSourceFile?: string } = {},
 ) {
   const host = document.createElement("div");
   document.body.append(host);
@@ -70,6 +71,8 @@ function renderBootstrap(
       <Harness
         readLegacyAnimations={readLegacyAnimations}
         onState={onState}
+        elements={scope.elements ?? timelineElements}
+        activeSourceFile={scope.activeSourceFile ?? "index.html"}
       />,
     );
   });
@@ -79,16 +82,21 @@ function renderBootstrap(
 function Harness({
   readLegacyAnimations,
   onState,
+  elements,
+  activeSourceFile,
 }: {
   readLegacyAnimations: (projectId: string, sourceFile: string) => Promise<readonly GsapAnimation[] | null>;
   onState: (state: NativeProjectBootstrapState) => void;
+  elements: readonly TimelineElement[];
+  activeSourceFile: string;
 }) {
   const state = useNativeProjectBootstrap({
     status: "absent",
     projectId: "project:native-bootstrap",
     compositionDimensions: dimensions,
     frameRate: authoritativeFrameRate,
-    timelineElements,
+    timelineElements: elements,
+    activeSourceFile,
     readLegacyAnimations,
   });
   onState(state);
@@ -117,6 +125,23 @@ describe("useNativeProjectBootstrap", () => {
         keyframes: [{ frame: 0, value: 0 }, { frame: 24, value: -180 }],
       },
     ]);
+    expect(latest.diagnostics).toEqual([]);
+  });
+
+  it("binds rows owned by the active composition, which carry no sourceFile of their own", async () => {
+    const { sourceFile: _owned, ...unscoped } = element;
+    const read = vi.fn(async () => [animation]);
+    let latest!: NativeProjectBootstrapState;
+    renderBootstrap(read, (state) => (latest = state), {
+      elements: [unscoped],
+      activeSourceFile: "scenes/intro.html",
+    });
+    await act(async () => {});
+
+    expect(read).toHaveBeenCalledWith("project:native-bootstrap", "scenes/intro.html");
+    const clip = latest.document?.sequence.tracks[0]?.clips[0];
+    expect(clip?.binding?.sourceFile).toBe("scenes/intro.html");
+    expect(clip?.parameterTracks[0]?.parameterId).toBe("transform.rotation");
     expect(latest.diagnostics).toEqual([]);
   });
 
@@ -187,6 +212,7 @@ function AuthoritativeHarness({
       compositionDimensions: dimensions,
       frameRate: authoritativeFrameRate,
       timelineElements,
+      activeSourceFile: "index.html",
       readLegacyAnimations,
     }),
   );
@@ -207,6 +233,7 @@ function MissingTimebaseHarness({
       compositionDimensions: dimensions,
       frameRate: null,
       timelineElements,
+      activeSourceFile: "index.html",
       readLegacyAnimations,
     }),
   );

@@ -179,6 +179,27 @@ export function useFileManager({
     [fileVersions, projectId],
   );
 
+  /**
+   * Like readOptionalProjectFile, but a missing file is null rather than "".
+   * The server marks an existing file with a content version, so an empty file
+   * and an absent one stay distinct. Creating a file durably depends on this:
+   * its transaction must state that nothing existed before.
+   */
+  const readExistingProjectFile = useCallback(
+    async (path: string): Promise<string | null> => {
+      if (!projectId) throw new Error("No active project");
+      const response = await desktopRequest(
+        `/api/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(path)}?optional=1`,
+      );
+      if (!response.ok) throw new Error(`Failed to read ${path}`);
+      const data = (await response.json()) as { content?: string; version?: string };
+      const version = data.version ?? response.headers.get("etag");
+      fileVersions.set(path, version);
+      return version && typeof data.content === "string" ? data.content : null;
+    },
+    [fileVersions, projectId],
+  );
+
   const overwriteExternalConflict = useCallback(
     async (conflict: StudioFileConflictError) => {
       if (conflict.currentContent != null) {
@@ -449,6 +470,7 @@ export function useFileManager({
     writeProjectFile,
     overwriteExternalConflict,
     readOptionalProjectFile,
+    readExistingProjectFile,
     observeProjectFileVersion,
     updateEditingFileContent,
 

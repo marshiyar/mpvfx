@@ -463,3 +463,17 @@ it("keeps the active gesture picture through retained frame reapplication", () =
     expect(element.style.transform).toContain("rotate(-90deg)");
   } finally { delete runtime.gsap; }
 });
+
+it("keeps the page's GSAP values for transform components it has no native value for", async () => {
+  const { gsap } = await import("gsap");
+  const element = addClipElement();
+  const runtime = window as unknown as { gsap?: unknown };
+  runtime.gsap = gsap;
+  try {
+    // An animation that stayed legacy-owned (for example an unsupported ease).
+    gsap.set(element, { rotation: 30, scale: 0.5, x: 999 });
+    const [position] = animatedClip().parameterTracks;
+    applyNativeFrameToDocument(document, [animatedClip({ parameterTracks: [position!] })], 75);
+    expect(element.style.transform).toBe("translate3d(50px, 25px, 0px) rotate(30deg) scale(0.5, 0.5)");
+  } finally { delete runtime.gsap; }
+});

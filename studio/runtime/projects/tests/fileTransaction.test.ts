@@ -154,6 +154,29 @@ describe("durable file transactions", () => {
     expect(await readFile(join(root, "delete-me.txt"), "utf8")).toBe("partial");
   });
 
+  it("creates missing parent folders for a new file inside the project", async () => {
+    const root = await projectRoot();
+    const store = createDurableFileTransactionStore({ projectRoot: root });
+    await store.commit({
+      id: "tx-first-sidecar",
+      files: [{ path: ".studio/project.json", expectedBefore: null, after: "{}" }],
+    });
+    await expect(readFile(join(root, ".studio/project.json"), "utf8")).resolves.toBe("{}");
+  });
+
+  it("never creates parent folders through a symlink that leaves the project", async () => {
+    const root = await projectRoot();
+    const outside = await mkdtemp(join(tmpdir(), "studio-file-transaction-outside-"));
+    roots.push(outside);
+    await symlink(outside, join(root, "linked"));
+    const store = createDurableFileTransactionStore({ projectRoot: root });
+    await expect(store.commit({
+      id: "tx-escape",
+      files: [{ path: "linked/nested/file.json", expectedBefore: null, after: "x" }],
+    })).rejects.toThrow(/unsafe/i);
+    await expect(readFile(join(outside, "nested/file.json"), "utf8")).rejects.toThrow();
+  });
+
   it("makes committed retries idempotent and rejects transaction-id payload reuse", async () => {
     const root = await projectRoot();
     const afterTargetWrite = vi.fn();

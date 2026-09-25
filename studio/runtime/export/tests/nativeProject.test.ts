@@ -289,7 +289,9 @@ describe("native project render body script", () => {
     expect(script).not.toBeNull();
     expect(script).toContain("__studioNativeProjectApply");
     expect(script).not.toMatch(/\b(?:fetch|import)\s*\(/);
-    expect(script).not.toMatch(/\bgsap\b/i);
+    // Native values never animate through GSAP; the script only reads GSAP's
+    // cache for transform components a clip has no native value for.
+    expect(script).not.toMatch(/\bgsap\s*\.\s*(?:to|from|fromTo|set|timeline|quickSetter)\s*\(/i);
 
     const element = document.createElement("div");
     element.setAttribute("data-studio-clip-id", "clip:1");

@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
+import { gsap } from "gsap";
+import { installStudioCustomEase } from "@hyperframes/core/runtime/custom-ease";
 import type { GsapAnimation } from "@hyperframes/core/gsap-parser";
 
 import { evaluateNativeParameterTrack } from "../../../shared/project/nativeKeyframeEvaluator";
 import { adaptLegacyGsapAnimations } from "./legacyGsapKeyframeAdapter";
 
 const fps = { numerator: 30, denominator: 1 };
+// The studio runtime's own ease resolver, so custom() plays as it does in the app.
+installStudioCustomEase(gsap);
 
 function animation(overrides: Partial<GsapAnimation>): GsapAnimation {
   return {
@@ -14,6 +18,7 @@ function animation(overrides: Partial<GsapAnimation>): GsapAnimation {
     position: 0,
     resolvedStart: 0,
     duration: 3,
+    ease: "none",
     properties: { rotation: -180 },
     fromProperties: { rotation: 0 },
     ...overrides,
@@ -64,7 +69,7 @@ describe("legacy GSAP keyframe adapter", () => {
             keyframes: [
               { percentage: 0, properties: { x: 10, y: 20 }, ease: "none" },
               { percentage: 50, properties: { x: 70, y: 80 }, ease: "linear" },
-              { percentage: 100, properties: { x: 100, y: 120 } },
+              { percentage: 100, properties: { x: 100, y: 120 }, ease: "none" },
             ],
           },
         }),
@@ -142,7 +147,7 @@ describe("legacy GSAP keyframe adapter", () => {
     ]);
   });
 
-  it("maps only linear/none and explicit cubic-bezier easing without approximation", () => {
+  it("maps eases with an exact cubic form and keeps the rest legacy-only", () => {
     const cubic = adaptLegacyGsapAnimations({
       clipId: "clip:camera-a",
       clipStartSeconds: 0,
@@ -158,7 +163,7 @@ describe("legacy GSAP keyframe adapter", () => {
       clipId: "clip:camera-a",
       clipStartSeconds: 0,
       frameRate: fps,
-      animations: [animation({ ease: "power2.inOut" })],
+      animations: [animation({ ease: "elastic.out(1, 0.3)" })],
     });
     expect(unsupported.nativeTracks).toEqual([]);
     expect(unsupported.legacyOnly.map((item) => item.id)).toEqual(["legacy:rotation"]);
@@ -167,13 +172,89 @@ describe("legacy GSAP keyframe adapter", () => {
     );
   });
 
+  // What GSAP itself plays, frame by frame, is the reference for every import.
+  function gsapFrames(vars: gsap.TweenVars, frames: number): number[] {
+    const target = { rotation: 0 };
+    const tween = gsap.fromTo(target, { rotation: 0 }, { ...vars, paused: true });
+    const duration = tween.duration();
+    return Array.from({ length: frames + 1 }, (_, frame) => {
+      tween.seek(Math.min(frame / 30, duration));
+      return target.rotation;
+    });
+  }
+
+  it.each([
+    ["omitted (GSAP default power1.out)", undefined],
+    ["power1.in", "power1.in"],
+    ["quad.out", "quad.out"],
+    ["power2.out", "power2.out"],
+    ["power2.inOut", "power2.inOut"],
+    ["power1.inOut", "power1.inOut"],
+    ["studio custom()", "custom(M0,0 C1,1.6 1,-1 1,1)"],
+  ] as const)("plays a %s tween exactly like GSAP at every frame", (_name, ease) => {
+    const result = adaptLegacyGsapAnimations({
+      clipId: "clip:camera-a",
+      clipStartSeconds: 0,
+      frameRate: fps,
+      animations: [animation({ ease, duration: 3 })],
+    });
+    expect(result.diagnostics).toEqual([]);
+    const expected = gsapFrames({ rotation: -180, duration: 3, ...(ease ? { ease } : {}) }, 90);
+    expected.forEach((value, frame) => {
+      expect(evaluateNativeParameterTrack(result.nativeTracks[0]!, frame)).toBeCloseTo(value, 4);
+    });
+  });
+
+  function percentageRun(keyframes: { percentage: number; properties: { rotation: number }; ease?: string }[], seconds: number) {
+    const result = adaptLegacyGsapAnimations({
+      clipId: "clip:camera-a",
+      clipStartSeconds: 0,
+      frameRate: fps,
+      animations: [animation({
+        method: "to", ease: undefined, duration: seconds, properties: {}, fromProperties: undefined,
+        keyframes: { format: "percentage", keyframes },
+      })],
+    });
+    const target = { rotation: 0 };
+    const tween = gsap.to(target, {
+      keyframes: Object.fromEntries(keyframes.map((key) => [`${key.percentage}%`, { ...key.properties, ...(key.ease ? { ease: key.ease } : {}) }])),
+      duration: seconds,
+      paused: true,
+    });
+    const errors = Array.from({ length: seconds * 30 + 1 }, (_, frame) => {
+      tween.seek(frame / 30);
+      return Math.abs(evaluateNativeParameterTrack(result.nativeTracks[0]!, frame) - target.rotation);
+    });
+    return { result, maxError: Math.max(...errors) };
+  }
+
+  it("eases each percentage segment by its destination key, defaulting to power1.inOut", () => {
+    const { result, maxError } = percentageRun([
+      { percentage: 0, properties: { rotation: 0 } },
+      { percentage: 50, properties: { rotation: -90 }, ease: "power2.in" },
+      { percentage: 100, properties: { rotation: -180 } },
+    ], 2);
+    expect(result.diagnostics).toEqual([]);
+    expect(maxError).toBeLessThan(1e-4);
+  });
+
+  it("snaps an inOut midpoint that falls between frames to the frame it falls in", () => {
+    // 45-frame segment: its midpoint 22.5 snaps to 22, a sub-frame shift.
+    const { result, maxError } = percentageRun([
+      { percentage: 0, properties: { rotation: 0 } },
+      { percentage: 100, properties: { rotation: -180 } },
+    ], 1.5);
+    expect(result.diagnostics).toEqual([]);
+    expect(maxError).toBeLessThan(180 * 0.005);
+  });
+
   it.each([
     ["helper", { provenance: { kind: "helper", fn: "spin", callSite: 1 } }],
     ["runtime dynamic", { hasUnresolvedKeyframes: true }],
     ["plugin motion path", { arcPath: { enabled: true, autoRotate: false, segments: [] } }],
     ["dynamic selector", { hasUnresolvedSelector: true }],
     ["non-finite value", { properties: { rotation: Number.NaN } }],
-    ["off-frame timing", { resolvedStart: 1 / 59 }],
+    ["sub-frame tween", { duration: 1 / 60 }],
   ] as const)("keeps %s input legacy-only with a diagnostic", (_name, overrides) => {
     const source = animation(overrides);
     const result = adaptLegacyGsapAnimations({
@@ -187,6 +268,56 @@ describe("legacy GSAP keyframe adapter", () => {
     expect(result.legacyOnly).toEqual([source]);
     expect(result.diagnostics).toHaveLength(1);
     expect(result.diagnostics[0]?.animationId).toBe(source.id);
+  });
+
+  it("maps authored times to the project frame they fall in, like adopted clip starts", () => {
+    // HTML clip at 0.57s is adopted at frame 17 (floor of 17.1); its own set at
+    // 0.57s must stay on local frame 0 rather than be dropped as off-frame.
+    const result = adaptLegacyGsapAnimations({
+      clipId: "clip:camera-a",
+      clipStartSeconds: 17 / 30,
+      frameRate: fps,
+      animations: [
+        animation({ id: "legacy:hold", method: "set", resolvedStart: 0.57, duration: 0, properties: { scale: 0.5 }, fromProperties: undefined }),
+        animation({ id: "legacy:spin", resolvedStart: 0.57, duration: 1.01 }),
+      ],
+    });
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.nativeTracks.map((track) => [track.parameterId, track.keyframes.map((keyframe) => keyframe.frame)])).toEqual([
+      ["transform.scale", [0]],
+      ["transform.rotation", [0, 30]],
+    ]);
+  });
+
+  it("holds a set authored before the clip as the clip's starting value", () => {
+    // gsap.set outside the timeline applies at load (resolved start 0).
+    const result = adaptLegacyGsapAnimations({
+      clipId: "clip:camera-a",
+      clipStartSeconds: 2,
+      clipDurationFrames: 90,
+      frameRate: fps,
+      animations: [animation({ method: "set", resolvedStart: 0, duration: 0, properties: { x: 87 }, fromProperties: undefined })],
+    });
+    expect(result.diagnostics).toEqual([]);
+    expect(result.nativeTracks[0]?.keyframes.map((key) => [key.frame, key.value])).toEqual([[0, 87]]);
+  });
+
+  it("cuts a tween reaching outside the clip exactly where the clip starts and ends", () => {
+    // 0→-180 over frames 0..90 in project time; the clip spans frames 30..60.
+    const result = adaptLegacyGsapAnimations({
+      clipId: "clip:camera-a",
+      clipStartSeconds: 1,
+      clipDurationFrames: 30,
+      frameRate: fps,
+      animations: [animation({})],
+    });
+    expect(result.diagnostics).toEqual([]);
+    const track = result.nativeTracks[0]!;
+    expect(track.keyframes.map((key) => key.frame)).toEqual([0, 30]);
+    for (const frame of [0, 10, 30]) {
+      expect(evaluateNativeParameterTrack(track, frame)).toBeCloseTo(-2 * (frame + 30), 9);
+    }
   });
 
   it("never merges sibling source animations, even when they address the same parameter", () => {

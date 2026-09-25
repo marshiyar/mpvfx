@@ -139,7 +139,7 @@ export function StudioApp() {
   );
   const nativeProjectSession = useNativeProjectSession({
     projectId,
-    readOptionalProjectFile: fileManager.readOptionalProjectFile,
+    readOptionalProjectFile: fileManager.readExistingProjectFile,
     iframe: previewIframe,
     reloadToken: `${refreshKey}:${nativeProjectReloadToken}`,
     onNativeDuration: handleNativeDuration,
@@ -157,6 +157,7 @@ export function StudioApp() {
     compositionDimensions,
     frameRate: timelineFrameRate,
     timelineElements,
+    activeSourceFile: activeCompPath ?? "index.html",
     readLegacyAnimations,
   });
   const nativeBootstrapDocument = nativeBootstrapState.document;
@@ -183,7 +184,7 @@ export function StudioApp() {
     () => ({
       nativeDocument: nativeProjectSession.document,
       nativeBootstrapDocument,
-      readOptionalProjectFile: fileManager.readOptionalProjectFile,
+      readOptionalProjectFile: fileManager.readExistingProjectFile,
       writeProjectFile: fileManager.writeProjectFile,
       recordHistory: recordNativeProjectHistory,
       onNativeDocumentCommitted: handleNativeDocumentCommitted,
@@ -191,7 +192,7 @@ export function StudioApp() {
       getPlayheadSeconds: getNativePlayheadSeconds,
     }),
     [
-      fileManager.readOptionalProjectFile,
+      fileManager.readExistingProjectFile,
       fileManager.writeProjectFile,
       commitNativeFileTransaction,
       getNativePlayheadSeconds,
