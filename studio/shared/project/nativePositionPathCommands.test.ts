@@ -235,6 +235,30 @@ describe("property commands on a 2D position (the path the editor UI uses)", () 
     expect(clip.staticParameters?.["transform.position.x"]).toBeUndefined();
   });
 
+  it.each([25, -25])("offsets both position components by %s without dropping either edit", async (delta) => {
+    const applyProperty = await property();
+    const document = bezierDocument();
+    const result = applyProperty(document, {
+      type: "batch",
+      commands: [
+        { type: "offset-track", address: at("transform.position.x"), delta },
+        { type: "offset-track", address: at("transform.position.y"), delta },
+      ],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const translated = position(result.document);
+    expect(translated.keyframes[0]!.outgoingPath).toEqual({
+      type: "bezier", cp1: { x: delta, y: 300 + delta }, cp2: { x: 400 + delta, y: 300 + delta },
+    });
+    for (let frame = 0; frame <= 90; frame += 1) {
+      const before = evaluateNativeParameterTrack(position(document), frame);
+      const after = evaluateNativeParameterTrack(translated, frame);
+      expect(after.x).toBeCloseTo(before.x + delta, 6);
+      expect(after.y).toBeCloseTo(before.y + delta, 6);
+    }
+  });
+
   it("offsets one component of the path, moving Bezier handles with it", async () => {
     const applyProperty = await property();
     const document = bezierDocument();

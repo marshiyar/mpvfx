@@ -468,7 +468,7 @@ export const positionPairSignature = (
   document: NativeProjectDocument,
   command: { readonly type: string; readonly address: NativeProjectParameterAddress },
 ): string | null => {
-  if (command.type === "upsert" || command.type === "update-value" || command.type === "set-static") return null;
+  if (command.type === "upsert" || command.type === "update-value" || command.type === "offset-track" || command.type === "set-static") return null;
   const location = locateClip(document, command.address);
   if (isFailure(location) || !routedPosition(location.clip, command.address.parameterId)) return null;
   const { address, ...rest } = command as typeof command & Record<string, unknown>;

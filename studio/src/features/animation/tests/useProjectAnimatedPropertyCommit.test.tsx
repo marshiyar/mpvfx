@@ -206,9 +206,9 @@ describe("useProjectAnimatedPropertyCommit", () => {
     const target = compatibilitySelection({ explicitNativeId: "clip:missing" });
 
     expect(api.isNativeSelection(target)).toBe(false);
-    await expect(api.commitAnimatedProperty(target, "rotation", -180)).resolves.toBe("legacy");
+    await expect(api.commitAnimatedProperty(target, "rotation", -180)).rejects.toBeInstanceOf(NativeProjectEditRoutingError);
     expect(memory.writeProjectFile).not.toHaveBeenCalled();
-    expect(memory.legacyCommitProperties).toHaveBeenCalledOnce();
+    expect(memory.legacyCommitProperties).not.toHaveBeenCalled();
   });
 
   it("creates the native sidecar and keyframe atomically on the first eligible edit", async () => {
@@ -336,21 +336,20 @@ describe("useProjectAnimatedPropertyCommit", () => {
     ["absent sidecar", null, selection(), { rotation: -180 }],
     ["unmatched clip", project(), selection("clip:missing"), { rotation: -180 }],
     ["unsupported property", project(), selection(), { color: "red" }],
-  ] as const)("falls back to legacy exactly once for %s", async (_label, native, target, props) => {
+  ] as const)("rejects explicit keyframe authoring without a native route for %s", async (_label, native, target, props) => {
     const memory = memoryOptions(native);
     const api = renderCommit(memory.options);
 
     await expect(
       api.commitAnimatedProperties(target, props, { intent: "keyframe" }),
-    ).resolves.toBe("legacy");
+    ).rejects.toBeInstanceOf(NativeProjectEditRoutingError);
 
-    expect(memory.legacyCommitProperties).toHaveBeenCalledTimes(1);
-    expect(memory.legacyCommitProperties).toHaveBeenCalledWith(target, props);
+    expect(memory.legacyCommitProperties).not.toHaveBeenCalled();
     expect(memory.writeProjectFile).not.toHaveBeenCalled();
     expect(memory.recordHistory).not.toHaveBeenCalled();
   });
 
-  it("does not partially write a mixed native/unsupported batch before legacy fallback", async () => {
+  it("rejects a mixed native/unsupported keyframe batch without writing either authority", async () => {
     const memory = memoryOptions(project());
     const api = renderCommit(memory.options);
     const target = selection();
@@ -358,11 +357,29 @@ describe("useProjectAnimatedPropertyCommit", () => {
 
     await expect(
       api.commitAnimatedProperties(target, props, { intent: "keyframe" }),
-    ).resolves.toBe("legacy");
+    ).rejects.toBeInstanceOf(NativeProjectEditRoutingError);
 
-    expect(memory.legacyCommitProperties).toHaveBeenCalledOnce();
+    expect(memory.legacyCommitProperties).not.toHaveBeenCalled();
     expect(memory.writeProjectFile).not.toHaveBeenCalled();
     expect(memory.getContent()).toBe(serializeNativeProjectDocument(project()));
+  });
+
+  it("preserves ordinary compatibility edits when no native project exists", async () => {
+    const memory = memoryOptions(null);
+    const api = renderCommit(memory.options);
+    const target = compatibilitySelection();
+    await expect(api.commitAnimatedProperty(target, "rotation", 45)).resolves.toBe("legacy");
+    expect(memory.legacyCommitProperties).toHaveBeenCalledWith(target, { rotation: 45 });
+    expect(memory.writeProjectFile).not.toHaveBeenCalled();
+  });
+
+  it("does not route auto-key authoring into a legacy writer when native bootstrap is unavailable", async () => {
+    const memory = memoryOptions(null, 2, true);
+    const api = renderCommit(memory.options);
+    await expect(api.commitAnimatedProperty(compatibilitySelection(), "rotation", 45))
+      .rejects.toBeInstanceOf(NativeProjectEditRoutingError);
+    expect(memory.legacyCommitProperties).not.toHaveBeenCalled();
+    expect(memory.writeProjectFile).not.toHaveBeenCalled();
   });
 
   it("rejects an invalid native edit without mutating native or legacy state", async () => {

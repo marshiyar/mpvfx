@@ -119,8 +119,9 @@ function editLabel(
  * Project-level property router.
  *
  * The native document is authoritative when an exact clip binding and a fully
- * supported atomic edit exist. The legacy callback remains an all-or-nothing
- * compatibility fallback; a batch can never write both authorities.
+ * supported atomic edit exist. Explicit keys, auto-key edits, and explicit
+ * native identities never fall back to another animation writer. Ordinary
+ * compatibility edits retain an atomic fallback; batches never split authorities.
  */
 export function useProjectAnimatedPropertyCommit(
   options: UseProjectAnimatedPropertyCommitOptions,
@@ -168,15 +169,23 @@ export function useProjectAnimatedPropertyCommit(
         const dependencies = dependenciesRef.current;
         const persistedDocument = latestDocumentRef.current;
         const document = persistedDocument ?? dependencies.nativeBootstrapDocument ?? null;
+        const requiresNative = request.intent === "keyframe" || request.autoKeyframeEnabled ||
+          Boolean(request.selectedElement.attributes["data-studio-clip-id"]);
         if (!document) {
-          await dependencies.legacyCommitProperties(selection, properties);
+          if (requiresNative) {
+            throw new NativeProjectEditRoutingError({
+              code: "clip-not-found",
+              message: "This layer is not available in the native project. The keyframe edit was not saved.",
+            });
+          }
+          await dependencies.legacyCommitProperties(selection, request.properties);
           return "legacy";
         }
 
         const initialPlan = planNativePropertyEdit(document, request);
         if (!initialPlan.ok) {
-          if (LEGACY_FALLBACK_CODES.has(initialPlan.failure.code)) {
-            await dependencies.legacyCommitProperties(selection, properties);
+          if (!requiresNative && LEGACY_FALLBACK_CODES.has(initialPlan.failure.code)) {
+            await dependencies.legacyCommitProperties(selection, request.properties);
             return "legacy";
           }
           throw new NativeProjectEditRoutingError(initialPlan.failure);
