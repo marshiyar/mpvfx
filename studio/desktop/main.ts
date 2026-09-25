@@ -6,6 +6,7 @@ import { ensureDesktopProject, resolveDesktopDataPaths } from "./projectPaths";
 import { prepareEditorRendererSession } from "./rendererCache";
 import { applyDesktopRuntimeEnvironment } from "./runtimeBinaries";
 import { createWindowOptions, installWindowGuards, isEditorFullscreenRequest } from "./windowPolicy";
+import { installEngineInMainProcess, resolveEngineModulePath } from "./engineModule";
 import { assertBundledMediaBinariesAvailable } from "../runtime/environment";
 
 protocol.registerSchemesAsPrivileged([{
@@ -19,6 +20,7 @@ app.setAppUserModelId("com.mpvfx.editor");
 let mainWindow: BrowserWindow | null = null;
 let quittingAfterCleanup = false;
 let controller: ReturnType<typeof createDesktopAppController> | null = null;
+let engineModulePath: string | undefined;
 
 function configurePermissions(): void {
   session.defaultSession.setPermissionCheckHandler((webContents, permission, _origin, details) => {
@@ -32,7 +34,10 @@ function configurePermissions(): void {
 }
 
 function createEditorWindow(): BrowserWindow {
-  const editorWindow = new BrowserWindow(createWindowOptions(join(app.getAppPath(), ".build", "desktop-dist", "preload", "preload.cjs")));
+  const editorWindow = new BrowserWindow(createWindowOptions(
+    join(app.getAppPath(), ".build", "desktop-dist", "preload", "preload.cjs"),
+    engineModulePath,
+  ));
   mainWindow = editorWindow;
   editorWindow.setMenu(null);
   editorWindow.once("ready-to-show", () => editorWindow.show());
@@ -50,6 +55,9 @@ function createEditorWindow(): BrowserWindow {
 async function startDesktopApplication(): Promise<void> {
   configurePermissions();
   const appPath = app.getAppPath();
+  // The C++ engine owns keyframes; nothing that evaluates them may start first.
+  engineModulePath = resolveEngineModulePath({ appPath, isPackaged: app.isPackaged, resourcesPath: process.resourcesPath });
+  installEngineInMainProcess(engineModulePath);
   const userDataPath = process.env.MPVFX_USER_DATA_DIR
     ? resolve(process.env.MPVFX_USER_DATA_DIR)
     : app.getPath("userData");

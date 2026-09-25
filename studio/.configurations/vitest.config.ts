@@ -10,6 +10,7 @@ export default defineConfig({
   esbuild: { tsconfigRaw: JSON.stringify(tsconfig) },
   test: {
     exclude: [".build/**", "data/**", "dist/**", "desktop-dist/**", "out/**", "node_modules/**"],
-    setupFiles: ["src/test-support/fetchStubTestUtils.ts"],
+    env: { VKF_ENGINE_MODULE: fileURLToPath(new URL("../.build/native/vkf/vkf.node", import.meta.url)) },
+    setupFiles: [".configurations/vkfEngineTestSetup.ts", "src/test-support/fetchStubTestUtils.ts"],
   },
 });

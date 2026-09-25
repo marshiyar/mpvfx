@@ -18,7 +18,7 @@ module.exports = {
       unpack:
         "**/node_modules/{ffmpeg-static,@ffprobe-installer/**,@img/**,esbuild/**,@esbuild/**}/**",
     },
-    extraResource: [".puppeteer-cache/chrome-headless-shell", "legal"],
+    extraResource: [".puppeteer-cache/chrome-headless-shell", "legal", ".build/native/vkf/vkf.node"],
     ignore: [
       /^\/(?:src|desktop|runtime|shared|tests|fixtures|data|cache|renders|scripts|legal)(?:\/|$)/,
       /^\/\.puppeteer-cache(?:\/|$)/,

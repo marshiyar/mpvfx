@@ -3,7 +3,11 @@ import { createRoot } from "react-dom/client";
 import { StudioApp } from "./app/App";
 import { StudioErrorBoundary } from "./app/StudioErrorBoundary";
 import { trackStudioEvent } from "./lib/studioTelemetry";
+import { installDesktopVkfEngine } from "./lib/vkfEngineClient";
 import "./styles/studio.css";
+
+// Keyframes are evaluated by the C++ engine; connect it before anything renders.
+installDesktopVkfEngine();
 
 trackStudioEvent("session_start");
 

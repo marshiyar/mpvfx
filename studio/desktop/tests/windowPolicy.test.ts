@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createWindowOptions, installWindowGuards, isEditorFullscreenRequest } from "../windowPolicy";
+import { ENGINE_MODULE_ARGUMENT, createWindowOptions, installWindowGuards, isEditorFullscreenRequest } from "../windowPolicy";
 
 describe("desktop window security policy", () => {
   it("allows fullscreen only for the editor's own document", () => {
@@ -15,15 +15,16 @@ describe("desktop window security policy", () => {
     }
   });
 
-  it("runs the editor in an isolated sandbox without Node access", () => {
-    const options = createWindowOptions("/app/preload.cjs");
+  it("isolates the editor page from Node while its preload hosts the C++ engine", () => {
+    const options = createWindowOptions("/app/preload.cjs", "/app/vkf.node");
 
     expect(options).toMatchObject({
       show: false,
       backgroundColor: "#0a0a0a",
       webPreferences: {
         contextIsolation: true,
-        sandbox: true,
+        // Only the preload is unsandboxed, to load the engine's native module.
+        sandbox: false,
         nodeIntegration: false,
         webSecurity: true,
         allowRunningInsecureContent: false,
@@ -31,6 +32,8 @@ describe("desktop window security policy", () => {
       },
     });
     expect(options.webPreferences.preload).toBe("/app/preload.cjs");
+    expect(options.webPreferences.additionalArguments).toEqual([`${ENGINE_MODULE_ARGUMENT}/app/vkf.node`]);
+    expect(createWindowOptions("/app/preload.cjs").webPreferences.additionalArguments).toBeUndefined();
   });
 
   it("denies popup windows and navigation outside the editor document", () => {

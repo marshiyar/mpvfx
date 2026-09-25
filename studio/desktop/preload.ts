@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { DESKTOP_CHANNELS, type DesktopBridge, type DesktopEvent } from "../shared/desktopBridge";
+import type { VkfEngineBridge, VkfNativeModule, VkfTrack } from "../shared/engine/vkfEngine";
+import { ENGINE_MODULE_ARGUMENT } from "./windowPolicy";
 
 // Keep Electron objects and event.sender out of the renderer's JavaScript context.
 const bridge: DesktopBridge = {
@@ -23,4 +25,47 @@ const bridge: DesktopBridge = {
   },
 };
 
-if (process.isMainFrame) contextBridge.exposeInMainWorld("mpvfx", bridge);
+/**
+ * The C++ engine runs in this process, called synchronously by the editor.
+ * Compiled tracks stay here; the page only holds numeric handles.
+ */
+function createEngineBridge(modulePath: string): VkfEngineBridge {
+  const engine = require(modulePath) as VkfNativeModule;
+  const compiled = new Map<number, unknown>();
+  let nextHandle = 1;
+  const lookup = (handle: number): unknown => {
+    const track = compiled.get(handle);
+    if (track === undefined) throw new Error(`Unknown engine track handle ${handle}`);
+    return track;
+  };
+  return {
+    apiVersion: engine.apiVersion,
+    version: engine.version,
+    compile(track: VkfTrack) {
+      try {
+        const handle = nextHandle++;
+        compiled.set(handle, engine.compileTrack(track));
+        return { handle };
+      } catch (error) {
+        const code = (error as { code?: unknown }).code;
+        return {
+          code: typeof code === "string" ? code : "engine-internal",
+          message: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+    evaluate: (handle, frame) => engine.evaluateTrack(lookup(handle), frame),
+    sample: (handle, firstFrame, count) => engine.sampleTrack(lookup(handle), firstFrame, count),
+    release: (handle) => {
+      compiled.delete(handle);
+    },
+  };
+}
+
+if (process.isMainFrame) {
+  contextBridge.exposeInMainWorld("mpvfx", bridge);
+  const moduleArgument = process.argv.find((value) => value.startsWith(ENGINE_MODULE_ARGUMENT));
+  if (moduleArgument) {
+    contextBridge.exposeInMainWorld("vkfEngine", createEngineBridge(moduleArgument.slice(ENGINE_MODULE_ARGUMENT.length)));
+  }
+}
