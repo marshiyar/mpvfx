@@ -98,3 +98,27 @@ test("curved vec2 paths, tangent angles and path validation", () => {
   assert.throws(() => engine.compileTrack({ valueType: "vec2",
     keyframes: [{ frame: 0, value: { x: 0, y: 0 }, outgoing: linear, outgoingPath: { type: "spiral" } }] }), { code: "invalid-path" });
 });
+
+test("slices tracks for trims and splits, evaluating like the original", () => {
+  const t = engine.compileTrack({
+    valueType: "vec2",
+    keyframes: [
+      { frame: 0, value: { x: 0, y: 0 }, outgoing: ease, outgoingPath: { type: "curve", curviness: 1 } },
+      { frame: 20, value: { x: 200, y: 150 }, outgoing: linear },
+      { frame: 40, value: { x: 300, y: 0 }, outgoing: linear },
+    ],
+  });
+  const keys = engine.sliceTrack(t, 7, 30);
+  assert.equal(keys[0].frame, 0);
+  assert.equal(keys[0].sourceFrame, 7);
+  assert.equal(keys[0].generated, true);
+  assert.equal(keys[0].outgoingPath.type, "bezier");
+  assert.ok(keys.some((k) => k.sourceFrame === 20 && !k.generated && k.frame === 13));
+  const rebased = engine.compileTrack({ valueType: "vec2", keyframes: keys });
+  for (let f = 0; f < 23; f++) {
+    const a = engine.evaluateTrack(t, 7 + f);
+    const b = engine.evaluateTrack(rebased, f);
+    assert.ok(Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.y - b.y) < 1e-6, `frame ${f}`);
+  }
+  assert.throws(() => engine.sliceTrack(t, 5, 5), { code: "invalid-argument" });
+});

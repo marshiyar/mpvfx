@@ -3,6 +3,8 @@
 #include <cmath>
 #include <string>
 #include <tuple>
+#include <algorithm>
+#include <vector>
 
 #include "vkf/anim/Track.h"
 
@@ -239,4 +241,69 @@ TEST(TrackPath, PathValidation)
                   Track(ValueType::Vec2, {k, point(5, 1, 1)});
               }),
               "invalid-path");
+}
+
+namespace {
+
+Track mixedPathTrack()
+{
+    TrackKey k0 = point(0, 0, 0, PathShape::Curve, 1.3);
+    k0.outgoing = Segment::CubicBezier;
+    k0.timing = {0.42, 0.0, 0.58, 1.0};
+    TrackKey k1 = point(20, 200, 150, PathShape::Bezier);
+    k1.path.cp1 = {260, 20};
+    k1.path.cp2 = {330, 260};
+    TrackKey k2 = point(45, 400, 90);
+    k2.outgoing = Segment::Hold;
+    TrackKey k3 = point(52, 500, 0, PathShape::Curve, 0.8);
+    TrackKey k4 = point(80, 650, 300);
+    return Track(ValueType::Vec2, {k0, k1, k2, k3, k4});
+}
+
+void expectSliceMatches(const Track& original, std::int64_t from, std::int64_t until)
+{
+    const auto sliced = original.slice(from, until);
+    std::vector<TrackKey> keys;
+    for (const SlicedKey& s : sliced) keys.push_back(s.key);
+    const Track rebased(original.type(), keys);
+    for (std::int64_t f = 0; f < until - from; ++f) {
+        double a[4], b[4];
+        original.evaluate(static_cast<double>(from + f), a);
+        rebased.evaluate(static_cast<double>(f), b);
+        for (int c = 0; c < componentCount(original.type()); ++c)
+            ASSERT_NEAR(a[c], b[c], 1e-6) << "range [" << from << "," << until << ") frame " << f << " component " << c;
+    }
+}
+
+}  // namespace
+
+TEST(TrackSlice, EverySliceEvaluatesExactlyLikeTheOriginal)
+{
+    const Track t = mixedPathTrack();
+    for (std::int64_t from : {0, 3, 10, 19, 20, 33, 45, 47, 60})
+        for (std::int64_t until : {from + 1, from + 5, from + 17, std::int64_t{81}, std::int64_t{120}})
+            if (until > from) expectSliceMatches(t, from, until);
+}
+
+TEST(TrackSlice, NumberTracksWithOvershootingEasesFallBackToExactSamples)
+{
+    const Track t(ValueType::Number, {key(0, 0.0, Segment::CubicBezier, {0.3, 1.8, 0.7, -0.8}), key(30, 1.0)});
+    for (std::int64_t from : {0, 4, 11})
+        for (std::int64_t until : {from + 6, std::int64_t{31}}) expectSliceMatches(t, from, until);
+}
+
+TEST(TrackSlice, KeepsAuthoredKeysAndMarksGeneratedOnes)
+{
+    const Track t = mixedPathTrack();
+    const auto sliced = t.slice(10, 50);
+    ASSERT_GE(sliced.size(), 3u);
+    EXPECT_TRUE(sliced.front().generated);  // cut point inside the first segment
+    EXPECT_EQ(sliced.front().key.frame, 0);
+    EXPECT_EQ(sliced.front().sourceFrame, 10);
+    const auto authored = std::find_if(sliced.begin(), sliced.end(), [](const SlicedKey& s) { return s.sourceFrame == 20; });
+    ASSERT_NE(authored, sliced.end());
+    EXPECT_FALSE(authored->generated);
+    EXPECT_EQ(authored->key.frame, 10);
+    EXPECT_EQ(sliced.back().key.path.shape, PathShape::Line);  // no segment after the last key
+    EXPECT_THROW(t.slice(5, 5), std::invalid_argument);
 }

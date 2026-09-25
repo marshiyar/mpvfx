@@ -17,6 +17,10 @@
 //   evaluateTrack(compiled, frame) -> number | {x, y} | {red, green, blue, alpha}
 //   sampleTrack(compiled, firstFrame, count) -> Float64Array (count * components)
 //   trackTangentAngle(compiled, frame) -> radians (NaN when the track never moves)
+//   sliceTrack(compiled, fromFrame, untilFrameExclusive)
+//       -> [{ frame, value, outgoing, outgoingPath?, sourceFrame, generated }]
+//       Keys of the track restricted to the range and rebased to frame 0
+//       (clip trims / splits); evaluates exactly like the original.
 //   sampleTrackTangentAngle(compiled, firstFrame, count) -> Float64Array
 #define NAPI_VERSION 8
 #include <node_api.h>
@@ -286,6 +290,89 @@ napi_value sampleTrack(napi_env env, napi_callback_info info)
     });
 }
 
+void setNamed(napi_env env, napi_value object, const char* name, napi_value value)
+{
+    check(env, napi_set_named_property(env, object, name, value));
+}
+
+napi_value makeString(napi_env env, const char* s)
+{
+    napi_value v;
+    check(env, napi_create_string_utf8(env, s, NAPI_AUTO_LENGTH, &v));
+    return v;
+}
+
+napi_value makeVec(napi_env env, vkf::Vec2 p)
+{
+    napi_value o;
+    check(env, napi_create_object(env, &o));
+    setNamed(env, o, "x", makeNumber(env, p.x));
+    setNamed(env, o, "y", makeNumber(env, p.y));
+    return o;
+}
+
+napi_value makeKey(napi_env env, ValueType type, const vkf::anim::SlicedKey& sliced)
+{
+    const TrackKey& k = sliced.key;
+    napi_value o, outgoing, flag;
+    check(env, napi_create_object(env, &o));
+    setNamed(env, o, "frame", makeNumber(env, static_cast<double>(k.frame)));
+    setNamed(env, o, "value", makeValue(env, type, k.value.data()));
+    check(env, napi_create_object(env, &outgoing));
+    switch (k.outgoing) {
+        case Segment::Hold: setNamed(env, outgoing, "type", makeString(env, "hold")); break;
+        case Segment::Linear: setNamed(env, outgoing, "type", makeString(env, "linear")); break;
+        case Segment::CubicBezier: {
+            napi_value cp;
+            check(env, napi_create_object(env, &cp));
+            setNamed(env, cp, "x1", makeNumber(env, k.timing.x1));
+            setNamed(env, cp, "y1", makeNumber(env, k.timing.y1));
+            setNamed(env, cp, "x2", makeNumber(env, k.timing.x2));
+            setNamed(env, cp, "y2", makeNumber(env, k.timing.y2));
+            setNamed(env, outgoing, "type", makeString(env, "cubic-bezier"));
+            setNamed(env, outgoing, "controlPoints", cp);
+            break;
+        }
+    }
+    setNamed(env, o, "outgoing", outgoing);
+    if (k.path.shape != vkf::anim::PathShape::Line) {
+        napi_value path;
+        check(env, napi_create_object(env, &path));
+        if (k.path.shape == vkf::anim::PathShape::Curve) {
+            setNamed(env, path, "type", makeString(env, "curve"));
+            setNamed(env, path, "curviness", makeNumber(env, k.path.curviness));
+        } else {
+            setNamed(env, path, "type", makeString(env, "bezier"));
+            setNamed(env, path, "cp1", makeVec(env, k.path.cp1));
+            setNamed(env, path, "cp2", makeVec(env, k.path.cp2));
+        }
+        setNamed(env, o, "outgoingPath", path);
+    }
+    setNamed(env, o, "sourceFrame", makeNumber(env, static_cast<double>(sliced.sourceFrame)));
+    check(env, napi_get_boolean(env, sliced.generated, &flag));
+    setNamed(env, o, "generated", flag);
+    return o;
+}
+
+napi_value sliceTrack(napi_env env, napi_callback_info info)
+{
+    return guarded(env, [&] {
+        const auto argv = arguments(env, info, 3);
+        const Track& track = unwrapTrack(env, argv[0]);
+        const double from = numberOrNaN(env, argv[1]);
+        const double until = numberOrNaN(env, argv[2]);
+        if (!std::isfinite(from) || !std::isfinite(until) || std::floor(from) != from || std::floor(until) != until ||
+            until <= from)
+            raise("invalid-argument", "sliceTrack(track, fromFrame, untilFrameExclusive) needs an integer range");
+        const auto sliced = track.slice(static_cast<std::int64_t>(from), static_cast<std::int64_t>(until));
+        napi_value array;
+        check(env, napi_create_array_with_length(env, sliced.size(), &array));
+        for (size_t i = 0; i < sliced.size(); ++i)
+            check(env, napi_set_element(env, array, static_cast<uint32_t>(i), makeKey(env, track.type(), sliced[i])));
+        return array;
+    });
+}
+
 napi_value trackTangentAngle(napi_env env, napi_callback_info info)
 {
     return guarded(env, [&] {
@@ -329,6 +416,7 @@ napi_value init(napi_env env, napi_value exports)
         {"evaluateTrack", nullptr, evaluateTrack, nullptr, nullptr, nullptr, napi_enumerable, nullptr},
         {"sampleTrack", nullptr, sampleTrack, nullptr, nullptr, nullptr, napi_enumerable, nullptr},
         {"trackTangentAngle", nullptr, trackTangentAngle, nullptr, nullptr, nullptr, napi_enumerable, nullptr},
+        {"sliceTrack", nullptr, sliceTrack, nullptr, nullptr, nullptr, napi_enumerable, nullptr},
         {"sampleTrackTangentAngle", nullptr, sampleTrackTangentAngle, nullptr, nullptr, nullptr, napi_enumerable, nullptr},
     };
     napi_define_properties(env, exports, sizeof(props) / sizeof(props[0]), props);

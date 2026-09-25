@@ -1,6 +1,7 @@
 #include "vkf/anim/Track.h"
 
 #include <algorithm>
+#include <stdexcept>
 #include <cmath>
 #include <limits>
 
@@ -71,6 +72,57 @@ const char* trackErrorCode(TrackError e)
     }
     return "invalid-track";
 }
+
+namespace {
+
+// Parameter t with x(t) = x on the normalised timing curve (monotonic in x).
+double timingParameterAtX(const CubicTiming& c, double x)
+{
+    if (x <= 0.0) return 0.0;
+    if (x >= 1.0) return 1.0;
+    double lo = 0.0, hi = 1.0;
+    for (int i = 0; i < 80; ++i) {
+        const double t = 0.5 * (lo + hi);
+        if (cubicCoordinate(t, c.x1, c.x2) < x)
+            lo = t;
+        else
+            hi = t;
+    }
+    return 0.5 * (lo + hi);
+}
+
+struct Bezier2 {
+    Vec2 p0, p1, p2, p3;
+};
+
+// De Casteljau: the part of `b` between curve parameters t0 <= t1.
+Bezier2 subCurve(const Bezier2& b, double t0, double t1)
+{
+    auto mix = [](Vec2 a, Vec2 c, double t) { return a + (c - a) * t; };
+    auto split = [&](const Bezier2& c, double t, bool keepLeft) {
+        const Vec2 a = mix(c.p0, c.p1, t), bb = mix(c.p1, c.p2, t), cc = mix(c.p2, c.p3, t);
+        const Vec2 d = mix(a, bb, t), e = mix(bb, cc, t), f = mix(d, e, t);
+        return keepLeft ? Bezier2{c.p0, a, d, f} : Bezier2{f, e, cc, c.p3};
+    };
+    const Bezier2 left = split(b, t1, true);
+    return t1 > 0.0 ? split(left, t0 / t1, false) : Bezier2{b.p0, b.p0, b.p0, b.p0};
+}
+
+// Timing curve restricted to linear progress [a, b], renormalised to (0,0)-(1,1).
+// Returns false when the slice has no progress change (a returning curve).
+bool sliceTiming(const CubicTiming& c, double a, double b, CubicTiming& out)
+{
+    const Bezier2 curve{{0, 0}, {c.x1, c.y1}, {c.x2, c.y2}, {1, 1}};
+    const Bezier2 part = subCurve(curve, timingParameterAtX(c, a), timingParameterAtX(c, b));
+    const double dx = part.p3.x - part.p0.x;
+    const double dy = part.p3.y - part.p0.y;
+    if (std::abs(dy) < 1e-12 || dx <= 0.0) return false;
+    auto nx = [&](double x) { return std::clamp((x - part.p0.x) / dx, 0.0, 1.0); };
+    out = {nx(part.p1.x), (part.p1.y - part.p0.y) / dy, nx(part.p2.x), (part.p2.y - part.p0.y) / dy};
+    return true;
+}
+
+}  // namespace
 
 double easeProgress(Segment segment, const CubicTiming& timing, double linear)
 {
@@ -245,6 +297,101 @@ void Track::evaluate(double frame, double* out) const
         const double e = b.value[static_cast<std::size_t>(c)];
         out[c] = s + (e - s) * p;
     }
+}
+
+}  // namespace vkf::anim
+
+namespace vkf::anim {
+
+std::vector<SlicedKey> Track::slice(std::int64_t fromFrame, std::int64_t untilFrameExclusive) const
+{
+    if (untilFrameExclusive <= fromFrame) throw std::invalid_argument("Track::slice needs a non-empty frame range");
+    const int n = componentCount(type_);
+    auto authoredAt = [&](std::int64_t frame) -> const TrackKey* {
+        const auto it = std::lower_bound(keys_.begin(), keys_.end(), frame,
+                                         [](const TrackKey& k, std::int64_t f) { return k.frame < f; });
+        return it != keys_.end() && it->frame == frame ? &*it : nullptr;
+    };
+    auto sampleAt = [&](std::int64_t frame, bool forceGenerated) {
+        SlicedKey out;
+        out.sourceFrame = frame;
+        const TrackKey* authored = forceGenerated ? nullptr : authoredAt(frame);
+        if (authored) {
+            out.key = *authored;
+        } else {
+            out.generated = true;
+            out.key.frame = frame;
+            evaluate(static_cast<double>(frame), out.key.value.data());
+            for (int c = n; c < 4; ++c) out.key.value[static_cast<std::size_t>(c)] = 0.0;
+            out.key.outgoing = Segment::Hold;
+        }
+        out.key.frame = frame - fromFrame;
+        return out;
+    };
+
+    std::vector<std::int64_t> frames{fromFrame};
+    for (const TrackKey& k : keys_)
+        if (k.frame > fromFrame && k.frame < untilFrameExclusive) frames.push_back(k.frame);
+    // Keep the final visible sample if the range cuts an animated segment.
+    const std::int64_t lastVisible = untilFrameExclusive - 1;
+    if (lastVisible > frames.back() && keys_.back().frame > lastVisible) frames.push_back(lastVisible);
+
+    std::vector<SlicedKey> out;
+    out.reserve(frames.size());
+    for (std::int64_t f : frames) out.push_back(sampleAt(f, false));
+
+    std::vector<SlicedKey> extra;
+    for (std::size_t i = 0; i + 1 < frames.size(); ++i) {
+        const std::int64_t start = frames[i], end = frames[i + 1];
+        TrackKey& key = out[i].key;
+        key.path = PathSegment{};
+        // Original segment containing [start, end].
+        const int left = segmentAt(static_cast<double>(start));
+        if (left < 0 || left >= static_cast<int>(keys_.size()) - 1) {
+            key.outgoing = Segment::Hold;
+            continue;
+        }
+        const TrackKey& a = keys_[static_cast<std::size_t>(left)];
+        const TrackKey& b = keys_[static_cast<std::size_t>(left) + 1];
+        const double span = static_cast<double>(b.frame - a.frame);
+        const double pa = static_cast<double>(start - a.frame) / span;
+        const double pb = static_cast<double>(end - a.frame) / span;
+
+        bool exact = true;
+        key.outgoing = a.outgoing;
+        if (a.outgoing == Segment::CubicBezier) exact = sliceTiming(a.timing, pa, pb, key.timing);
+
+        const bool curved = !paths_.empty() && a.outgoing != Segment::Hold && a.path.shape != PathShape::Line;
+        if (exact && curved) {
+            const CubicPath& path = paths_[static_cast<std::size_t>(left)];
+            const double d0 = easeProgress(a.outgoing, a.timing, pa) * path.length();
+            const double d1 = easeProgress(a.outgoing, a.timing, pb) * path.length();
+            if (d0 < 0.0 || d1 > path.length() || d1 < d0) {
+                exact = false;  // eased overshoot leaves the curve: keep samples
+            } else {
+                const Bezier2 whole{path.p0(), path.point(0.0) + path.derivative(0.0) / 3.0,
+                                    path.point(1.0) - path.derivative(1.0) / 3.0, path.p3()};
+                const Bezier2 part = subCurve(whole, path.parameterAt(d0), path.parameterAt(d1));
+                key.path.shape = PathShape::Bezier;
+                key.path.cp1 = part.p1;
+                key.path.cp2 = part.p2;
+            }
+        }
+        if (!exact) {
+            key.outgoing = Segment::Linear;
+            key.path = PathSegment{};
+            for (std::int64_t f = start + 1; f < end; ++f) {
+                SlicedKey sample = sampleAt(f, true);
+                sample.key.outgoing = Segment::Linear;
+                extra.push_back(sample);
+            }
+        }
+    }
+    // The last key has no following segment: no path.
+    out.back().key.path = PathSegment{};
+    out.insert(out.end(), extra.begin(), extra.end());
+    std::sort(out.begin(), out.end(), [](const SlicedKey& x, const SlicedKey& y) { return x.key.frame < y.key.frame; });
+    return out;
 }
 
 }  // namespace vkf::anim

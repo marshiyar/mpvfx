@@ -74,6 +74,15 @@ private:
     TrackError code_;
 };
 
+// A key produced by Track::slice. `sourceFrame` is the key's frame in the
+// original track; `generated` marks keys created at cut points or as frame
+// samples (callers give those new identities).
+struct SlicedKey {
+    TrackKey key;
+    std::int64_t sourceFrame = 0;
+    bool generated = false;
+};
+
 // Immutable, validated track. Keys are sorted by frame.
 class Track {
 public:
@@ -98,6 +107,14 @@ public:
     double tangentAngle(double frame) const;
 
     bool hasCurvedPath() const { return !paths_.empty(); }
+
+    // The track restricted to frames [fromFrame, untilFrameExclusive) and
+    // rebased so fromFrame becomes 0, for clip trims and splits. For every
+    // frame f in range, the sliced track evaluates exactly like this track at
+    // fromFrame + f: easing curves and motion paths are cut, not re-fitted.
+    // Where a cut easing curve cannot be expressed as one segment, the range
+    // is kept as per-frame samples with linear segments between them.
+    std::vector<SlicedKey> slice(std::int64_t fromFrame, std::int64_t untilFrameExclusive) const;
 
 private:
     // Index of the segment containing frame (key i .. i+1), or -1 / n-1 outside.
