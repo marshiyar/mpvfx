@@ -113,7 +113,9 @@ public:
     // frame f in range, the sliced track evaluates exactly like this track at
     // fromFrame + f: easing curves and motion paths are cut, not re-fitted.
     // Where a cut easing curve cannot be expressed as one segment, the range
-    // is kept as per-frame samples with linear segments between them.
+    // is kept as per-frame samples with linear segments between them. Throws
+    // std::length_error if fallback would grow the output beyond 100000000 keys.
+    // Generated RGBA samples are clamped to [0, 1] so the keys remain valid.
     std::vector<SlicedKey> slice(std::int64_t fromFrame, std::int64_t untilFrameExclusive) const;
 
 private:

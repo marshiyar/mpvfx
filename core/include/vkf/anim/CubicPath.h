@@ -28,6 +28,8 @@ public:
     Vec2 tangentAtDistance(double s) const;
 
     Vec2 p0() const { return p0_; }
+    Vec2 p1() const { return p1_; }
+    Vec2 p2() const { return p2_; }
     Vec2 p3() const { return p3_; }
 
 private:

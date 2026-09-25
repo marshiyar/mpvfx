@@ -22,15 +22,15 @@ double cubicDerivative(double t, double first, double second)
 }
 
 // Solve x(t) = progress on the normalised timing curve (x1, x2 in [0, 1], so
-// x(t) is monotonic), then return y(t). Newton with a bisection fallback.
-double cubicTiming(const CubicTiming& c, double progress)
+// x(t) is monotonic). Newton with a bisection fallback.
+double timingParameterAtX(const CubicTiming& c, double progress)
 {
     if (progress <= 0.0) return 0.0;
     if (progress >= 1.0) return 1.0;
     double t = progress;
     for (int i = 0; i < 8; ++i) {
         const double diff = cubicCoordinate(t, c.x1, c.x2) - progress;
-        if (std::abs(diff) < 1e-12) return cubicCoordinate(t, c.y1, c.y2);
+        if (std::abs(diff) < 1e-12) return t;
         const double d = cubicDerivative(t, c.x1, c.x2);
         if (std::abs(d) < 1e-9) break;
         const double next = t - diff / d;
@@ -45,7 +45,32 @@ double cubicTiming(const CubicTiming& c, double progress)
         else
             hi = t;
     }
-    return cubicCoordinate(0.5 * (lo + hi), c.y1, c.y2);
+    return 0.5 * (lo + hi);
+}
+
+double cubicTiming(const CubicTiming& c, double progress)
+{
+    return cubicCoordinate(timingParameterAtX(c, progress), c.y1, c.y2);
+}
+
+// Check every interior extremum of the normalised slice's timing curve.
+// Staying in [0, 1] means motion stays on the retained spatial subcurve.
+bool timingStaysOnSubcurve(const CubicTiming& c)
+{
+    const double a = 3.0 * c.y1 - 3.0 * c.y2 + 1.0;
+    const double b = 2.0 * (c.y2 - 2.0 * c.y1);
+    const double d = c.y1;
+    auto inside = [&](double t) {
+        if (t <= 0.0 || t >= 1.0) return true;
+        const double y = cubicCoordinate(t, c.y1, c.y2);
+        return y >= 0.0 && y <= 1.0;
+    };
+    // y'(t) / 3 = a*t*t + b*t + d.
+    if (a == 0.0) return b == 0.0 || inside(-d / b);
+    const double discriminant = b * b - 4.0 * a * d;
+    if (discriminant < 0.0) return true;
+    const double q = -0.5 * (b + std::copysign(std::sqrt(discriminant), b));
+    return q == 0.0 || (inside(q / a) && inside(d / q));
 }
 
 const char* componentName(ValueType type, int c)
@@ -74,22 +99,6 @@ const char* trackErrorCode(TrackError e)
 }
 
 namespace {
-
-// Parameter t with x(t) = x on the normalised timing curve (monotonic in x).
-double timingParameterAtX(const CubicTiming& c, double x)
-{
-    if (x <= 0.0) return 0.0;
-    if (x >= 1.0) return 1.0;
-    double lo = 0.0, hi = 1.0;
-    for (int i = 0; i < 80; ++i) {
-        const double t = 0.5 * (lo + hi);
-        if (cubicCoordinate(t, c.x1, c.x2) < x)
-            lo = t;
-        else
-            hi = t;
-    }
-    return 0.5 * (lo + hi);
-}
 
 struct Bezier2 {
     Vec2 p0, p1, p2, p3;
@@ -322,6 +331,8 @@ std::vector<SlicedKey> Track::slice(std::int64_t fromFrame, std::int64_t untilFr
             out.generated = true;
             out.key.frame = frame;
             evaluate(static_cast<double>(frame), out.key.value.data());
+            if (type_ == ValueType::Rgba)
+                for (double& channel : out.key.value) channel = std::clamp(channel, 0.0, 1.0);
             for (int c = n; c < 4; ++c) out.key.value[static_cast<std::size_t>(c)] = 0.0;
             out.key.outgoing = Segment::Hold;
         }
@@ -366,11 +377,11 @@ std::vector<SlicedKey> Track::slice(std::int64_t fromFrame, std::int64_t untilFr
             const CubicPath& path = paths_[static_cast<std::size_t>(left)];
             const double d0 = easeProgress(a.outgoing, a.timing, pa) * path.length();
             const double d1 = easeProgress(a.outgoing, a.timing, pb) * path.length();
-            if (d0 < 0.0 || d1 > path.length() || d1 < d0) {
-                exact = false;  // eased overshoot leaves the curve: keep samples
+            if (d0 < 0.0 || d1 > path.length() || d1 < d0 ||
+                (a.outgoing == Segment::CubicBezier && !timingStaysOnSubcurve(key.timing))) {
+                exact = false;  // eased overshoot leaves the retained curve: keep samples
             } else {
-                const Bezier2 whole{path.p0(), path.point(0.0) + path.derivative(0.0) / 3.0,
-                                    path.point(1.0) - path.derivative(1.0) / 3.0, path.p3()};
+                const Bezier2 whole{path.p0(), path.p1(), path.p2(), path.p3()};
                 const Bezier2 part = subCurve(whole, path.parameterAt(d0), path.parameterAt(d1));
                 key.path.shape = PathShape::Bezier;
                 key.path.cp1 = part.p1;
@@ -378,6 +389,12 @@ std::vector<SlicedKey> Track::slice(std::int64_t fromFrame, std::int64_t untilFr
             }
         }
         if (!exact) {
+            // Bound the combined output before allocating per-frame samples.
+            constexpr std::size_t maxKeys = 100000000;
+            const auto additional = static_cast<std::uint64_t>(end) - static_cast<std::uint64_t>(start) - 1;
+            if (out.size() > maxKeys || extra.size() > maxKeys - out.size() ||
+                additional > maxKeys - out.size() - extra.size())
+                throw std::length_error("Track::slice exceeds the 100000000-key fallback limit");
             key.outgoing = Segment::Linear;
             key.path = PathSegment{};
             for (std::int64_t f = start + 1; f < end; ++f) {
@@ -387,7 +404,9 @@ std::vector<SlicedKey> Track::slice(std::int64_t fromFrame, std::int64_t untilFr
             }
         }
     }
-    // The last key has no following segment: no path.
+    // The last key has no following segment: no easing or path.
+    out.back().key.outgoing = Segment::Hold;
+    out.back().key.timing = CubicTiming{};
     out.back().key.path = PathSegment{};
     out.insert(out.end(), extra.begin(), extra.end());
     std::sort(out.begin(), out.end(), [](const SlicedKey& x, const SlicedKey& y) { return x.key.frame < y.key.frame; });

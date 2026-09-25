@@ -362,7 +362,7 @@ napi_value sliceTrack(napi_env env, napi_callback_info info)
         const double from = numberOrNaN(env, argv[1]);
         const double until = numberOrNaN(env, argv[2]);
         if (!std::isfinite(from) || !std::isfinite(until) || std::floor(from) != from || std::floor(until) != until ||
-            until <= from)
+            std::abs(from) > 9.0e15 || std::abs(until) > 9.0e15 || until <= from)
             raise("invalid-argument", "sliceTrack(track, fromFrame, untilFrameExclusive) needs an integer range");
         const auto sliced = track.slice(static_cast<std::int64_t>(from), static_cast<std::int64_t>(until));
         napi_value array;

@@ -307,3 +307,75 @@ TEST(TrackSlice, KeepsAuthoredKeysAndMarksGeneratedOnes)
     EXPECT_EQ(sliced.back().key.path.shape, PathShape::Line);  // no segment after the last key
     EXPECT_THROW(t.slice(5, 5), std::invalid_argument);
 }
+
+TEST(TrackSlice, GeneratedColourSamplesStayInRange)
+{
+    TrackKey a = key(0, 0.0, Segment::CubicBezier, {0.3, 1.8, 0.7, 1.8});
+    a.value = {0, 1, 0.25, 1};
+    TrackKey b = key(30, 1.0);
+    b.value = {1, 0, 0.75, 0};
+    const Track original(ValueType::Rgba, {a, b});
+    ASSERT_GT(at(original, 15), 1.0);
+    // Exercise generated cut points as well as a returning ease's fallback.
+    for (const auto timing : {a.timing, CubicTiming{1.0 / 3.0, 1.0, 2.0 / 3.0, -4.0 / 3.0}}) {
+        a.timing = timing;
+        const Track t(ValueType::Rgba, {a, b});
+        for (const auto range : {std::pair{15, 25}, std::pair{0, 16}}) {
+            const auto sliced = t.slice(range.first, range.second);
+            std::vector<TrackKey> keys;
+            for (const SlicedKey& s : sliced) {
+                keys.push_back(s.key);
+                double expected[4];
+                t.evaluate(static_cast<double>(s.sourceFrame), expected);
+                for (int c = 0; c < 4; ++c)
+                    EXPECT_DOUBLE_EQ(s.key.value[static_cast<std::size_t>(c)], std::clamp(expected[c], 0.0, 1.0));
+            }
+            EXPECT_NO_THROW(Track(ValueType::Rgba, keys));
+        }
+    }
+}
+
+TEST(TrackSlice, RejectsExcessiveFallbackSamples)
+{
+    // y(0) == y(0.5) == 0, forcing per-frame samples across a huge gap.
+    const Track t(ValueType::Number,
+                  {key(0, 0.0, Segment::CubicBezier, {1.0 / 3.0, 1.0, 2.0 / 3.0, -4.0 / 3.0}),
+                   key(2000000000, 1.0)});
+    EXPECT_THROW(t.slice(0, 1000000001), std::length_error);
+}
+
+TEST(TrackSlice, CurvedOvershootBetweenCutsKeepsExactSamples)
+{
+    TrackKey a = point(0, 0, 0, PathShape::Bezier);
+    a.path.cp1 = {0, 100};
+    a.path.cp2 = {100, 100};
+    a.outgoing = Segment::CubicBezier;
+    // Both ends are on the path, but the middle leaves it and returns.
+    for (const CubicTiming timing : {CubicTiming{1.0 / 3.0, 2.0, 2.0 / 3.0, 2.0},
+                                      CubicTiming{1.0 / 3.0, -1.0, 2.0 / 3.0, -1.0},
+                                      CubicTiming{1.0 / 3.0, 1.2, 2.0 / 3.0, -0.2},
+                                      CubicTiming{1.0 / 3.0, 4.0, 2.0 / 3.0, -2.0}}) {
+        a.timing = timing;
+        const Track t(ValueType::Vec2, {a, point(100, 100, 0)});
+        expectSliceMatches(t, 0, 101);
+        // Also catches leaving the retained subcurve while staying on the original.
+        expectSliceMatches(t, 5, 96);
+        expectSliceMatches(t, 25, 76);
+    }
+}
+
+TEST(TrackSlice, ClearsTerminalAuthoredEasingWithoutChangingValues)
+{
+    TrackKey a = key(0, 0, Segment::CubicBezier, {0.25, 0.1, 0.25, 1.0});
+    TrackKey b = key(10, 1, Segment::CubicBezier, {0.42, 0, 0.58, 1});
+    const Track t(ValueType::Number, {a, b, key(20, 2)});
+    const auto sliced = t.slice(0, 11);
+    ASSERT_FALSE(sliced.back().generated);
+    EXPECT_EQ(sliced.back().key.outgoing, Segment::Hold);
+    const CubicTiming empty;
+    EXPECT_DOUBLE_EQ(sliced.back().key.timing.x1, empty.x1);
+    EXPECT_DOUBLE_EQ(sliced.back().key.timing.y1, empty.y1);
+    EXPECT_DOUBLE_EQ(sliced.back().key.timing.x2, empty.x2);
+    EXPECT_DOUBLE_EQ(sliced.back().key.timing.y2, empty.y2);
+    expectSliceMatches(t, 0, 11);
+}

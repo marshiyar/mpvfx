@@ -122,3 +122,13 @@ test("slices tracks for trims and splits, evaluating like the original", () => {
   }
   assert.throws(() => engine.sliceTrack(t, 5, 5), { code: "invalid-argument" });
 });
+
+test("sliceTrack rejects frame magnitudes above the compileTrack limit", () => {
+  const t = engine.compileTrack({ valueType: "number", keyframes: [{ frame: 0, value: 1, outgoing: linear }] });
+  for (const [from, until] of [[0, 1e20], [-1e20, 1], [0, 9e15 + 1], [-9e15 - 1, 0]]) {
+    assert.throws(() => engine.sliceTrack(t, from, until), { code: "invalid-argument" });
+  }
+  for (const [from, until] of [[-9e15, 0], [0, 9e15]]) {
+    assert.equal(engine.sliceTrack(t, from, until)[0].value, 1);
+  }
+});
