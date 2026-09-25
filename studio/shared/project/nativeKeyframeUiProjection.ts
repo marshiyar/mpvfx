@@ -1,6 +1,7 @@
 import { evaluateNativeParameterTrack } from "./nativeKeyframeEvaluator";
 import type { NativeInterpolation, NativeParameterTrack } from "./nativeKeyframeTypes";
 import type { NativeProjectDocument } from "./nativeProjectDocument";
+import { findVec2PositionTrack, positionComponentViews } from "./nativePositionTrack";
 import {
   projectFrameFromSeconds,
   resolveNativeClipSelection,
@@ -150,6 +151,28 @@ export const projectNativeKeyframeUi = (
   for (const projection of PARAMETER_PROJECTIONS) {
     const value = clip.staticParameters?.[projection.parameterId];
     if (typeof value === "number") currentValues[projection.property] = value;
+  }
+  // A 2D position is listed as the familiar x and y rows (addressed by the x/y
+  // parameter IDs, which commands route back to it); its values come from
+  // evaluating the whole 2D track, since a curved path is not x-only motion.
+  const vec2Position = findVec2PositionTrack(clip.parameterTracks);
+  if (vec2Position) {
+    const value = evaluateNativeParameterTrack(vec2Position, clipLocalFrame);
+    const views = positionComponentViews(vec2Position, clip.parameterTracks);
+    for (const view of views) currentValues[view.component] = value[view.component];
+    for (const view of views) {
+      for (const keyframe of view.keyframes) {
+        keyframeRows.push({
+          percentage: (keyframe.frame / clip.durationFrames) * 100,
+          properties: { [view.component]: keyframe.value },
+          animationId: vec2Position.id,
+          parameterId: view.parameterId,
+          nativeKeyframeId: keyframe.id,
+          nativeFrame: keyframe.frame,
+          interpolation: cloneInterpolation(keyframe.outgoing),
+        });
+      }
+    }
   }
   for (const { track, projection } of supportedTracks(clip.parameterTracks)) {
     currentValues[projection.property] = evaluateNativeParameterTrack(track, clipLocalFrame);

@@ -24,6 +24,7 @@ import {
   type NativeTimelinePropertyLane,
 } from "./TimelinePropertyLanes";
 import { evaluateNativeParameterTrack } from "../../../shared/project/nativeKeyframeEvaluator";
+import { isVec2PositionTrack, positionComponentViews } from "../../../shared/project/nativePositionTrack";
 import type { NativeParameterTrack, RationalFrameRate } from "../../../shared/project/nativeKeyframeTypes";
 import { projectFrameFromSeconds } from "../../../shared/project/nativePropertyEditPlan";
 import type { TimelineDiamondKeyframe } from "./timelineDiamondTypes";
@@ -153,6 +154,16 @@ export function resolveNativeHeaderPropertyLanes(
 
   const valuesByGroup = new Map<PropertyGroupName, LaneValues>();
   for (const track of source.parameterTracks) {
+    // A 2D position feeds the x and y lanes from one evaluation of the whole path.
+    if (isVec2PositionTrack(track)) {
+      const value = evaluateNativeParameterTrack(track, localFrame);
+      const values = { ...valuesByGroup.get("position") };
+      for (const view of positionComponentViews(track, source.parameterTracks)) {
+        values[view.component] ??= value[view.component];
+      }
+      valuesByGroup.set("position", values);
+      continue;
+    }
     const property = NATIVE_PARAMETER_PROPERTIES[track.parameterId];
     if (!property || track.valueType !== "number") continue;
     const group =

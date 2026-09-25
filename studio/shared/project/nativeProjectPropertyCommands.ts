@@ -4,6 +4,12 @@ import {
   type NativeProjectKeyframeFailure,
   type NativeProjectParameterAddress,
 } from "./nativeProjectKeyframeCommands";
+import { positionPairSignature, routedPosition } from "./nativeProjectKeyframeCommands";
+import {
+  POSITION_PARAMETER_ID,
+  POSITION_X_PARAMETER_ID,
+  POSITION_Y_PARAMETER_ID,
+} from "./nativePositionTrack";
 import type { NativeParameterValue } from "./nativeKeyframeTypes";
 import { evaluateNativeParameterTrack } from "./nativeKeyframeEvaluator";
 import {
@@ -122,6 +128,10 @@ const applyStatic = (
 ): NativeProjectPropertyCommandResult => {
   const location = locateClip(document, command.address);
   if ("code" in location) return fail(document, location.code, location.message);
+  // A static x or y would silently override an animated 2D position.
+  if (routedPosition(location.clip, command.address.parameterId)) {
+    return fail(document, "invalid-value", "Position is animated as a 2D path; edit its keyframes instead");
+  }
   try {
     return {
       ok: true,
@@ -151,6 +161,30 @@ const applyOffset = (
   }
   const location = locateClip(document, command.address);
   if ("code" in location) return fail(document, location.code, location.message);
+  const routed = routedPosition(location.clip, command.address.parameterId);
+  if (routed) {
+    // Shift one component of the whole 2D path; Bezier handles are absolute,
+    // so they move with it and the path keeps its shape.
+    const { track, component } = routed;
+    const shift = <T extends { x: number; y: number }>(point: T): T => ({ ...point, [component]: point[component] + command.delta });
+    const nextTrack = {
+      ...track,
+      keyframes: track.keyframes.map((keyframe) => ({
+        ...keyframe,
+        value: shift(keyframe.value),
+        ...(keyframe.outgoingPath?.type === "bezier"
+          ? { outgoingPath: { type: "bezier" as const, cp1: shift(keyframe.outgoingPath.cp1), cp2: shift(keyframe.outgoingPath.cp2) } }
+          : {}),
+      })),
+    };
+    return {
+      ok: true,
+      document: replaceClip(document, location, {
+        ...location.clip,
+        parameterTracks: location.clip.parameterTracks.map((candidate) => (candidate.id === track.id ? nextTrack : candidate)),
+      }),
+    };
+  }
   const parameterIndex = location.clip.parameterTracks.findIndex(
     (track) => track.parameterId === command.address.parameterId,
   );
@@ -212,6 +246,25 @@ const applyCollapse = (
       `Frame must be an integer in clip-local range 0 <= frame < ${location.clip.durationFrames}`,
     );
   }
+  const routed = routedPosition(location.clip, command.address.parameterId);
+  if (routed) {
+    // Deleting all position keyframes keeps the 2D value at the playhead as the
+    // static position; stale static x/y would otherwise override it.
+    const value = evaluateNativeParameterTrack(routed.track, command.frame);
+    const {
+      [POSITION_X_PARAMETER_ID]: _staleX,
+      [POSITION_Y_PARAMETER_ID]: _staleY,
+      ...staticParameters
+    } = location.clip.staticParameters ?? {};
+    return {
+      ok: true,
+      document: replaceClip(document, location, {
+        ...location.clip,
+        staticParameters: { ...staticParameters, [POSITION_PARAMETER_ID]: value },
+        parameterTracks: location.clip.parameterTracks.filter((track) => track.id !== routed.track.id),
+      }),
+    };
+  }
   const parameterIndex = location.clip.parameterTracks.findIndex(
     (track) => track.parameterId === command.address.parameterId,
   );
@@ -272,8 +325,15 @@ export const applyNativeProjectPropertyCommand = (
   command: NativeProjectPropertyCommand,
 ): NativeProjectPropertyCommandResult => {
   if (command.type !== "batch") return applyAtomic(document, command);
+  const applied = new Set<string>();
   let next = document;
   for (const child of command.commands) {
+    // x/y halves of one structural edit on a 2D position apply once.
+    const signature = positionPairSignature(document, child);
+    if (signature !== null) {
+      if (applied.has(signature)) continue;
+      applied.add(signature);
+    }
     const result = applyAtomic(next, child);
     if (!result.ok) return { ...result, document };
     next = result.document;
