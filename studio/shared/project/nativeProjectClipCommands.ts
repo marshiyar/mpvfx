@@ -1,6 +1,7 @@
 import {
   DEFAULT_NATIVE_PLAYBACK_RATE,
   NativeProjectDocumentValidationError,
+  nativeAssetConsumesSourceFrames,
   parseNativeProjectDocument,
   serializeNativeProjectDocument,
   type NativeClipDomBinding,
@@ -334,8 +335,8 @@ const applyTrimIn = (
     return reject(document, "invalid-trim", "Trim-in start must be a nonnegative integer before the clip end");
   }
   const clip = location.clip;
-  const isImage = document.assets.find((asset) => asset.id === clip.assetId)?.kind === "image";
-  const sourceDelta = isImage ? 0 : exactSourceFrameDelta(clip, delta);
+  const assetKind = document.assets.find((asset) => asset.id === clip.assetId)?.kind;
+  const sourceDelta = assetKind && !nativeAssetConsumesSourceFrames(assetKind) ? 0 : exactSourceFrameDelta(clip, delta);
   if (sourceDelta === null) {
     return reject(
       document,
@@ -372,7 +373,7 @@ const applyTrimOut = (
   const clip = location.clip;
   const asset = document.assets.find((candidate) => candidate.id === clip.assetId)!;
   const rate = clip.playbackRate ?? DEFAULT_NATIVE_PLAYBACK_RATE;
-  if (asset.kind !== "image" &&
+  if (nativeAssetConsumesSourceFrames(asset.kind) &&
       BigInt(clip.sourceInFrame) * BigInt(rate.denominator) + BigInt(nextDuration) * BigInt(rate.numerator) >
       BigInt(asset.durationFrames) * BigInt(rate.denominator)) {
     return reject(document, "invalid-trim", "Cannot extend beyond the end of the source media");

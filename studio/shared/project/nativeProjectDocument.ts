@@ -17,7 +17,20 @@ import {
 export const NATIVE_PROJECT_DOCUMENT_SCHEMA_VERSION = 1 as const;
 export const NATIVE_PROJECT_DOCUMENT_PATH = ".studio/project.json" as const;
 
-export type NativeProjectAssetKind = "video" | "audio" | "image";
+/**
+ * Media assets reference a project file. An "element" asset is an HTML-authored
+ * layer (text, shape, group, nested composition): it has no source file, and
+ * its clip exists so the engine can own that layer's timing and keyframes.
+ */
+export type NativeProjectAssetKind = "video" | "audio" | "image" | "element";
+
+/** Asset kinds backed by a project media file. */
+export type NativeMediaAssetKind = Exclude<NativeProjectAssetKind, "element">;
+
+/** Whether clips of this kind read frames from a source file (trims, rate). */
+export function nativeAssetConsumesSourceFrames(kind: NativeProjectAssetKind): boolean {
+  return kind === "video" || kind === "audio";
+}
 export type NativeProjectTrackKind = "video" | "audio" | "mixed";
 
 export interface NativeCanvas {
@@ -689,8 +702,11 @@ export function validateNativeProjectDocument(
       requireId(asset.id, `${path}.id`, issues);
       collectDuplicateId(assetIds, asset.id, `${path}.id`, issues);
       if (isNonEmptyString(asset.id) && !assetsById.has(asset.id)) assetsById.set(asset.id, asset);
-      if (asset.kind !== "video" && asset.kind !== "audio" && asset.kind !== "image") {
-        pushIssue(issues, "invalid-asset", `${path}.kind`, "Asset kind must be video, audio, or image");
+      if (asset.kind !== "video" && asset.kind !== "audio" && asset.kind !== "image" && asset.kind !== "element") {
+        pushIssue(issues, "invalid-asset", `${path}.kind`, "Asset kind must be video, audio, image, or element");
+      }
+      if (asset.kind === "element" && asset.source !== undefined) {
+        pushIssue(issues, "invalid-asset", `${path}.source`, "Element assets are authored in HTML and have no source file");
       }
       if (!isNonEmptyString(asset.name)) {
         pushIssue(issues, "invalid-asset", `${path}.name`, "Asset name must be a non-empty string");
@@ -702,6 +718,15 @@ export function validateNativeProjectDocument(
         pushIssue(issues, "invalid-asset", `${path}.durationFrames`, "Asset duration must be a positive integer");
       }
     });
+  }
+
+  if (
+    input.mediaEngine === "ffmpeg" &&
+    Array.isArray(input.assets) &&
+    input.assets.some((asset) => isRecord(asset) && asset.kind === "element")
+  ) {
+    // An HTML-free document has nowhere to author element layers.
+    pushIssue(issues, "invalid-asset", "assets", "FFmpeg-only documents cannot contain HTML element layers");
   }
 
   if (!isRecord(input.sequence)) {
@@ -787,7 +812,7 @@ export function validateNativeProjectDocument(
       if (
         asset &&
         ((track.kind === "audio" && asset.kind !== "audio") ||
-          (track.kind === "video" && asset.kind !== "video" && asset.kind !== "image"))
+          (track.kind === "video" && asset.kind !== "video" && asset.kind !== "image" && asset.kind !== "element"))
       ) {
         pushIssue(issues, "media-type-mismatch", `${clipPath}.assetId`, "Asset kind does not match track kind");
       }
@@ -817,7 +842,7 @@ export function validateNativeProjectDocument(
       validateStaticParameters(clip.staticParameters, `${clipPath}.staticParameters`, issues);
       if (
         asset &&
-        asset.kind !== "image" &&
+        (asset.kind === "video" || asset.kind === "audio") &&
         isNonNegativeInteger(clip.sourceInFrame) &&
         isPositiveInteger(clip.durationFrames) &&
         isPositiveInteger(asset.durationFrames) &&

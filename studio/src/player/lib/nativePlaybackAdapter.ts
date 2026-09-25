@@ -7,7 +7,7 @@ import type {
   StaticSeekPlaybackClock,
 } from "./playbackTypes";
 
-export type NativePlaybackAssetKind = "video" | "audio" | "image";
+export type NativePlaybackAssetKind = "video" | "audio" | "image" | "element";
 
 export interface NativePlaybackClipBinding extends NativeClipFrameBinding {
   /** Durable media identity projected from the native project document. */

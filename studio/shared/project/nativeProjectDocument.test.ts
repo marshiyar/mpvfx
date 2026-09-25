@@ -427,6 +427,39 @@ describe("native project document", () => {
     expect(() => parseNativeProjectDocument(overrun)).toThrowError(NativeProjectDocumentValidationError);
   });
 
+  it("accepts HTML element layers on picture tracks without source-file rules", () => {
+    const layered = validDocument();
+    layered.assets.push({ id: "asset:title", kind: "element", name: "Title", durationFrames: 40 });
+    layered.sequence.tracks[0]!.clips.push({
+      id: "clip:title",
+      assetId: "asset:title",
+      startFrame: 90,
+      // Longer than the asset: an HTML layer has no source range to exceed.
+      durationFrames: 120,
+      sourceInFrame: 0,
+      effects: [],
+      parameterTracks: [],
+    });
+    const parsed = parseNativeProjectDocument(layered);
+    expect(parsed.assets[1]).toEqual({ id: "asset:title", kind: "element", name: "Title", durationFrames: 40 });
+    expect(parsed.sequence.tracks[0]!.clips[1]!.id).toBe("clip:title");
+
+    const onAudio = validDocument();
+    onAudio.assets = [{ id: "asset:title", kind: "element", name: "Title", durationFrames: 40 }];
+    onAudio.sequence.tracks[0]!.kind = "audio";
+    onAudio.sequence.tracks[0]!.clips[0]!.assetId = "asset:title";
+    expect(() => parseNativeProjectDocument(onAudio)).toThrowError(NativeProjectDocumentValidationError);
+
+    const withSource = validDocument();
+    withSource.assets.push({ id: "asset:title", kind: "element", name: "Title", source: "title.html", durationFrames: 40 });
+    expect(() => parseNativeProjectDocument(withSource)).toThrowError(/no source file/);
+
+    const ffmpegOnly = validDocument();
+    ffmpegOnly.mediaEngine = "ffmpeg";
+    ffmpegOnly.assets.push({ id: "asset:title", kind: "element", name: "Title", durationFrames: 40 });
+    expect(() => parseNativeProjectDocument(ffmpegOnly)).toThrowError(/HTML element layers/);
+  });
+
   it("delegates parameter-track and keyframe integrity to the native keyframe contract", () => {
     const document = validDocument();
     document.sequence.tracks[0]!.clips[0]!.parameterTracks.push(

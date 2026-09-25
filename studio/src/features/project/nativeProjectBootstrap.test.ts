@@ -79,7 +79,7 @@ describe("native project bootstrap", () => {
     expect(result.diagnostics.map(diagnostic => diagnostic.code)).toEqual(["unsupported-media-source", "unsupported-media-source"]);
   });
 
-  it("builds valid video, audio, and image clips while ignoring structural composition rows", () => {
+  it("builds media and HTML element-layer clips while ignoring structural composition rows", () => {
     const result = bootstrapNativeProjectFromTimeline(
       input([
         element({ structuralRole: "composition-root", domId: "root", src: undefined }),
@@ -108,27 +108,59 @@ describe("native project bootstrap", () => {
           start: secondsAtFrame(10),
           duration: secondsAtFrame(120),
         }),
-        element({ id: "decorative-row", tag: "div", domId: "shape", src: undefined }),
+        element({
+          id: "decorative-row",
+          label: "Title card",
+          tag: "div",
+          track: 4,
+          authoredTrack: 4,
+          domId: "shape",
+          hfId: undefined,
+          selector: "#shape",
+          src: undefined,
+          playbackStart: secondsAtFrame(7),
+          playbackRate: 2,
+          start: secondsAtFrame(5),
+          duration: secondsAtFrame(40),
+        }),
       ]),
     );
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.document.assets.map((asset) => asset.kind)).toEqual(["audio", "image", "video"]);
+    expect(result.document.assets.map((asset) => asset.kind)).toEqual(["audio", "element", "image", "video"]);
     expect(result.document.sequence.tracks.map((track) => [track.kind, track.id])).toEqual([
       ["audio", expect.stringContaining("1")],
       ["video", expect.stringContaining("2")],
       ["video", expect.stringContaining("3")],
+      ["video", expect.stringContaining("4")],
     ]);
     expect(result.document.sequence.tracks.map((track) => track.lane)).toEqual([
       { authoredTrack: 1, displayTrack: 1 },
       { authoredTrack: 2, displayTrack: 2 },
       { authoredTrack: 3, displayTrack: 0 },
+      { authoredTrack: 4, displayTrack: 4 },
     ]);
-    expect(result.document.sequence.tracks.flatMap((track) => track.clips)).toHaveLength(3);
+    expect(result.document.sequence.tracks.flatMap((track) => track.clips)).toHaveLength(4);
+    // An HTML layer has no source file: no source offset or playback rate.
+    const layerAsset = result.document.assets.find((asset) => asset.kind === "element")!;
+    expect(layerAsset).toEqual({
+      id: expect.stringContaining("native-element:"),
+      kind: "element",
+      name: "Title card",
+      durationFrames: 40,
+    });
+    const layerClip = result.document.sequence.tracks[3]!.clips[0]!;
+    expect(layerClip).toMatchObject({
+      assetId: layerAsset.id,
+      startFrame: 5,
+      durationFrames: 40,
+      sourceInFrame: 0,
+      playbackRate: { numerator: 1, denominator: 1 },
+      binding: { sourceFile: "index.html", domId: "shape", selector: "#shape" },
+    });
     expect(result.diagnostics).toEqual([
       expect.objectContaining({ code: "ignored-structural", elementId: "runtime-row" }),
-      expect.objectContaining({ code: "unsupported-media-row", elementId: "decorative-row" }),
     ]);
     expect(() => serializeNativeProjectDocument(result.document)).not.toThrow();
   });

@@ -5,6 +5,7 @@ import {
   parseNativeProjectDocument,
   serializeNativeProjectDocument,
   type NativeClipDomBinding,
+  type NativeMediaAssetKind,
   type NativeProjectAssetKind,
   type NativeProjectDocument,
 } from "../../../shared/project/nativeProjectDocument";
@@ -25,7 +26,7 @@ type ProjectFileWriter = (path: string, content: string, expectedContent?: strin
 export interface NativeTimelineAssetInsertRequest {
   readonly assetPath: string;
   readonly assetName?: string;
-  readonly kind: NativeProjectAssetKind;
+  readonly kind: NativeMediaAssetKind;
   readonly sourceFile: string;
   readonly requestedStartSeconds: number;
   readonly requestedDurationSeconds: number;
