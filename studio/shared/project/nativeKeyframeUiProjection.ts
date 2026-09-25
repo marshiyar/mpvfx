@@ -1,5 +1,5 @@
 import { evaluateNativeParameterTrack } from "./nativeKeyframeEvaluator";
-import type { NativeInterpolation, NativeParameterTrack } from "./nativeKeyframeTypes";
+import type { NativeInterpolation, NativeMotionPath, NativeParameterTrack } from "./nativeKeyframeTypes";
 import type { NativeProjectDocument } from "./nativeProjectDocument";
 import { findVec2PositionTrack, positionComponentViews } from "./nativePositionTrack";
 import {
@@ -36,6 +36,42 @@ export interface NativeKeyframeUiRow {
   readonly interpolation: NativeInterpolation;
 }
 
+/**
+ * Motion-path state of the clip's position, for arc-motion controls.
+ * `segments[i]` shapes the path from `frames[i]` to `frames[i + 1]` (null =
+ * straight). `aligned` is false when scalar x/y keyframes do not share frames
+ * and easing, which is required to turn them into one 2D path.
+ */
+export interface NativePositionPathState {
+  readonly frames: readonly number[];
+  readonly segments: readonly (NativeMotionPath | null)[];
+  readonly autoRotate: boolean;
+  readonly aligned: boolean;
+}
+
+const samePositionEasing = (left: NativeInterpolation, right: NativeInterpolation): boolean =>
+  JSON.stringify(left) === JSON.stringify(right);
+
+const positionPathState = (tracks: readonly NativeParameterTrack[]): NativePositionPathState | null => {
+  const vec2 = findVec2PositionTrack(tracks);
+  if (vec2 && positionComponentViews(vec2, tracks).length === 2) {
+    return {
+      frames: vec2.keyframes.map((keyframe) => keyframe.frame),
+      segments: vec2.keyframes.slice(0, -1).map((keyframe) => keyframe.outgoingPath ?? null),
+      autoRotate: vec2.autoRotate === true,
+      aligned: true,
+    };
+  }
+  const x = tracks.find((track) => track.parameterId === "transform.position.x");
+  const y = tracks.find((track) => track.parameterId === "transform.position.y");
+  if (!x && !y) return null;
+  const frames = (x ?? y)!.keyframes.map((keyframe) => keyframe.frame);
+  const aligned = !!x && !!y && x.keyframes.length === y.keyframes.length &&
+    x.keyframes.every((key, index) =>
+      key.frame === y.keyframes[index]!.frame && samePositionEasing(key.outgoing, y.keyframes[index]!.outgoing));
+  return { frames, segments: frames.slice(0, -1).map(() => null), autoRotate: false, aligned };
+};
+
 export interface NativeKeyframeUiProjectionRequest {
   readonly selectedElement: NativeSelectedElementReference;
   readonly playheadSeconds: number;
@@ -53,6 +89,7 @@ export type NativeKeyframeUiProjectionResult =
       readonly clipLocalFrame: number;
       readonly currentValues: Readonly<Partial<Record<NativeKeyframeUiProperty, number>>>;
       readonly keyframeRows: readonly NativeKeyframeUiRow[];
+      readonly positionPath: NativePositionPathState | null;
     }
   | { readonly ok: false; readonly failure: NativePropertyEditPlanFailure };
 
@@ -201,5 +238,6 @@ export const projectNativeKeyframeUi = (
     clipLocalFrame,
     currentValues,
     keyframeRows,
+    positionPath: positionPathState(clip.parameterTracks),
   };
 };

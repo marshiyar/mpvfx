@@ -383,6 +383,18 @@ export const PropertyPanel = memo(function PropertyPanel(props: PropertyPanelPro
         navKeyframes={navKeyframes}
         currentTime={currentTime}
         currentFrame={nativeProjection?.clipLocalFrame}
+        nativePositionPath={
+          nativeProjection?.positionPath && nativeProjection.positionPath.frames.length >= 2
+            ? {
+                clip: {
+                  sequenceId: nativeProjection.sequenceId,
+                  trackId: nativeProjection.trackId,
+                  clipId: nativeProjection.clipId,
+                },
+                state: nativeProjection.positionPath,
+              }
+            : null
+        }
         animIdForProp={animIdForProp}
         gsapRuntimeValues={gsap3dValues}
         elStart={elStart}

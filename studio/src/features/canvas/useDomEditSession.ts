@@ -26,6 +26,16 @@ import {
   createNativeProjectRepository,
 } from "../project/nativeProjectPersistence";
 import type { NativeKeyframeProjectCommit } from "../../player/components/deleteSelectedKeyframes";
+import { applyNativeProjectPropertyCommand } from "../../../shared/project/nativeProjectPropertyCommands";
+import type { NativeMotionPath } from "../../../shared/project/nativeKeyframeTypes";
+import { POSITION_PARAMETER_ID } from "../../../shared/project/nativePositionTrack";
+
+/** A clip's position-wide motion change: segment path shapes and/or auto-rotate. */
+export interface NativePositionPathChange {
+  readonly clip: { readonly sequenceId: string; readonly trackId: string; readonly clipId: string };
+  readonly segments?: readonly { readonly frame: number; readonly path: NativeMotionPath | null }[];
+  readonly autoRotate?: boolean;
+}
 // Re-exported: the delete rule lives in its own module now, and callers (and its
 // own test) have always imported it from here.
 export { membersForDelete };
@@ -530,6 +540,41 @@ export function useDomEditSession({
     },
     [nativeProjectEditing],
   );
+  // Arc motion: applied to the authoritative document (or the bootstrap
+  // candidate on a project's first native edit) and saved with history.
+  const setNativePositionPath = useCallback(
+    async (change: NativePositionPathChange): Promise<void> => {
+      const editing = nativeProjectEditing;
+      const document = editing?.nativeDocument ?? editing?.nativeBootstrapDocument;
+      if (!document) return;
+      const address = { ...change.clip, parameterId: POSITION_PARAMETER_ID };
+      const result = applyNativeProjectPropertyCommand(document, {
+        type: "batch",
+        commands: [
+          ...(change.segments ?? []).map((segment) => ({
+            type: "set-motion-path" as const,
+            address,
+            frame: segment.frame,
+            path: segment.path,
+          })),
+          ...(change.autoRotate === undefined
+            ? []
+            : [{ type: "set-auto-rotate" as const, address, autoRotate: change.autoRotate }]),
+        ],
+      });
+      if (!result.ok) {
+        showToast(result.failure.message, "error");
+        return;
+      }
+      const saved = await commitNativeProject({
+        document: result.document,
+        inverse: { type: "restore-document", document },
+        label: change.autoRotate === undefined ? "Change motion path" : "Change auto-rotate",
+      });
+      if (!saved) showToast("The motion path could not be saved", "error");
+    },
+    [commitNativeProject, nativeProjectEditing, showToast],
+  );
   return {
     // State
     domEditSelection,
@@ -618,6 +663,7 @@ export function useDomEditSession({
     moveNativeKeyframes: nativeKeyframeCommands.moveKeyframes,
     setNativeKeyframeInterpolation: nativeKeyframeCommands.setKeyframeInterpolation,
     setNativeKeyframesInterpolation: nativeKeyframeCommands.setKeyframesInterpolation,
+    setNativePositionPath,
     nativeDocument: nativeProjectEditing?.nativeDocument ?? null,
     commitNativeProject,
     handleSetArcPath,

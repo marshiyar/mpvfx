@@ -75,6 +75,7 @@ export interface DomEditActionsValue extends Pick<
   | "moveNativeKeyframes"
   | "setNativeKeyframeInterpolation"
   | "setNativeKeyframesInterpolation"
+  | "setNativePositionPath"
   | "commitNativeProject"
   | "nativeDocument"
   | "handleSetArcPath"
@@ -225,6 +226,7 @@ export function DomEditProvider({
     moveNativeKeyframes,
     setNativeKeyframeInterpolation,
     setNativeKeyframesInterpolation,
+    setNativePositionPath,
     commitNativeProject,
     nativeDocument,
     handleSetArcPath,
@@ -321,6 +323,7 @@ export function DomEditProvider({
       moveNativeKeyframes,
       setNativeKeyframeInterpolation,
       setNativeKeyframesInterpolation,
+      setNativePositionPath,
       commitNativeProject,
       nativeDocument,
       handleSetArcPath,
@@ -403,6 +406,7 @@ export function DomEditProvider({
       moveNativeKeyframes,
       setNativeKeyframeInterpolation,
       setNativeKeyframesInterpolation,
+      setNativePositionPath,
       commitNativeProject,
       nativeDocument,
       handleSetArcPath,

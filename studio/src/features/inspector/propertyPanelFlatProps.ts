@@ -1,3 +1,5 @@
+import type { NativePositionPathChange } from "../canvas/useDomEditSession";
+import type { NativePositionPathState } from "../../../shared/project/nativeKeyframeUiProjection";
 import type { resolveEditingSections } from "@hyperframes/core/editing";
 import type { DomEditSelection } from "../canvas/domEditing";
 import type { PropertyPanelProps } from "./propertyPanelHelpers";
@@ -36,6 +38,7 @@ export type PropertyPanelFlatProps = Pick<
   | "nativeKeyframeTarget"
   | "nativeProjectDocument"
   | "onSetNativeKeyframesInterpolation"
+  | "onSetNativePositionPath"
   | "gsapMultipleTimelines"
   | "gsapUnsupportedTimelinePattern"
   | "onUpdateGsapProperty"
@@ -98,4 +101,9 @@ export type PropertyPanelFlatProps = Pick<
     clipboardCopied: boolean;
     onCopyElementInfo: () => void;
     currentTime: number;
+    /** Native clip position with two or more keyframes: arc-motion controls. */
+    nativePositionPath?: {
+      readonly clip: NativePositionPathChange["clip"];
+      readonly state: NativePositionPathState;
+    } | null;
   };
