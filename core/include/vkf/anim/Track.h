@@ -7,6 +7,9 @@
 #include <string>
 #include <vector>
 
+#include "vkf/anim/CubicPath.h"
+#include "vkf/core/Math.h"
+
 // Parameter tracks with per-segment easing: the model editors such as mpvfx
 // store. A segment [k, k+1] is shaped entirely by key k's outgoing
 // interpolation (Hold, Linear, or a normalised cubic-bezier timing curve like
@@ -24,11 +27,27 @@ struct CubicTiming {
     double x1 = 0.0, y1 = 0.0, x2 = 1.0, y2 = 1.0;
 };
 
+// Shape of a Vec2 track's path from this key to the next (motion paths).
+//  Line   - straight.
+//  Curve  - smooth path through the neighbouring keys (Catmull-Rom tangents)
+//           scaled by `curviness`: 0 is straight, 1 the standard smooth curve.
+//  Bezier - explicit absolute control points (After Effects style handles).
+// Timing is unchanged by the shape: every key is reached at its frame, and the
+// segment's easing controls speed along the path by arc length.
+enum class PathShape : std::uint8_t { Line, Curve, Bezier };
+
+struct PathSegment {
+    PathShape shape = PathShape::Line;
+    double curviness = 1.0;  // Curve
+    Vec2 cp1, cp2;           // Bezier
+};
+
 struct TrackKey {
     std::int64_t frame = 0;
     std::array<double, 4> value{};  // first componentCount(type) entries are used
     Segment outgoing = Segment::Linear;
     CubicTiming timing;             // used when outgoing == CubicBezier
+    PathSegment path;               // Vec2 tracks only; others must stay Line
 };
 
 // Why a track was rejected. Codes are stable identifiers shared with callers.
@@ -38,6 +57,7 @@ enum class TrackError : std::uint8_t {
     DuplicateKeyframeFrame,
     InvalidValue,
     InvalidInterpolation,
+    InvalidPath,
 };
 
 const char* trackErrorCode(TrackError e);
@@ -70,9 +90,25 @@ public:
     // values to `out`.
     void evaluate(double frame, double* out) const;
 
+    // Direction of motion along a Vec2 path at `frame`, in radians measured
+    // from +x towards +y (clockwise on a y-down screen), for auto-rotate.
+    // Held and stationary stretches keep the direction of the nearest
+    // preceding motion (or, before any motion, the first one). NaN when the
+    // track never moves or is not Vec2.
+    double tangentAngle(double frame) const;
+
+    bool hasCurvedPath() const { return !paths_.empty(); }
+
 private:
+    // Index of the segment containing frame (key i .. i+1), or -1 / n-1 outside.
+    int segmentAt(double frame) const;
+    // Arc-length position within segment i at frame (eased; may overshoot).
+    double distanceInSegment(int i, double frame) const;
+    Vec2 keyPoint(std::size_t i) const { return {keys_[i].value[0], keys_[i].value[1]}; }
+
     ValueType type_;
     std::vector<TrackKey> keys_;
+    std::vector<CubicPath> paths_;  // per segment, only when some segment is curved
 };
 
 // Eased progress in [0, 1] (may overshoot for cubic y) for a linear progress

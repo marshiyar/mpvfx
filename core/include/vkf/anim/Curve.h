@@ -4,6 +4,7 @@
 #include <span>
 #include <vector>
 
+#include "vkf/anim/CubicPath.h"
 #include "vkf/anim/Keyframe.h"
 #include "vkf/anim/Temporal.h"
 
@@ -58,21 +59,11 @@ public:
     double segmentLength(int i) const;
 
 private:
-    struct Segment {
-        Vec2 p0, p1, p2, p3;               // cubic Bezier control points
-        std::vector<double> cumulative;    // arc length at u = j / kLutSize
-        double length() const { return cumulative.back(); }
-        Vec2 point(double u) const;
-        Vec2 derivative(double u) const;
-        // Curve parameter u at arc length s (0 <= s <= length()).
-        double parameterAt(double s) const;
-    };
-
     void rebuild();
 
     Vec2 default_;
     std::vector<Keyframe2D> keys_;
-    std::vector<Segment> segments_;
+    std::vector<CubicPath> segments_;
     std::vector<detail::TemporalKey> temporal_;  // v = cumulative arc length
 };
 

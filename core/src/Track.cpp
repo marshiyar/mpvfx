@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace vkf::anim {
 
@@ -66,6 +67,7 @@ const char* trackErrorCode(TrackError e)
         case TrackError::DuplicateKeyframeFrame: return "duplicate-keyframe-frame";
         case TrackError::InvalidValue: return "invalid-value";
         case TrackError::InvalidInterpolation: return "invalid-interpolation";
+        case TrackError::InvalidPath: return "invalid-path";
     }
     return "invalid-track";
 }
@@ -105,11 +107,103 @@ Track::Track(ValueType type, std::vector<TrackKey> keys) : type_(type), keys_(st
         } else if (k.outgoing != Segment::Hold && k.outgoing != Segment::Linear) {
             fail(TrackError::InvalidInterpolation, at + " has an unknown interpolation");
         }
+        const PathSegment& path = k.path;
+        if (path.shape != PathShape::Line) {
+            if (type != ValueType::Vec2) fail(TrackError::InvalidPath, at + " has a motion path on a non-2D value");
+            if (path.shape == PathShape::Curve && !std::isfinite(path.curviness))
+                fail(TrackError::InvalidPath, at + " path curviness must be finite");
+            if (path.shape == PathShape::Bezier &&
+                !(std::isfinite(path.cp1.x) && std::isfinite(path.cp1.y) && std::isfinite(path.cp2.x) &&
+                  std::isfinite(path.cp2.y)))
+                fail(TrackError::InvalidPath, at + " path control points must be finite");
+            if (path.shape != PathShape::Curve && path.shape != PathShape::Bezier)
+                fail(TrackError::InvalidPath, at + " has an unknown path shape");
+        }
     }
     std::stable_sort(keys_.begin(), keys_.end(), [](const TrackKey& a, const TrackKey& b) { return a.frame < b.frame; });
     for (std::size_t i = 1; i < keys_.size(); ++i)
         if (keys_[i].frame == keys_[i - 1].frame)
             fail(TrackError::DuplicateKeyframeFrame, "Duplicate keyframe frame " + std::to_string(keys_[i].frame));
+
+    // Build per-segment paths only when some segment is curved, so straight
+    // tracks keep the exact component-wise interpolation.
+    const std::size_t segments = keys_.size() - 1;
+    bool curved = false;
+    for (std::size_t i = 0; i < segments; ++i) curved = curved || keys_[i].path.shape != PathShape::Line;
+    if (!curved) return;
+    // Catmull-Rom tangents with the end points repeated: m_k = (P[k+1] - P[k-1]) / 2.
+    auto tangent = [&](std::size_t k) {
+        const std::size_t prev = k == 0 ? 0 : k - 1;
+        const std::size_t next = std::min(k + 1, keys_.size() - 1);
+        return (keyPoint(next) - keyPoint(prev)) * 0.5;
+    };
+    paths_.reserve(segments);
+    for (std::size_t i = 0; i < segments; ++i) {
+        const Vec2 a = keyPoint(i), b = keyPoint(i + 1);
+        const PathSegment& path = keys_[i].path;
+        switch (path.shape) {
+            case PathShape::Line: paths_.emplace_back(a, a + (b - a) / 3.0, a + (b - a) * (2.0 / 3.0), b); break;
+            case PathShape::Curve: {
+                const double c = path.curviness / 3.0;
+                paths_.emplace_back(a, a + tangent(i) * c, b - tangent(i + 1) * c, b);
+                break;
+            }
+            case PathShape::Bezier: paths_.emplace_back(a, path.cp1, path.cp2, b); break;
+        }
+    }
+}
+
+int Track::segmentAt(double frame) const
+{
+    const int n = static_cast<int>(keys_.size());
+    if (!(frame >= static_cast<double>(keys_.front().frame))) return -1;
+    if (frame >= static_cast<double>(keys_.back().frame)) return n - 1;
+    const auto it = std::upper_bound(keys_.begin(), keys_.end(), frame,
+                                     [](double f, const TrackKey& k) { return f < static_cast<double>(k.frame); });
+    return static_cast<int>(it - keys_.begin()) - 1;
+}
+
+double Track::distanceInSegment(int i, double frame) const
+{
+    const TrackKey& a = keys_[static_cast<std::size_t>(i)];
+    const TrackKey& b = keys_[static_cast<std::size_t>(i) + 1];
+    const double linear = (frame - static_cast<double>(a.frame)) / static_cast<double>(b.frame - a.frame);
+    return easeProgress(a.outgoing, a.timing, linear) * paths_[static_cast<std::size_t>(i)].length();
+}
+
+double Track::tangentAngle(double frame) const
+{
+    if (type_ != ValueType::Vec2 || keys_.size() < 2 || std::isnan(frame)) return NAN;
+    const int n = static_cast<int>(keys_.size());
+    auto moving = [&](int i) { return keys_[static_cast<std::size_t>(i)].outgoing != Segment::Hold; };
+    // Direction of segment i at arc length s (clamped to the segment).
+    auto direction = [&](int i, double s) -> Vec2 {
+        if (!paths_.empty()) return paths_[static_cast<std::size_t>(i)].tangentAtDistance(s);
+        const Vec2 d = keyPoint(static_cast<std::size_t>(i) + 1) - keyPoint(static_cast<std::size_t>(i));
+        const double l = vkf::length(d);
+        return l > 1e-12 ? d / l : Vec2{};
+    };
+    auto angle = [](Vec2 d) { return std::atan2(d.y, d.x); };
+    auto isZero = [](Vec2 d) { return d.x == 0.0 && d.y == 0.0; };
+
+    const int i = segmentAt(frame);
+    if (i >= 0 && i < n - 1 && moving(i)) {
+        const double s = paths_.empty() ? 0.0 : distanceInSegment(i, frame);
+        const Vec2 d = direction(i, s);
+        if (!isZero(d)) return angle(d);
+    }
+    // Held, stationary, or outside the keys: the nearest preceding motion.
+    for (int j = std::min(i, n - 2); j >= 0; --j) {
+        if (!moving(j)) continue;
+        const Vec2 d = direction(j, std::numeric_limits<double>::infinity());
+        if (!isZero(d)) return angle(d);
+    }
+    for (int j = std::max(i, 0); j < n - 1; ++j) {
+        if (!moving(j)) continue;
+        const Vec2 d = direction(j, 0.0);
+        if (!isZero(d)) return angle(d);
+    }
+    return NAN;
 }
 
 void Track::evaluate(double frame, double* out) const
@@ -135,6 +229,13 @@ void Track::evaluate(double frame, double* out) const
     const TrackKey& b = *it;
     if (frame == static_cast<double>(a.frame)) {
         copy(a);
+        return;
+    }
+    const std::size_t segment = static_cast<std::size_t>(it - keys_.begin()) - 1;
+    if (!paths_.empty() && a.outgoing != Segment::Hold && a.path.shape != PathShape::Line) {
+        const Vec2 p = paths_[segment].pointAtDistance(distanceInSegment(static_cast<int>(segment), frame));
+        out[0] = p.x;
+        out[1] = p.y;
         return;
     }
     const double linear = (frame - static_cast<double>(a.frame)) / static_cast<double>(b.frame - a.frame);

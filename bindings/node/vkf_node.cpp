@@ -7,12 +7,17 @@
 //                 keyframes: [{ frame: integer >= 0,
 //                               value: number | {x, y} | {red, green, blue, alpha},
 //                               outgoing: { type: "hold" | "linear" }
-//                                       | { type: "cubic-bezier", controlPoints: {x1, y1, x2, y2} } }] }
+//                                       | { type: "cubic-bezier", controlPoints: {x1, y1, x2, y2} },
+//                               outgoingPath?: { type: "line" }            (vec2 only: motion path
+//                                            | { type: "curve", curviness }   to the next key)
+//                                            | { type: "bezier", cp1: {x, y}, cp2: {x, y} } }] }
 //       Throws an Error whose `code` is one of: empty-track,
 //       invalid-keyframe-frame, duplicate-keyframe-frame, invalid-value,
-//       invalid-interpolation.
+//       invalid-interpolation, invalid-path.
 //   evaluateTrack(compiled, frame) -> number | {x, y} | {red, green, blue, alpha}
 //   sampleTrack(compiled, firstFrame, count) -> Float64Array (count * components)
+//   trackTangentAngle(compiled, frame) -> radians (NaN when the track never moves)
+//   sampleTrackTangentAngle(compiled, firstFrame, count) -> Float64Array
 #define NAPI_VERSION 8
 #include <node_api.h>
 
@@ -135,6 +140,31 @@ TrackKey parseKey(napi_env env, napi_value k, ValueType type)
     } else {
         raise("invalid-interpolation", "Unknown interpolation \"" + kind + "\"");
     }
+
+    bool hasPath = false;
+    check(env, napi_has_named_property(env, k, "outgoingPath", &hasPath));
+    const napi_value path = hasPath ? property(env, k, "outgoingPath") : nullptr;
+    if (path && typeOf(env, path) != napi_undefined) {
+        if (!isObject(env, path)) raise("invalid-path", "outgoingPath must be an object");
+        const std::string shape = string(env, property(env, path, "type"));
+        auto point = [&](const char* name) -> vkf::Vec2 {
+            const napi_value p = property(env, path, name);
+            if (!isObject(env, p)) return {NAN, NAN};
+            return {numberOrNaN(env, property(env, p, "x")), numberOrNaN(env, property(env, p, "y"))};
+        };
+        if (shape == "line") {
+            key.path.shape = vkf::anim::PathShape::Line;
+        } else if (shape == "curve") {
+            key.path.shape = vkf::anim::PathShape::Curve;
+            key.path.curviness = numberOrNaN(env, property(env, path, "curviness"));
+        } else if (shape == "bezier") {
+            key.path.shape = vkf::anim::PathShape::Bezier;
+            key.path.cp1 = point("cp1");
+            key.path.cp2 = point("cp2");
+        } else {
+            raise("invalid-path", "Unknown path type \"" + shape + "\"");
+        }
+    }
     return key;
 }
 
@@ -256,6 +286,37 @@ napi_value sampleTrack(napi_env env, napi_callback_info info)
     });
 }
 
+napi_value trackTangentAngle(napi_env env, napi_callback_info info)
+{
+    return guarded(env, [&] {
+        const auto argv = arguments(env, info, 2);
+        const Track& track = unwrapTrack(env, argv[0]);
+        const double frame = numberOrNaN(env, argv[1]);
+        if (!std::isfinite(frame)) raise("invalid-argument", "Frame must be a finite number");
+        return makeNumber(env, track.tangentAngle(frame));
+    });
+}
+
+napi_value sampleTrackTangentAngle(napi_env env, napi_callback_info info)
+{
+    return guarded(env, [&] {
+        const auto argv = arguments(env, info, 3);
+        const Track& track = unwrapTrack(env, argv[0]);
+        const double first = numberOrNaN(env, argv[1]);
+        const double count = numberOrNaN(env, argv[2]);
+        if (!std::isfinite(first) || std::floor(count) != count || count < 0 || count > 1.0e8)
+            raise("invalid-argument", "sampleTrackTangentAngle(track, firstFrame, count) needs a finite frame and count");
+        void* data = nullptr;
+        napi_value buffer, array;
+        const size_t n = static_cast<size_t>(count);
+        check(env, napi_create_arraybuffer(env, n * sizeof(double), &data, &buffer));
+        auto* out = static_cast<double*>(data);
+        for (size_t i = 0; i < n; ++i) out[i] = track.tangentAngle(first + static_cast<double>(i));
+        check(env, napi_create_typedarray(env, napi_float64_array, n, buffer, 0, &array));
+        return array;
+    });
+}
+
 napi_value init(napi_env env, napi_value exports)
 {
     napi_value apiVersion, version;
@@ -267,6 +328,8 @@ napi_value init(napi_env env, napi_value exports)
         {"compileTrack", nullptr, compileTrack, nullptr, nullptr, nullptr, napi_enumerable, nullptr},
         {"evaluateTrack", nullptr, evaluateTrack, nullptr, nullptr, nullptr, napi_enumerable, nullptr},
         {"sampleTrack", nullptr, sampleTrack, nullptr, nullptr, nullptr, napi_enumerable, nullptr},
+        {"trackTangentAngle", nullptr, trackTangentAngle, nullptr, nullptr, nullptr, napi_enumerable, nullptr},
+        {"sampleTrackTangentAngle", nullptr, sampleTrackTangentAngle, nullptr, nullptr, nullptr, napi_enumerable, nullptr},
     };
     napi_define_properties(env, exports, sizeof(props) / sizeof(props[0]), props);
     return exports;

@@ -1,5 +1,6 @@
 add_library(vkf_core STATIC
   src/AnimatedMotion.cpp
+  src/CubicPath.cpp
   src/Curve.cpp
   src/MotionParams.cpp
   src/Temporal.cpp

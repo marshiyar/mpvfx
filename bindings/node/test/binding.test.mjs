@@ -75,3 +75,26 @@ test("rejects invalid tracks with stable codes", () => {
   assert.equal(code({ valueType: "number", keyframes: [{ frame: 0, value: 0, outgoing: { type: "bounce" } }] }), "invalid-interpolation");
   assert.throws(() => engine.evaluateTrack({}, 0), { code: "invalid-argument" });
 });
+
+test("curved vec2 paths, tangent angles and path validation", () => {
+  const t = engine.compileTrack({
+    valueType: "vec2",
+    keyframes: [
+      { frame: 0, value: { x: 0, y: 0 }, outgoing: linear,
+        outgoingPath: { type: "bezier", cp1: { x: 0, y: 100 }, cp2: { x: 100, y: 100 } } },
+      { frame: 10, value: { x: 100, y: 0 }, outgoing: linear },
+    ],
+  });
+  assert.deepEqual(engine.evaluateTrack(t, 10), { x: 100, y: 0 });
+  assert.ok(engine.evaluateTrack(t, 5).y > 50); // bulges along the handles
+  assert.ok(Math.abs(engine.trackTangentAngle(t, 0) - Math.PI / 2) < 1e-9);
+  const angles = engine.sampleTrackTangentAngle(t, 0, 11);
+  assert.equal(angles.length, 11);
+  assert.ok(Math.abs(angles[10] + Math.PI / 2) < 1e-9);
+  const still = engine.compileTrack({ valueType: "vec2", keyframes: [{ frame: 0, value: { x: 1, y: 1 }, outgoing: linear }] });
+  assert.ok(Number.isNaN(engine.trackTangentAngle(still, 0)));
+  assert.throws(() => engine.compileTrack({ valueType: "number",
+    keyframes: [{ frame: 0, value: 1, outgoing: linear, outgoingPath: { type: "curve", curviness: 1 } }] }), { code: "invalid-path" });
+  assert.throws(() => engine.compileTrack({ valueType: "vec2",
+    keyframes: [{ frame: 0, value: { x: 0, y: 0 }, outgoing: linear, outgoingPath: { type: "spiral" } }] }), { code: "invalid-path" });
+});
