@@ -1,0 +1,65 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": { "VKF_WARNINGS_AS_ERRORS": "ON" }
+    },
+    {
+      "name": "macos",
+      "hidden": true,
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" },
+      "cacheVariables": { "CMAKE_PREFIX_PATH": "/opt/homebrew" }
+    },
+    {
+      "name": "dev",
+      "displayName": "Debug (tests, all backends)",
+      "inherits": ["base"],
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "release",
+      "displayName": "Release (plugin bundle + tests)",
+      "inherits": ["base"],
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "asan",
+      "displayName": "Debug + AddressSanitizer + UBSan",
+      "inherits": ["base"],
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "VKF_OFX_UNIVERSAL": "OFF",
+        "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer",
+        "CMAKE_OBJCXX_FLAGS": "-fsanitize=address,undefined -fno-sanitize-recover=all",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined",
+        "CMAKE_MODULE_LINKER_FLAGS": "-fsanitize=address,undefined"
+      }
+    },
+    { "name": "dev-macos", "displayName": "Debug (macOS)", "inherits": ["macos", "dev"] },
+    { "name": "release-macos", "displayName": "Release (macOS)", "inherits": ["macos", "release"] },
+    { "name": "asan-macos", "displayName": "Sanitizers (macOS)", "inherits": ["macos", "asan"] }
+  ],
+  "buildPresets": [
+    { "name": "dev", "configurePreset": "dev" },
+    { "name": "release", "configurePreset": "release" },
+    { "name": "asan", "configurePreset": "asan" },
+    { "name": "dev-macos", "configurePreset": "dev-macos" },
+    { "name": "release-macos", "configurePreset": "release-macos" },
+    { "name": "asan-macos", "configurePreset": "asan-macos" }
+  ],
+  "testPresets": [
+    { "name": "dev", "configurePreset": "dev", "output": { "outputOnFailure": true } },
+    { "name": "release", "configurePreset": "release", "output": { "outputOnFailure": true } },
+    { "name": "asan", "configurePreset": "asan", "output": { "outputOnFailure": true },
+      "filter": { "exclude": { "label": "integration" } } },
+    { "name": "dev-macos", "configurePreset": "dev-macos", "output": { "outputOnFailure": true } },
+    { "name": "release-macos", "configurePreset": "release-macos", "output": { "outputOnFailure": true } },
+    { "name": "asan-macos", "configurePreset": "asan-macos", "output": { "outputOnFailure": true },
+      "filter": { "exclude": { "label": "integration" } } }
+  ]
+}
