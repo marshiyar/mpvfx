@@ -19,8 +19,9 @@
   "main": ".build/desktop-dist/main.js",
   "scripts": {
     "dev": "npm run desktop:dev",
-    "build": "npm run typecheck && npm run build:engine && npm run build:renderer && npm run desktop:compile",
+    "build": "npm run typecheck && npm run build:engine && npm run build:frame-runtime && npm run build:renderer && npm run desktop:compile",
     "build:engine": "node native/vkf/build.mjs",
+    "build:frame-runtime": "node ../scripts/build/build-native-export-frame-runtime.mjs",
     "desktop:compile": "tsup --config .configurations/tsup.desktop.config.ts",
     "desktop:build": "npm run build",
     "desktop:dev": "npm run build && electron .",

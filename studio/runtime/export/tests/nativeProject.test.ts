@@ -529,8 +529,9 @@ describe("native project render body script", () => {
     );
     const previewElement = document.createElement("div");
     previewElement.setAttribute("data-studio-clip-id", "clip:1");
+    // One element per clip identity at a time: two elements claiming the same
+    // clip are ambiguous and neither is styled.
     const exportElement = document.createElement("div");
-    exportElement.setAttribute("data-studio-clip-id", "clip:1");
     document.body.replaceChildren(previewElement, exportElement);
 
     applyNativeFrameToDocument(
@@ -554,7 +555,6 @@ describe("native project render body script", () => {
 
     // Run the exact export body script against a fresh target at the same frame.
     previewElement.removeAttribute("data-studio-clip-id");
-    exportElement.removeAttribute("data-studio-clip-id");
     exportElement.id = "clip:1";
     clip.binding = { sourceFile: "index.html", domId: "clip:1" };
     window.eval(createNativeProjectRenderBodyScript(serializeNativeProjectDocument(project))!);

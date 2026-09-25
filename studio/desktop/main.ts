@@ -58,6 +58,8 @@ async function startDesktopApplication(): Promise<void> {
   // The C++ engine owns keyframes; nothing that evaluates them may start first.
   engineModulePath = resolveEngineModulePath({ appPath, isPackaged: app.isPackaged, resourcesPath: process.resourcesPath });
   installEngineInMainProcess(engineModulePath);
+  // Export pages run the preview's frame-application code from this bundle.
+  process.env.MPVFX_NATIVE_FRAME_RUNTIME = join(appPath, ".build", "runtime", "native-export-frame-runtime.js");
   const userDataPath = process.env.MPVFX_USER_DATA_DIR
     ? resolve(process.env.MPVFX_USER_DATA_DIR)
     : app.getPath("userData");

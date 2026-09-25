@@ -24,7 +24,7 @@ module.exports = {
       /^\/\.puppeteer-cache(?:\/|$)/,
       /^\/out(?:\/|$)/,
       /^\/\.configurations(?:\/|$)/,
-      /^\/\.build\/(?!dist(?:\/|$)|desktop-dist(?:\/|$))/,
+      /^\/\.build\/(?!dist(?:\/|$)|desktop-dist(?:\/|$)|runtime(?:\/|$))/,
       /^\/\.build\/desktop-dist\/.*\.map$/,
       /^\/.*\.test\.[cm]?[jt]sx?$/,
       /^\/(?:vite|vitest|tsup|tailwind|postcss)\..*\.[cm]?[jt]s$/,

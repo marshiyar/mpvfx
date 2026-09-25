@@ -163,7 +163,13 @@ function evaluateVisualState(
   return state;
 }
 
-function findClipElement(document: Document, clipId: string): HTMLElement | null {
+/**
+ * The one element carrying this clip's identity. Two elements claiming the
+ * same clip are ambiguous: neither is styled (never guess), in preview and
+ * export alike.
+ */
+export function findClipElement(document: Document, clipId: string): HTMLElement | null {
+  let found: HTMLElement | null = null;
   for (const candidate of document.querySelectorAll(`[${NATIVE_CLIP_ID_ATTRIBUTE}]`)) {
     // `iframe.contentWindow` is a WindowProxy. During soft navigation its
     // exposed HTMLElement constructor can advance to the new realm before the
@@ -171,10 +177,11 @@ function findClipElement(document: Document, clipId: string): HTMLElement | null
     // `instanceof document.defaultView.HTMLElement`. The selector already
     // guarantees an Element; use the exact attribute identity instead.
     if (candidate.getAttribute(NATIVE_CLIP_ID_ATTRIBUTE) === clipId) {
-      return candidate as HTMLElement;
+      if (found) return null;
+      found = candidate as HTMLElement;
     }
   }
-  return null;
+  return found;
 }
 
 function applyVisualState(element: HTMLElement, state: NativeVisualState): void {

@@ -243,13 +243,15 @@ function valueAt(baked: VkfBakedTrack, frame: number): VkfValue {
 }
 
 /**
- * Engine replacement for export pages: `lookup` maps a track to its baked
- * samples. Only integer frames can be answered; anything else is an error
- * rather than a silent re-implementation of the engine's interpolation.
+ * Engine for export pages: `lookup` maps a track to its baked samples. Tracks
+ * without samples go to `fallback` (the engine installed before, if any);
+ * with no fallback they are an error, never a re-implemented interpolation.
+ * Only integer frames can be answered from samples.
  */
 export function createBakedEngine(
   version: string,
   lookup: (track: VkfTrack) => VkfBakedTrack | undefined,
+  fallback: VkfEngine | null = null,
 ): VkfEngine {
   const baked = (track: VkfTrack): VkfBakedTrack => {
     const found = lookup(track);
@@ -259,15 +261,18 @@ export function createBakedEngine(
   return {
     version,
     validate: (track) => {
-      baked(track);
+      if (fallback && !lookup(track)) fallback.validate(track);
+      else baked(track);
     },
     evaluate: (track, frame) => {
+      if (fallback && !lookup(track)) return fallback.evaluate(track, frame);
       if (!Number.isInteger(frame)) {
         throw new TypeError("Pre-computed engine values exist only for integer frames");
       }
       return valueAt(baked(track), frame);
     },
     sample: (track, firstFrame, count) => {
+      if (fallback && !lookup(track)) return fallback.sample(track, firstFrame, count);
       if (!Number.isInteger(firstFrame) || !Number.isInteger(count) || count < 0) {
         throw new TypeError("Pre-computed engine values exist only for integer frames");
       }

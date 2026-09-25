@@ -10,7 +10,12 @@ export default defineConfig({
   esbuild: { tsconfigRaw: JSON.stringify(tsconfig) },
   test: {
     exclude: [".build/**", "data/**", "dist/**", "desktop-dist/**", "out/**", "node_modules/**"],
-    env: { VKF_ENGINE_MODULE: fileURLToPath(new URL("../.build/native/vkf/vkf.node", import.meta.url)) },
+    env: {
+      VKF_ENGINE_MODULE: fileURLToPath(new URL("../.build/native/vkf/vkf.node", import.meta.url)),
+      MPVFX_NATIVE_FRAME_RUNTIME: fileURLToPath(new URL("../.build/runtime/native-export-frame-runtime.js", import.meta.url)),
+    },
+    // Rebuild the export frame bundle so tests always run the current code.
+    globalSetup: [".configurations/vitestGlobalSetup.ts"],
     setupFiles: [".configurations/vkfEngineTestSetup.ts", "src/test-support/fetchStubTestUtils.ts"],
   },
 });

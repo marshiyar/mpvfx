@@ -1,4 +1,4 @@
-import { applyNativeFrameToDocument, type NativeClipFrameBinding } from "../../features/project/nativeFrameApplication";
+import { applyNativeFrameToDocument, findClipElement, type NativeClipFrameBinding } from "../../features/project/nativeFrameApplication";
 import { validateRationalFrameRate, type RationalFrameRate } from "../../../shared/project/nativeKeyframeTypes";
 import { createStaticSeekPlaybackAdapter, getAdapterDuration } from "./playbackAdapter";
 import type {
@@ -51,12 +51,7 @@ function validateDurationFrames(durationFrames: number): number {
   return durationFrames;
 }
 
-function findNativeClipRoot(document: Document, clipId: string): HTMLElement | null {
-  for (const candidate of document.querySelectorAll(`[data-studio-clip-id]`)) {
-    if (candidate.getAttribute("data-studio-clip-id") === clipId) return candidate as HTMLElement;
-  }
-  return null;
-}
+const findNativeClipRoot = findClipElement;
 
 function findNativeClipMedia(
   document: Document,
@@ -82,8 +77,9 @@ function resolveClipPlaybackRate(rate: NativePlaybackClipBinding["playbackRate"]
 /**
  * Reassert only native-owned per-clip media state. During playback currentTime
  * is deliberately left alone so the base media clock can advance smoothly.
+ * Export capture calls this with synchronizeCurrentTime on every frame.
  */
-function applyNativeMediaTransport(
+export function applyNativeMediaTransport(
   document: Document,
   clips: readonly NativePlaybackClipBinding[],
   frameRate: RationalFrameRate,

@@ -45,7 +45,7 @@ interface DomBindingLease {
 const domBindingLeases = new WeakMap<HTMLElement, DomBindingLease>();
 const disposedNativePlayers = new WeakSet<object>();
 
-function flattenClips(project: NativeProjectDocument): RuntimeClipBinding[] {
+export function flattenClips(project: NativeProjectDocument): RuntimeClipBinding[] {
   const assetsById = new Map(project.assets.map((asset) => [asset.id, asset]));
   return project.sequence.tracks.flatMap((track) =>
     track.clips.map((clip) => {
@@ -130,7 +130,7 @@ function resolveScopedBinding(document: Document, binding: NativeClipDomBinding 
  * The attribute is the native preview contract. Canonical clip ids are never
  * treated as DOM ids; a legacy node is addressed only through its scoped binding.
  */
-function bindLegacyDomIds(document: Document, clips: readonly RuntimeClipBinding[]): () => void {
+export function bindLegacyDomIds(document: Document, clips: readonly RuntimeClipBinding[]): () => void {
   const owner = Symbol("native-project-runtime-dom-binding");
   const acquired: Array<{ element: HTMLElement; lease: DomBindingLease }> = [];
   for (const clip of clips) {
