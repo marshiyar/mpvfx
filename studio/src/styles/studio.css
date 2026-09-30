@@ -2,6 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Exact UI diff: change only the solid neutral-950 background utility. */
+.bg-neutral-950 {
+  background-color: rgb(228 214 214);
+}
+
 [data-timeline-scroll-viewport][data-timeline-origin-gap-hidden="true"]
   [data-timeline-origin-gap] {
   visibility: hidden;
