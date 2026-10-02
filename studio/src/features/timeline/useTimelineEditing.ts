@@ -32,6 +32,7 @@ import {
 } from "./timelineTrackVisibility";
 import { useTimelineGroupEditing } from "./useTimelineGroupEditing";
 import { useBlockedTimelineEditToast } from "./useBlockedTimelineEditToast";
+import { useRemoveSilence } from "./useRemoveSilence";
 import { serializeZLaneGesture } from "./zLaneGesture";
 import { cutoverCommittedOrThrow, sdkTimingPersist } from "../legacy/sdkCutover";
 import type { TimelineMoveUpdates, UseTimelineEditingOptions } from "./useTimelineEditingTypes";
@@ -752,6 +753,33 @@ export function useTimelineEditing({
     editQueueRef,
   });
 
+  const { handleRemoveSilence, isRemovingSilence } = useRemoveSilence({
+    projectId,
+    activeCompPath,
+    showToast,
+    writeProjectFile,
+    observeProjectFileVersion,
+    recordEdit,
+    domEditSaveTimestampRef,
+    reloadPreview,
+    forceReloadSdkSession,
+    isRecordingRef,
+    deleteElements: handleTimelineElementsDelete,
+    moveElement: handleTimelineElementMove,
+    splitElement: handleRazorSplit,
+    isNativeElement: (element) => {
+      const document = nativeDocumentRef.current;
+      if (!nativeProjectEditing || !document) return false;
+      return resolveNativeClipSelection(document, {
+        id: element.id,
+        hfId: element.hfId,
+        sourceFile: element.sourceFile,
+        selector: element.selector,
+        selectorIndex: element.selectorIndex,
+      }).ok;
+    },
+  });
+
   return {
     handleTimelineElementMove,
     handleTimelineElementResize,
@@ -765,6 +793,8 @@ export function useTimelineEditing({
     handleTimelineElementSplit: handleRazorSplit,
     handleRazorSplit,
     handleRazorSplitAll,
+    handleRemoveSilence,
+    isRemovingSilence,
     handleTimelineAssetDrop,
     handleTimelineFileDrop,
     handleTimelineCompositionDrop,

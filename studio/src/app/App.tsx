@@ -506,9 +506,16 @@ export function StudioApp() {
       <TimelineToolbar
         domEditSession={domEditSession}
         onSplitElement={timelineEditing.handleTimelineElementSplit}
+        onRemoveSilence={timelineEditing.handleRemoveSilence}
+        isRemovingSilence={timelineEditing.isRemovingSilence}
       />
     ),
-    [domEditSession, timelineEditing.handleTimelineElementSplit],
+    [
+      domEditSession,
+      timelineEditing.handleTimelineElementSplit,
+      timelineEditing.handleRemoveSilence,
+      timelineEditing.isRemovingSilence,
+    ],
   );
   if (resolving || waitingForRuntime || !projectId)
     return <StudioSplash waiting={waitingForRuntime} />;
