@@ -25,6 +25,15 @@ afterEach(() => {
 });
 
 describe("export request parity", () => {
+  it.each([true, false])('preserves host-owned exports on teardown only when persistent=%s', async (persistent) => {
+    const fetchMock = stubRenderFetch();
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify({jobId:'persistent-test',status:'rendering',persistent}), {status:200,headers:{'content-type':'application/json'}}));
+    queue = mountRenderQueue(useRenderQueue, 'demo');
+    await act(async () => { await queue!.api().startRender({format:'mp4'}); });
+    queue.unmount(); queue = null;
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/cancel'))).toHaveLength(persistent ? 0 : 1);
+  });
+
   it("allows only one render start while the first request is still being accepted", async () => {
     let acceptFirstRender: ((response: Response) => void) | undefined;
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {

@@ -156,6 +156,25 @@ export function usePreviewPersistence({
     if (result.status !== "clean") throw result.error;
   }, [drainPendingDomEditSaves]);
 
+  useMountEffect(() => {
+    let generation = 0;
+    let priorInert = document.body.inert;
+    return window.mpvfx?.onPrepareClose?.(async () => {
+      const request = ++generation;
+      priorInert = document.body.inert;
+      const saves = waitForPendingDomEditSaves();
+      document.body.inert = true;
+      try { await saves; }
+      catch (error) {
+        if (request === generation) document.body.inert = priorInert;
+        throw error;
+      }
+    }, () => {
+      generation++;
+      document.body.inert = priorInert;
+    });
+  });
+
   const resetDomEditSaveQueueBreaker = useCallback(() => {
     domEditSaveQueueRef.current?.reset();
     setDomEditSaveQueuePaused(null);

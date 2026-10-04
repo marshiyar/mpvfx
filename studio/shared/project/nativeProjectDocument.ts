@@ -13,6 +13,7 @@ import {
   type NativeParameterTrack,
   type RationalFrameRate,
 } from "./nativeKeyframeTypes";
+import { sourceRangeFits } from "./nativeSourceTime";
 
 export const NATIVE_PROJECT_DOCUMENT_SCHEMA_VERSION = 1 as const;
 export const NATIVE_PROJECT_DOCUMENT_PATH = ".studio/project.json" as const;
@@ -88,6 +89,7 @@ export interface NativeProjectClip {
   startFrame: number;
   durationFrames: number;
   sourceInFrame: number;
+  sourceInFraction?: NativePlaybackRate;
   /** Missing only in v1 input; the parser materializes the exact 1/1 default. */
   playbackRate?: NativePlaybackRate;
   /** Missing only in v1 input; it is materialized to this safe default. */
@@ -335,12 +337,9 @@ function sourceRangeExceedsAsset(
   durationFrames: number,
   playbackRate: NativePlaybackRate,
   assetDurationFrames: number,
+  sourceInFraction?: NativePlaybackRate,
 ): boolean {
-  const denominator = BigInt(playbackRate.denominator);
-  const sourceEndNumerator =
-    BigInt(sourceInFrame) * denominator +
-    BigInt(durationFrames) * BigInt(playbackRate.numerator);
-  return sourceEndNumerator > BigInt(assetDurationFrames) * denominator;
+  return !sourceRangeFits({ sourceInFrame, sourceInFraction, playbackRate }, durationFrames, assetDurationFrames);
 }
 
 function validateParameterTracks(
@@ -836,6 +835,10 @@ export function validateNativeProjectDocument(
           : validatePlaybackRate(clip.playbackRate, `${clipPath}.playbackRate`, issues)
             ? clip.playbackRate
             : null;
+      const fraction = clip.sourceInFraction;
+      const validFraction = fraction === undefined || (isRecord(fraction) &&
+        isNonNegativeInteger(fraction.numerator) && isPositiveInteger(fraction.denominator) && fraction.numerator < fraction.denominator);
+      if (!validFraction) pushIssue(issues, "invalid-clip", `${clipPath}.sourceInFraction`, "Source fraction must be a nonnegative rational smaller than one");
       if (typeof clip.muted !== "undefined" && typeof clip.muted !== "boolean") {
         pushIssue(issues, "invalid-clip", `${clipPath}.muted`, "Muted must be a boolean");
       }
@@ -847,11 +850,13 @@ export function validateNativeProjectDocument(
         isPositiveInteger(clip.durationFrames) &&
         isPositiveInteger(asset.durationFrames) &&
         playbackRate &&
+        validFraction &&
         sourceRangeExceedsAsset(
           clip.sourceInFrame,
           clip.durationFrames,
           playbackRate,
           asset.durationFrames,
+          fraction as NativePlaybackRate | undefined,
         )
       ) {
         pushIssue(
@@ -939,6 +944,7 @@ export function parseNativeProjectDocument(input: unknown): NativeProjectDocumen
           startFrame: clip.startFrame,
           durationFrames: clip.durationFrames,
           sourceInFrame: clip.sourceInFrame,
+          ...(clip.sourceInFraction ? { sourceInFraction: { ...clip.sourceInFraction } } : {}),
           playbackRate: {
             numerator: clip.playbackRate?.numerator ?? DEFAULT_NATIVE_PLAYBACK_RATE.numerator,
             denominator: clip.playbackRate?.denominator ?? DEFAULT_NATIVE_PLAYBACK_RATE.denominator,

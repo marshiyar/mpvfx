@@ -22,6 +22,7 @@ interface DesktopAppDependencies {
   prepareRenderer(): Promise<void>;
   createWindow(): DesktopWindowHandle;
   closeSharedBrowser(): Promise<void>;
+  flushRenderer?(): Promise<void>;
 }
 
 export function shouldQuitWhenAllWindowsClosed(platform: NodeJS.Platform): boolean {
@@ -110,8 +111,10 @@ export function createDesktopAppController(
     },
     async close() {
       if (closePromise) return closePromise;
-      stopping = true;
       const pending = (async () => {
+        await startPromise?.catch(() => {});
+        await dependencies.flushRenderer?.();
+        stopping = true;
         let windowCloseError: unknown;
         const destroyActiveWindow = () => {
           const activeWindow = window;
@@ -142,7 +145,12 @@ export function createDesktopAppController(
         if (rejected) throw rejected.reason;
       })();
       closePromise = pending;
-      return pending;
+      try { return await pending; }
+      catch (error) {
+        closePromise = null;
+        if (runtime) stopping = false;
+        throw error;
+      }
     },
     origin() {
       return runtime?.origin ?? null;

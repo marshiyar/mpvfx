@@ -275,7 +275,7 @@ export function useTimelineGroupEditing({
             selector: change.element.selector,
             selectorIndex: change.element.selectorIndex,
           });
-          if (resolution.ok && resolution.located.clip.binding) {
+          if (resolution.ok) {
             nativeEntries.push({ change, clipId: resolution.located.clip.id });
           }
         }
@@ -537,7 +537,7 @@ export function useTimelineGroupEditing({
             selector: change.element.selector,
             selectorIndex: change.element.selectorIndex,
           });
-          if (resolution.ok && resolution.located.clip.binding) {
+          if (resolution.ok) {
             nativeEntries.push({ change, clipId: resolution.located.clip.id });
           }
         }

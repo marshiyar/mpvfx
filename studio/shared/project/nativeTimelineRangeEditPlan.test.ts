@@ -134,7 +134,7 @@ describe("native timeline range edit planner", () => {
     });
   });
 
-  it("declines an unbound native clip instead of inventing a compatibility target", () => {
+  it("trims a native-only clip without inventing a compatibility target", () => {
     const result = planNativeTimelineRangeEdit({
       document: document({ binding: false }),
       element: {
@@ -146,13 +146,7 @@ describe("native timeline range edit planner", () => {
       requestedDurationSeconds: secondsAtFrame(60),
     });
 
-    expect(result).toEqual({
-      ok: false,
-      failure: {
-        code: "unbound-clip",
-        message: "Native clip clip:a has no exact compatibility binding",
-      },
-    });
+    expect(result).toMatchObject({ ok: true, sourceFile: null, durationFrames: 60 });
   });
 
   it("declines a missing native clip without mutating the supplied document", () => {

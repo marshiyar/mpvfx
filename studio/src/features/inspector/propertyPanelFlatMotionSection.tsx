@@ -1,3 +1,4 @@
+import { sourceFrameValue } from "../../../shared/project/nativeSourceTime";
 import { useTimelineEditContextOptional } from "../timeline/TimelineEditContext";
 import { useDomEditSelectionContextOptional } from "../canvas/DomEditContext";
 import { useStudioShellContextOptional } from "../../app/StudioContext";
@@ -57,7 +58,7 @@ export function FlatTimingRow({
           ...selectedTimelineElement,
           start: nativeClip.startFrame * secondsPerFrame,
           duration: nativeClip.durationFrames * secondsPerFrame,
-          playbackStart: nativeClip.sourceInFrame * secondsPerFrame,
+          playbackStart: sourceFrameValue(nativeClip) * secondsPerFrame,
         }
       : selectedTimelineElement;
   const inferredTiming = deriveElementTiming(element, animations);

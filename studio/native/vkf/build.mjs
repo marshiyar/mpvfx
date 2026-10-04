@@ -26,6 +26,8 @@ function run(command, args) {
 
 mkdirSync(outDir, { recursive: true });
 run("cmake", [
+  // CMake >= 3.24: rediscover the selected toolchain after Xcode moves or upgrades.
+  "--fresh",
   "-S", engineDir,
   "-B", buildDir,
   "-DCMAKE_BUILD_TYPE=Release",

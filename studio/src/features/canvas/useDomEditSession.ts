@@ -1,3 +1,4 @@
+import { deleteNativeCanvasSelection } from "./nativeCanvasDelete";
 import { useCallback } from "react";
 import { trackStudioEvent } from "../../lib/studioTelemetry";
 import { isAudioDomElement } from "../timeline/timelineInspector";
@@ -10,6 +11,7 @@ import { runResolverShadow, recordResolverParity } from "../legacy/sdkResolverSh
 import { useDomSelection } from "./useDomSelection";
 import { usePreviewInteraction } from "../preview/usePreviewInteraction";
 import { useDomEditCommits } from "./useDomEditCommits";
+import { commitNativeMediaAttributes } from "./nativeMediaAttributes";
 import { useGroupCommits } from "./useGroupCommits";
 import { useGsapScriptCommits } from "../animation/GSAP/useGsapScriptCommits";
 import { useGsapCacheVersion } from "../animation/GSAP/useGsapTweenCache";
@@ -288,6 +290,8 @@ export function useDomEditSession({
           );
         }
       : undefined,
+    onTryNativeDelete: selections => deleteNativeCanvasSelection(selections, nativeProjectEditing, editHistory.recordEdit),
+    onTryNativePersist: (selection, operations, targetPath, options) => commitNativeMediaAttributes(selection, operations, targetPath, nativeProjectEditing, editHistory.recordEdit, options),
     onTrySdkDelete: sdkSession
       ? (hfId, originalContent, targetPath) =>
           sdkDeletePersist(hfId, originalContent, targetPath, sdkSession, {

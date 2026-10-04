@@ -1,3 +1,5 @@
+import { classifyMediaImportPath } from "../../../shared/media/mediaImportPolicy";
+import { encodeMediaPath, projectMediaUrl } from "../../../shared/media/mediaUrl";
 import { FlatSlider } from "./propertyPanelFlatPrimitives";
 import { useMemo, useRef, useState } from "react";
 import { Plus, RotateCcw, X } from "../../icons/SystemIcons";
@@ -8,7 +10,6 @@ import {
   serializeGradient,
   type GradientModel,
 } from "./gradientValue";
-import { IMAGE_EXT } from "../media/mediaTypes";
 import { IMAGE_IMPORT_ACCEPT } from "../../../shared/media/mediaImportPolicy";
 import { FIELD, LABEL, RESPONSIVE_GRID } from "./propertyPanelHelpers";
 import {
@@ -25,13 +26,16 @@ import { useInspectorGestureDraft } from "./useInspectorGestureTransaction";
 /* ------------------------------------------------------------------ */
 
 function normalizeProjectPath(value: string): string {
-  const trimmed = value.trim();
-  const maybeUrl = /^[a-z]+:\/\//i.test(trimmed)
-    ? new URL(trimmed).pathname
-    : trimmed;
-  return decodeURIComponent(maybeUrl)
+  return value
     .replace(/\\/g, "/")
     .replace(/^\.?\//, "");
+}
+
+function pathFromImageUrl(value: string): string | null {
+  try {
+    const url = new URL(value, "mpvfx://editor/");
+    return normalizeProjectPath(decodeURIComponent(url.pathname));
+  } catch { return null; }
 }
 
 function toRelativeProjectAssetPath(
@@ -55,7 +59,7 @@ function toRelativeProjectAssetPath(
 }
 
 function toProjectRootAssetPath(assetPath: string): string {
-  return normalizeProjectPath(assetPath);
+  return encodeMediaPath(normalizeProjectPath(assetPath));
 }
 
 function resolveSelectedAsset(
@@ -63,7 +67,7 @@ function resolveSelectedAsset(
   sourceFile: string,
   assets: string[],
 ): string | null {
-  const normalizedUrl = normalizeProjectPath(imageUrl);
+  const normalizedUrl = pathFromImageUrl(imageUrl);
   if (!normalizedUrl) return null;
   for (const asset of assets) {
     const normalizedAsset = normalizeProjectPath(asset);
@@ -106,7 +110,7 @@ export function ImageFillField({
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const imageAssets = useMemo(
-    () => assets.filter((a) => IMAGE_EXT.test(a)),
+    () => assets.filter((a) => classifyMediaImportPath(a) === "image"),
     [assets],
   );
   const selectedAsset = useMemo(
@@ -121,7 +125,7 @@ export function ImageFillField({
     setUploadError(null);
     try {
       const uploaded = await onImportAssets(files);
-      const nextImage = uploaded.find((a) => IMAGE_EXT.test(a));
+      const nextImage = uploaded.find((a) => classifyMediaImportPath(a) === "image");
       if (nextImage) {
         track("button", "Upload image");
         onCommit(`url("${toProjectRootAssetPath(nextImage)}")`);
@@ -176,7 +180,7 @@ export function ImageFillField({
             {selectedAsset && (
               <div className="overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900/80">
                 <img
-                  src={`/api/projects/${projectId}/preview/${selectedAsset}`}
+                  src={projectMediaUrl(projectId, selectedAsset)}
                   alt={selectedAsset.split("/").pop() ?? selectedAsset}
                   className="h-28 w-full object-contain bg-neutral-950/80"
                 />

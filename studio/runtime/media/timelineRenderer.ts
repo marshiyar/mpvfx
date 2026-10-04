@@ -1,3 +1,4 @@
+import { sourceFrameValue } from "../../shared/project/nativeSourceTime";
 import { execFile, spawn } from "node:child_process";
 import { lstat, realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
@@ -100,7 +101,7 @@ function timelineArgs(input: NativeTimelineRenderInput, media: Map<string, Media
     const info = media.get(asset.id)!;
     const start = clip.startFrame / fps;
     const length = clip.durationFrames / fps;
-    const sourceStart = clip.sourceInFrame / fps;
+    const sourceStart = sourceFrameValue(clip) / fps;
     const rate = (clip.playbackRate?.numerator ?? 1) / (clip.playbackRate?.denominator ?? 1);
     if (asset.kind !== "audio" && !info.video) throw new Error(`No picture track in ${asset.name}`);
     if (asset.kind === "audio" && !info.audio) throw new Error(`No audio track in ${asset.name}`);

@@ -1,5 +1,5 @@
+import { advanceSourcePosition, sourceRangeFits, type NativeSourcePosition } from "./nativeSourceTime";
 import {
-  DEFAULT_NATIVE_PLAYBACK_RATE,
   NativeProjectDocumentValidationError,
   nativeAssetConsumesSourceFrames,
   parseNativeProjectDocument,
@@ -265,24 +265,6 @@ const rebasedTracks = (
 ): NativeParameterTrack[] =>
   clip.parameterTracks.map((track) => rebaseTrack(track, fromFrame, untilFrameExclusive, idForTrack(track)));
 
-/**
- * Convert a timeline-frame delta to an exact integral source-frame delta.
- * Fractional source boundaries are not silently rounded because that would
- * make repeated trims/splits drift depending on command order.
- */
-const exactSourceFrameDelta = (
-  clip: NativeProjectClip,
-  timelineFrameDelta: number,
-): number | null => {
-  const rate = clip.playbackRate ?? DEFAULT_NATIVE_PLAYBACK_RATE;
-  const numerator = BigInt(timelineFrameDelta) * BigInt(rate.numerator);
-  const denominator = BigInt(rate.denominator);
-  if (numerator % denominator !== 0n) return null;
-  const sourceDelta = numerator / denominator;
-  if (sourceDelta > BigInt(Number.MAX_SAFE_INTEGER)) return null;
-  return Number(sourceDelta);
-};
-
 const applyTrimIn = (
   document: NativeProjectDocument,
   address: NativeProjectClipAddress,
@@ -296,23 +278,18 @@ const applyTrimIn = (
   }
   const clip = location.clip;
   const assetKind = document.assets.find((asset) => asset.id === clip.assetId)?.kind;
-  const sourceDelta = assetKind && !nativeAssetConsumesSourceFrames(assetKind) ? 0 : exactSourceFrameDelta(clip, delta);
-  if (sourceDelta === null) {
-    return reject(
-      document,
-      "non-integral-source-boundary",
-      "Trim boundary does not map to an exact integral source frame at this playback rate",
-    );
-  }
-  if (clip.sourceInFrame + sourceDelta < 0) {
-    return reject(document, "invalid-trim", "Cannot extend before the beginning of the source media");
+  let sourcePosition: NativeSourcePosition;
+  try {
+    sourcePosition = advanceSourcePosition(clip, assetKind && !nativeAssetConsumesSourceFrames(assetKind) ? 0 : delta);
+  } catch (error) {
+    return reject(document, "invalid-trim", error instanceof Error ? error.message : "Invalid source boundary");
   }
   return succeed(
     document,
     replaceClip(document, location, {
       ...clip,
       startFrame,
-      sourceInFrame: clip.sourceInFrame + sourceDelta,
+      ...sourcePosition,
       durationFrames: clip.durationFrames - delta,
       parameterTracks: rebasedTracks(clip, delta, clip.durationFrames, (track) => track.id),
     }),
@@ -332,10 +309,7 @@ const applyTrimOut = (
   }
   const clip = location.clip;
   const asset = document.assets.find((candidate) => candidate.id === clip.assetId)!;
-  const rate = clip.playbackRate ?? DEFAULT_NATIVE_PLAYBACK_RATE;
-  if (nativeAssetConsumesSourceFrames(asset.kind) &&
-      BigInt(clip.sourceInFrame) * BigInt(rate.denominator) + BigInt(nextDuration) * BigInt(rate.numerator) >
-      BigInt(asset.durationFrames) * BigInt(rate.denominator)) {
+  if (nativeAssetConsumesSourceFrames(asset.kind) && !sourceRangeFits(clip, nextDuration, asset.durationFrames)) {
     return reject(document, "invalid-trim", "Cannot extend beyond the end of the source media");
   }
   return succeed(
@@ -363,13 +337,12 @@ const applySplit = (
   if (!Number.isSafeInteger(splitFrame) || localFrame <= 0 || localFrame >= clip.durationFrames) {
     return reject(document, "invalid-split", "Split frame must be an integer strictly inside the clip");
   }
-  const sourceDelta = exactSourceFrameDelta(clip, localFrame);
-  if (sourceDelta === null) {
-    return reject(
-      document,
-      "non-integral-source-boundary",
-      "Split boundary does not map to an exact integral source frame at this playback rate",
-    );
+  let sourcePosition: NativeSourcePosition;
+  try {
+    const asset = document.assets.find(candidate => candidate.id === clip.assetId)!;
+    sourcePosition = advanceSourcePosition(clip, nativeAssetConsumesSourceFrames(asset.kind) ? localFrame : 0);
+  } catch (error) {
+    return reject(document, "invalid-split", error instanceof Error ? error.message : "Invalid source boundary");
   }
   if (clip.binding && !rightBinding) {
     return reject(
@@ -392,7 +365,7 @@ const applySplit = (
     id: rightId,
     startFrame: splitFrame,
     durationFrames: clip.durationFrames - localFrame,
-    sourceInFrame: clip.sourceInFrame + sourceDelta,
+    ...sourcePosition,
     ...(rightBinding ? { binding: rightBinding } : {}),
     parameterTracks: rebasedTracks(
       clip,

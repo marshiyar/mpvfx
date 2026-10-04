@@ -1,4 +1,5 @@
 import type { TimelineElement } from "../../player/store/timelineElement";
+import { sourcePositionFromSeconds, advanceSourcePosition } from "../../../shared/project/nativeSourceTime";
 import { nativeMediaAssetId, nativeMediaSource } from "../../../shared/project/nativeMediaSource";
 import { validateRationalFrameRate, type RationalFrameRate } from "../../../shared/project/nativeKeyframeTypes";
 import {
@@ -69,6 +70,7 @@ interface BootstrapCandidate {
   readonly startFrame: number;
   readonly durationFrames: number;
   readonly sourceInFrame: number;
+  readonly sourceInFraction?: NativePlaybackRate;
   readonly sourceDurationFrames: number;
   readonly playbackRate: NativePlaybackRate;
 }
@@ -124,12 +126,6 @@ const rationalPlaybackRate = (value: number): NativePlaybackRate => {
   if (numerator <= 0 || denominator <= 0) return { numerator: 1, denominator: 1 };
   const divisor = greatestCommonDivisor(numerator, denominator);
   return { numerator: numerator / divisor, denominator: denominator / divisor };
-};
-
-const sourceFramesConsumed = (durationFrames: number, playbackRate: NativePlaybackRate): number => {
-  const numerator = BigInt(durationFrames) * BigInt(playbackRate.numerator);
-  const denominator = BigInt(playbackRate.denominator);
-  return Number((numerator + denominator - 1n) / denominator);
 };
 
 const mediaKind = (
@@ -323,7 +319,7 @@ export const bootstrapNativeProjectFromTimeline = (
     const startFrame = frameFromSeconds(element.start, input.frameRate);
     const durationFrames = frameFromSeconds(element.duration, input.frameRate);
     const isElement = kind.kind === "element";
-    const sourceInFrame = isElement ? 0 : frameFromSeconds(element.playbackStart ?? 0, input.frameRate);
+    const sourcePosition = isElement ? { sourceInFrame: 0 } : sourcePositionFromSeconds(element.playbackStart ?? 0, input.frameRate);
     const playbackRate = isElement ? { numerator: 1, denominator: 1 } : rationalPlaybackRate(element.playbackRate ?? 1);
     if (durationFrames <= 0) {
       diagnostics.push(
@@ -331,7 +327,8 @@ export const bootstrapNativeProjectFromTimeline = (
       );
       continue;
     }
-    const requiredSourceFrames = sourceInFrame + sourceFramesConsumed(durationFrames, playbackRate);
+    const sourceEnd = advanceSourcePosition({ ...sourcePosition, playbackRate }, durationFrames);
+    const requiredSourceFrames = sourceEnd.sourceInFrame + (sourceEnd.sourceInFraction ? 1 : 0);
     const sourceDurationFrames =
       isElement || element.sourceDuration === undefined
         ? requiredSourceFrames
@@ -356,7 +353,7 @@ export const bootstrapNativeProjectFromTimeline = (
       source,
       startFrame,
       durationFrames,
-      sourceInFrame,
+      ...sourcePosition,
       sourceDurationFrames,
       playbackRate,
     });
@@ -465,6 +462,7 @@ export const bootstrapNativeProjectFromTimeline = (
       startFrame: candidate.startFrame,
       durationFrames: candidate.durationFrames,
       sourceInFrame: candidate.sourceInFrame,
+      ...(candidate.sourceInFraction ? { sourceInFraction: candidate.sourceInFraction } : {}),
       playbackRate: candidate.playbackRate,
       muted: candidate.element.muted ?? false,
       binding: candidate.binding,

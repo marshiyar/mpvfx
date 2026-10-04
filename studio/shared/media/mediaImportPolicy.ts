@@ -83,7 +83,8 @@ interface MediaImportFileLike {
 }
 
 function extensionFromPath(path: string): string | null {
-  const clean = path.split(/[?#]/, 1)[0]?.replace(/\\/g, "/") ?? "";
+  // Import names are filesystem paths. A literal '?' or '#' is part of the name.
+  const clean = path.replace(/\\/g, "/");
   const name = clean.slice(clean.lastIndexOf("/") + 1);
   const dot = name.lastIndexOf(".");
   if (dot <= 0 || dot === name.length - 1) return null;

@@ -173,7 +173,7 @@ describe("native timeline multi-clip range planner", () => {
     expect(serializeNativeProjectDocument(original)).toBe(bytes);
   });
 
-  it("rejects an unbound member instead of partially applying the valid edit", () => {
+  it("trims a mixed native-only and mirrored selection atomically", () => {
     const original = project({ unboundSecond: true });
     const bytes = serializeNativeProjectDocument(original);
     const result = planNativeTimelineMultiRangeEdit({
@@ -184,9 +184,10 @@ describe("native timeline multi-clip range planner", () => {
       }],
     });
 
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.failure).toMatchObject({ code: "unbound-clip", changeIndex: 1 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.edits[1]).toMatchObject({ sourceFile: null, binding: null });
+    expect(result.edits).toHaveLength(2);
     expect(serializeNativeProjectDocument(original)).toBe(bytes);
   });
 

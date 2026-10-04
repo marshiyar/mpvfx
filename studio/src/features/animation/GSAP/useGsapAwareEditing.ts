@@ -231,8 +231,30 @@ export function useGsapAwareEditing({
   // elements are no longer blocked in a group. No CSS fallback: with no GSAP
   // composition there's nothing to write (a no-op, exactly like the single-drag path).
   const handleGsapAwareGroupPathOffsetCommit = useCallback(
-    async (updates: DomEditGroupPathOffsetCommit[]) => {
-      if (!gsapCommitMutation || updates.length === 0) return;
+    async (allUpdates: DomEditGroupPathOffsetCommit[]) => {
+      // Native-owned members move in one native save (one undo step); only
+      // layers the native project cannot address go through the GSAP writer.
+      const nativeUpdates = allUpdates.filter(({ selection }) => projectPropertyCommit.isNativeSelection(selection));
+      const updates = allUpdates.filter((update) => !nativeUpdates.includes(update));
+      const commitNativeMembers = async () => {
+        if (nativeUpdates.length === 0) return;
+        try {
+          await projectPropertyCommit.commitNativeGroupProperties(
+            nativeUpdates.map(({ selection, next }) => {
+              const { newX, newY } = computeDraggedGsapPosition(selection.element, next, { x: 0, y: 0 });
+              return { selection, properties: { x: newX, y: newY } };
+            }),
+            "Move layers",
+          );
+        } catch (error) {
+          trackGsapInteractionFailure(error, nativeUpdates[0]!.selection, "drag", "Move animated layer (group)");
+          throw error;
+        }
+      };
+      if (updates.length === 0) return commitNativeMembers();
+      if (!gsapCommitMutation) {
+        throw new Error("Some selected layers cannot be moved: they are not part of the native project");
+      }
       // A group drag is ONE user action: fold every member's position write into
       // a single undo entry by forcing a shared coalesceKey (infinite window, so
       // it survives the N sequential server round-trips) onto each commit —
@@ -310,6 +332,7 @@ export function useGsapAwareEditing({
         );
         throw preflightFailure.error;
       }
+      await commitNativeMembers();
       for (const [index, { selection, next }] of updates.entries()) {
         renderOnCommit = index === updates.length - 1;
         try {
@@ -343,7 +366,7 @@ export function useGsapAwareEditing({
         throw error;
       }
     },
-    [gsapCommitMutation, previewIframeRef, makeFetchFallback, trackGsapInteractionFailure],
+    [gsapCommitMutation, previewIframeRef, makeFetchFallback, trackGsapInteractionFailure, projectPropertyCommit],
   );
 
   const handleGsapAwareBoxSizeCommit = useCallback(

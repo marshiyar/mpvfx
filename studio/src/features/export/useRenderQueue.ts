@@ -122,6 +122,7 @@ export function useRenderQueue(
   // first FFmpeg process whenever the user started a second export.
   const eventSourcesRef = useRef(new Map<string, DesktopEvents>());
   const activeJobIdsRef = useRef(new Set<string>());
+  const persistentJobIdsRef = useRef(new Set<string>());
   // React state cannot disable a button until the next render. This latch
   // closes the same-frame gap while the server is accepting the first POST.
   const pendingStartRef = useRef(false);
@@ -150,7 +151,9 @@ export function useRenderQueue(
   }, []);
 
   const cancelAllActiveRenders = useCallback(() => {
-    for (const jobId of activeJobIdsRef.current) bestEffortCancelRender(jobId);
+    for (const jobId of activeJobIdsRef.current) {
+      if (!persistentJobIdsRef.current.has(jobId)) bestEffortCancelRender(jobId);
+    }
     for (const source of eventSourcesRef.current.values()) source.close();
     eventSourcesRef.current.clear();
     activeJobIdsRef.current.clear();
@@ -375,11 +378,12 @@ export function useRenderQueue(
         }
         let jobId: string;
         try {
-          const responseBody = (await res.json()) as { jobId?: unknown };
+          const responseBody = (await res.json()) as { jobId?: unknown; persistent?: unknown };
           if (typeof responseBody.jobId !== "string" || responseBody.jobId.length === 0) {
             throw new Error("missing job id");
           }
           jobId = responseBody.jobId;
+          if (responseBody.persistent === true) persistentJobIdsRef.current.add(jobId);
         } catch (err) {
           const cause = err instanceof Error ? err.message : String(err);
           addSessionJob(
@@ -610,8 +614,8 @@ export function useRenderQueue(
     };
   }, [cancelAllActiveRenders]);
 
-  // Cancel active server work on unmount or projectId change, not merely its
-  // EventSource observer.
+  // Library exports belong to the host and survive project switches. Legacy
+  // session exports still release their lease on teardown.
   useEffect(() => {
     return cancelAllActiveRenders;
   }, [projectId, cancelAllActiveRenders]);

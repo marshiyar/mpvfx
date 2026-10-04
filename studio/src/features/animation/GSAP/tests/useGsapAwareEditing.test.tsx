@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   projectCommitAnimatedProperty: vi.fn(),
   projectCommitAnimatedProperties: vi.fn(),
   isNativeSelection: vi.fn(),
+  projectCommitNativeGroupProperties: vi.fn(),
 }));
 
 vi.mock("../gsapResizeIntercept", () => ({ tryGsapResizeIntercept: mocks.resize }));
@@ -42,6 +43,7 @@ vi.mock("../../useProjectAnimatedPropertyCommit", () => ({
     commitAnimatedProperty: mocks.projectCommitAnimatedProperty,
     commitAnimatedProperties: mocks.projectCommitAnimatedProperties,
     isNativeSelection: mocks.isNativeSelection,
+    commitNativeGroupProperties: mocks.projectCommitNativeGroupProperties,
   }),
 }));
 vi.mock("../useSafeGsapCommitMutation", () => ({
@@ -303,6 +305,32 @@ describe("useGsapAwareEditing anchored resize", () => {
     expect(capturedKeys[0]).toMatch(/^group-drag:\d+$/);
     // Both members share ONE coalesceKey → they fold into a single undo entry.
     expect(capturedKeys[0]).toBe(capturedKeys[1]);
+    act(() => root.unmount());
+  });
+
+  it("moves native group members in one native commit and never through GSAP", async () => {
+    const nativeA = { element: document.createElement("div"), id: "a", selector: "#a" };
+    const nativeB = { element: document.createElement("div"), id: "b", selector: "#b" };
+    mocks.isNativeSelection.mockReturnValue(true);
+    mocks.projectCommitNativeGroupProperties.mockResolvedValue(undefined);
+    const commitMutation = vi.fn().mockResolvedValue(undefined);
+    const { groupCommit, root } = mountGroupHandler({
+      gsapCommitMutation: commitMutation,
+      makeFetchFallback: () => vi.fn().mockResolvedValue([]),
+    });
+
+    await act(() => groupCommit([
+      { selection: nativeA, next: { x: 10, y: 20 } },
+      { selection: nativeB, next: { x: -5, y: 7 } },
+    ] as unknown as DomEditGroupPathOffsetCommit[]));
+
+    expect(mocks.projectCommitNativeGroupProperties).toHaveBeenCalledTimes(1);
+    expect(mocks.projectCommitNativeGroupProperties).toHaveBeenCalledWith([
+      { selection: nativeA, properties: { x: 10, y: 20 } },
+      { selection: nativeB, properties: { x: -5, y: 7 } },
+    ], "Move layers");
+    expect(mocks.drag).not.toHaveBeenCalled();
+    expect(commitMutation).not.toHaveBeenCalled();
     act(() => root.unmount());
   });
 

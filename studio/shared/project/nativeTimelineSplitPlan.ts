@@ -26,7 +26,7 @@ export interface NativeTimelineSplitRequest {
   readonly element: NativeTimelineSplitElement;
   readonly requestedSplitSeconds: number;
   /** Identity returned by the compatibility transform, never guessed here. */
-  readonly rightBinding: Readonly<NativeClipDomBinding>;
+  readonly rightBinding?: Readonly<NativeClipDomBinding>;
 }
 
 export interface NativeTimelineSplitPlanInput {
@@ -36,9 +36,9 @@ export interface NativeTimelineSplitPlanInput {
 
 export interface NativeTimelinePlannedSplit {
   readonly address: NativeProjectClipAddress;
-  readonly sourceFile: string;
-  readonly leftBinding: Readonly<NativeClipDomBinding>;
-  readonly rightBinding: Readonly<NativeClipDomBinding>;
+  readonly sourceFile: string | null;
+  readonly leftBinding: Readonly<NativeClipDomBinding> | null;
+  readonly rightBinding?: Readonly<NativeClipDomBinding>;
   readonly splitFrame: number;
   readonly compatibilitySplitSeconds: number;
   readonly compatibilitySplitTime: string;
@@ -142,16 +142,8 @@ export function planNativeTimelineSplits(
 
     const { clip, trackId } = resolution.located;
     const leftBinding = clip.binding;
-    if (!leftBinding) {
-      return fail(
-        "unbound-clip",
-        `Native clip ${clip.id} has no compatibility binding`,
-        splitIndex,
-      );
-    }
     if (
-      typeof split.element.sourceFile !== "string" ||
-      split.element.sourceFile.length === 0 ||
+      leftBinding && split.element.sourceFile &&
       split.element.sourceFile !== leftBinding.sourceFile
     ) {
       return fail(
@@ -160,7 +152,7 @@ export function planNativeTimelineSplits(
         splitIndex,
       );
     }
-    if (split.rightBinding.sourceFile !== leftBinding.sourceFile) {
+    if (leftBinding && split.rightBinding?.sourceFile !== leftBinding.sourceFile) {
       return fail(
         "right-binding-source-mismatch",
         "The compatibility split must create its right clip in the same source file",
@@ -208,9 +200,9 @@ export function planNativeTimelineSplits(
       input.document.frameRate.numerator;
     planned.push({
       address,
-      sourceFile: leftBinding.sourceFile,
-      leftBinding: { ...leftBinding },
-      rightBinding: { ...split.rightBinding },
+      sourceFile: leftBinding?.sourceFile ?? null,
+      leftBinding: leftBinding ? { ...leftBinding } : null,
+      ...(split.rightBinding ? { rightBinding: { ...split.rightBinding } } : {}),
       splitFrame,
       compatibilitySplitSeconds,
       compatibilitySplitTime: String(compatibilitySplitSeconds),
@@ -223,7 +215,7 @@ export function planNativeTimelineSplits(
       type: "split",
       address: split.address,
       splitFrame: split.splitFrame,
-      rightBinding: { ...split.rightBinding },
+      ...(split.rightBinding ? { rightBinding: { ...split.rightBinding } } : {}),
     });
     if (!command.ok) {
       return fail(
@@ -240,6 +232,6 @@ export function planNativeTimelineSplits(
     ok: true,
     document,
     splits: planned,
-    sourceFiles: [...new Set(planned.map((split) => split.sourceFile))].sort(),
+    sourceFiles: [...new Set(planned.flatMap((split) => split.sourceFile === null ? [] : [split.sourceFile]))].sort(),
   };
 }

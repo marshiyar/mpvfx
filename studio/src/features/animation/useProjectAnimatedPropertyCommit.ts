@@ -65,6 +65,14 @@ export interface ProjectAnimatedPropertyCommitApi {
     properties: Record<string, number | string>,
     options?: ProjectAnimatedPropertyCommitOptions,
   ): Promise<ProjectAnimatedPropertyCommitRoute>;
+  /**
+   * One native edit of several layers (a group move): planned against one
+   * draft and saved once, so it is one undo step and never half-applied.
+   */
+  commitNativeGroupProperties(
+    entries: readonly { selection: DomEditSelection; properties: Record<string, number | string> }[],
+    label: string,
+  ): Promise<void>;
 }
 
 type RoutingFailure = NativePropertyEditPlanFailure | NativeProjectKeyframeFailure;
@@ -258,6 +266,70 @@ export function useProjectAnimatedPropertyCommit(
     [],
   );
 
+  const commitNativeGroupProperties = useCallback(
+    (
+      entries: readonly { selection: DomEditSelection; properties: Record<string, number | string> }[],
+      label: string,
+    ): Promise<void> => {
+      const authoringDependencies = dependenciesRef.current;
+      const playheadSeconds = authoringDependencies.getPlayheadSeconds();
+      const autoKeyframeEnabled = authoringDependencies.getAutoKeyframeEnabled?.() ?? false;
+      const requests = entries.map(({ selection, properties }) => ({
+        selectedElement: selectionReference(selection),
+        playheadSeconds,
+        properties: { ...properties },
+        selectionBounds: { width: selection.boundingBox.width, height: selection.boundingBox.height },
+        propertyBaselines: readNativePropertyBaselines({
+          computedStyles: selection.computedStyles,
+          boundingBox: selection.boundingBox,
+        }),
+        intent: "edit" as const,
+        autoKeyframeEnabled,
+      }));
+      const run = queueRef.current.then(async () => {
+        if (requests.length === 0) return;
+        const dependencies = dependenciesRef.current;
+        const persistedDocument = latestDocumentRef.current;
+        const document = persistedDocument ?? dependencies.nativeBootstrapDocument ?? null;
+        if (!document) throw new Error("Native editing is not ready for this project");
+        const repository = createNativeProjectRepository({
+          readOptionalProjectFile: dependencies.readOptionalProjectFile,
+          writeProjectFile: dependencies.writeProjectFile,
+          recordHistory: dependencies.recordHistory,
+          commitFileTransaction: dependencies.commitFileTransaction,
+        });
+        const applyPlannedEdits = (draft: NativeProjectDocument): NativeProjectDocument =>
+          requests.reduce((current, request) => {
+            const plan = planNativePropertyEdit(current, request);
+            if (!plan.ok) throw new NativeProjectEditRoutingError(plan.failure);
+            const result = applyNativeProjectPropertyCommand(current, plan.command);
+            if (!result.ok) throw new NativeProjectEditRoutingError(result.failure);
+            return result.document;
+          }, draft);
+        let committed;
+        try {
+          committed = persistedDocument
+            ? await repository.transaction({ expectedRevision: persistedDocument.revision, label }, applyPlannedEdits)
+            : await repository.save(applyPlannedEdits(document), { expectedRevision: null, label });
+        } catch (error) {
+          if (!(error instanceof NativeProjectRevisionConflictError)) throw error;
+          const latest = await repository.load();
+          if (!latest || latest.document.id !== document.id) throw error;
+          latestDocumentRef.current = latest.document;
+          committed = await repository.transaction(
+            { expectedRevision: latest.document.revision, label },
+            applyPlannedEdits,
+          );
+        }
+        latestDocumentRef.current = committed.document;
+        dependencies.onNativeDocumentCommitted?.(committed.document);
+      });
+      queueRef.current = run.then(() => undefined, () => undefined);
+      return run;
+    },
+    [],
+  );
+
   const commitAnimatedProperty = useCallback(
     (
       selection: DomEditSelection,
@@ -277,5 +349,5 @@ export function useProjectAnimatedPropertyCommit(
     [],
   );
 
-  return { isNativeSelection, commitAnimatedProperty, commitAnimatedProperties };
+  return { isNativeSelection, commitAnimatedProperty, commitAnimatedProperties, commitNativeGroupProperties };
 }

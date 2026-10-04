@@ -67,7 +67,11 @@ import { useDurableStudioFileTransactions } from "../features/history/useDurable
 const getTimelineSelectionSet = () => usePlayerStore.getState().selectedElementIds;
 // fallow-ignore-next-line complexity
 export function StudioApp() {
-  const { projectId, resolving, waitingForRuntime } = useDesktopProject();
+  const state = useDesktopProject();
+  return <StudioProjectApp key={state.projectId ?? 'loading'} {...state} />;
+}
+
+function StudioProjectApp({ projectId, resolving, waitingForRuntime }: ReturnType<typeof useDesktopProject>) {
   const initialUrlStateRef = useRef(readStudioUrlStateFromWindow());
   useStudioSessionStart(projectId, resolving, waitingForRuntime);
   const [activeCompPath, setActiveCompPath] = useState<string | null>(null);
@@ -139,6 +143,7 @@ export function StudioApp() {
   );
   const nativeProjectSession = useNativeProjectSession({
     projectId,
+    activeSourceFile: activeCompPath ?? "index.html",
     readOptionalProjectFile: fileManager.readExistingProjectFile,
     iframe: previewIframe,
     reloadToken: `${refreshKey}:${nativeProjectReloadToken}`,
@@ -301,6 +306,7 @@ export function StudioApp() {
   const resetKeyframesRef = useRef<() => Promise<boolean>>(async () => false);
   const deleteSelectedKeyframesRef = useRef<() => Promise<boolean>>(async () => false);
   const { handleCopy, handlePaste, handleCut } = useClipboard({
+    nativeProjectEditing,
     projectId,
     activeCompPath,
     domEditSelectionRef: domEditSelectionBridgeRef,

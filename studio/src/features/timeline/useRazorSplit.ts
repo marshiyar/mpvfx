@@ -1,3 +1,5 @@
+import { advanceSourcePosition, sourceFrameValue } from "../../../shared/project/nativeSourceTime";
+import { nativeAssetConsumesSourceFrames } from "../../../shared/project/nativeProjectDocument";
 import { useCallback, useRef, type MutableRefObject } from "react";
 import { splitElementInHtml } from "@hyperframes/studio-server/source-mutation";
 import type { TimelineElement } from "../../player/index";
@@ -58,7 +60,7 @@ const nativeSelectionForElement = (element: TimelineElement) => ({
 
 /**
  * Return null when an element is not native, otherwise apply the same exact
- * project-frame boundary and source-rate checks as the native transaction.
+ * project-frame boundary checks as the native transaction.
  */
 const canSplitNativeElementAt = (
   document: NativeProjectDocument | null,
@@ -84,12 +86,10 @@ const canSplitNativeElementAt = (
   }
   const clip = resolution.located.clip;
   const localFrame = splitFrame - clip.startFrame;
-  const rate = clip.playbackRate ?? { numerator: 1, denominator: 1 };
   return (
     Number.isSafeInteger(splitFrame) &&
     localFrame > 0 &&
-    localFrame < clip.durationFrames &&
-    (BigInt(localFrame) * BigInt(rate.numerator)) % BigInt(rate.denominator) === 0n
+    localFrame < clip.durationFrames
   );
 };
 
@@ -194,13 +194,7 @@ export function useRazorSplit({
               document,
               nativeSelectionForElement(element),
             );
-            if (!resolution.ok || !resolution.located.clip.binding) {
-              throw new Error(
-                resolution.ok
-                  ? `Native clip ${resolution.located.clip.id} is missing its compatibility binding`
-                  : resolution.failure.message,
-              );
-            }
+            if (!resolution.ok) throw new Error(resolution.failure.message);
             return resolution.located.clip;
           });
 
@@ -231,7 +225,7 @@ export function useRazorSplit({
                 {
                   start: frameSeconds(clip.startFrame, document),
                   duration: frameSeconds(clip.durationFrames, document),
-                  playbackStart: frameSeconds(clip.sourceInFrame, document),
+                  playbackStart: frameSeconds(sourceFrameValue(clip), document),
                   playbackRate: rate.numerator / rate.denominator,
                   stampPlaybackStart: true,
                 },
@@ -241,8 +235,8 @@ export function useRazorSplit({
               }
 
               const localFrames = edit.splitFrame - clip.startFrame;
-              const sourceDelta =
-                (localFrames * rate.numerator) / rate.denominator;
+              const asset = document.assets.find(asset => asset.id === clip.assetId)!;
+              const rightSource = advanceSourcePosition(clip, nativeAssetConsumesSourceFrames(asset.kind) ? localFrames : 0);
               const playbackProperty = playbackStartAttributeForElement(element).slice(
                 "data-".length,
               ) as "media-start" | "playback-start";
@@ -252,7 +246,7 @@ export function useRazorSplit({
                 {
                   startFrame: clip.startFrame,
                   durationFrames: localFrames,
-                  sourceInFrame: clip.sourceInFrame,
+                  sourceInFrame: sourceFrameValue(clip),
                 },
                 document,
                 playbackProperty,
@@ -273,7 +267,7 @@ export function useRazorSplit({
                 {
                   startFrame: edit.splitFrame,
                   durationFrames: clip.durationFrames - localFrames,
-                  sourceInFrame: clip.sourceInFrame + sourceDelta,
+                  sourceInFrame: sourceFrameValue(rightSource),
                 },
                 document,
                 playbackProperty,

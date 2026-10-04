@@ -1,3 +1,4 @@
+import { sourceFrameValue } from "../../../shared/project/nativeSourceTime";
 // fallow-ignore-file complexity
 import { useCallback, useRef } from "react";
 import type { TimelineElement } from "../../player/index";
@@ -169,7 +170,7 @@ export function useTimelineEditing({
           : null;
         const nativeClipId = nativeResolution?.ok ? nativeResolution.located.clip.id : null;
         const nativeAuthoritative = Boolean(
-          nativeResolution?.ok && nativeResolution.located.clip.binding,
+          nativeResolution?.ok,
         );
 
         if (startChanged || trackChanged) {
@@ -430,7 +431,7 @@ export function useTimelineEditing({
         : null;
       const nativeClipId = nativeResolution?.ok ? nativeResolution.located.clip.id : null;
       const nativeAuthoritative = Boolean(
-        nativeResolution?.ok && nativeResolution.located.clip.binding,
+        nativeResolution?.ok,
       );
       const playbackStartAttr = playbackStartAttributeForElement(element);
       const liveElementBefore = findTimelineElementInIframe(
@@ -567,7 +568,7 @@ export function useTimelineEditing({
             [
               ["data-start", frameSeconds(resizedClip.startFrame)],
               ["data-duration", frameSeconds(resizedClip.durationFrames)],
-              [playbackStartAttr, frameSeconds(resizedClip.sourceInFrame)],
+              [playbackStartAttr, frameSeconds(sourceFrameValue(resizedClip))],
             ],
             activeCompPath,
           );

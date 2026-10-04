@@ -121,9 +121,12 @@ export async function mediaFileOperationResponse(input: MediaFileOperationReques
     const version = await binaryFileVersion(root, source);
     if (version === null) return json(404, { error: "Media file not found" });
     if (await binaryFileVersion(root, destination) !== null) return json(409, { error: "A file already exists at the requested destination" });
-    const plan = await planMediaReferences({ projectRoot: root, projectId, oldPath: source, ...(deleted ? {} : { newPath: destination }) });
+    const plan = await planMediaReferences({ projectRoot: root, projectId, oldPath: source, ...(deleted ? { removeUsages: body.removeUsages === true } : { newPath: destination }) });
     if (deleted && plan.dependents.length) {
-      return json(409, { error: "This media file is still used by the project", dependents: plan.dependents });
+      return json(409, { error: body.removeUsages === true
+        ? "This file also has references in styles or scripts. Remove those references before deleting the media. No files were changed."
+        : "This media is in use. Select Also remove all timeline placements in the delete confirmation, or remove the placements first.",
+        code: "media-in-use", dependents: plan.dependents });
     }
     const commit = await input.transactions.handle({
       method: "POST",

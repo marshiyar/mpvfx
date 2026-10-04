@@ -18,11 +18,12 @@ module.exports = {
       unpack:
         "**/node_modules/{ffmpeg-static,@ffprobe-installer/**,@img/**,esbuild/**,@esbuild/**}/**",
     },
-    extraResource: [".puppeteer-cache/chrome-headless-shell", "legal", ".build/native/vkf/vkf.node"],
+    extraResource: [".puppeteer-cache/chrome-headless-shell", "legal", ".build/native/vkf/vkf.node", ".build/native/library/mpvfx_library.node"],
     ignore: [
-      /^\/(?:src|desktop|runtime|shared|tests|fixtures|data|cache|renders|scripts|legal)(?:\/|$)/,
+      /^\/(?:src|desktop|runtime|shared|tests|fixtures|data|cache|renders|scripts|legal|native|design)(?:\/|$)/,
       /^\/\.puppeteer-cache(?:\/|$)/,
       /^\/out(?:\/|$)/,
+      /^\/\.tmp(?:\/|$)/,
       /^\/\.configurations(?:\/|$)/,
       /^\/\.build\/(?!dist(?:\/|$)|desktop-dist(?:\/|$)|runtime(?:\/|$))/,
       /^\/\.build\/desktop-dist\/.*\.map$/,

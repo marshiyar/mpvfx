@@ -10,6 +10,7 @@ import {
   type NativeProjectDocument,
 } from "../../../shared/project/nativeProjectDocument";
 import { NativeProjectRevisionConflictError } from "./nativeProjectPersistence";
+import { stabilizeNativeBindingSource } from "./nativeBindingSource";
 import {
   planNativeTimelineDelete,
   type NativeTimelineDeletePlanFailureCode,
@@ -75,18 +76,6 @@ const throwIfAborted = (signal?: AbortSignal): void => {
   throw new DOMException("The native timeline delete was aborted", "AbortError");
 };
 
-const requestedSourcePaths = (
-  targets: readonly NativeTimelineDeleteTarget[],
-): string[] | null => {
-  const paths: string[] = [];
-  for (const target of targets) {
-    const path = target.sourceFile;
-    if (typeof path !== "string" || path.length === 0) return null;
-    paths.push(path);
-  }
-  return [...new Set(paths)].sort();
-};
-
 const plannedTargetKey = (target: NativeTimelineDeletePlannedTarget): string =>
   JSON.stringify([
     target.sourceFile,
@@ -105,8 +94,21 @@ export async function commitNativeTimelineDelete(
   input: CommitNativeTimelineDeleteInput,
 ): Promise<CommitNativeTimelineDeleteResult> {
   throwIfAborted(input.signal);
-  const lockedSources = requestedSourcePaths(input.targets);
-  if (!lockedSources) return { committed: false, reason: "unbound-clip" };
+  // Timeline UI rows may omit sourceFile. Resolve mirror files from the durable
+  // clip bindings, never from guessed active-composition paths. Native-only clips
+  // have no compatibility file to lock or mutate.
+  const initialContent = await input.readOptionalProjectFile(NATIVE_PROJECT_DOCUMENT_PATH);
+  throwIfAborted(input.signal);
+  if (initialContent == null || initialContent.trim().length === 0)
+    return { committed: false, reason: "missing-native-project" };
+  const initial = parseNativeProjectDocument(JSON.parse(initialContent));
+  if (initial.revision !== input.expectedRevision)
+    throw new NativeProjectRevisionConflictError(input.expectedRevision, initial.revision);
+  const initialPlan = planNativeTimelineDelete({ document: initial, targets: input.targets });
+  if (!initialPlan.ok) return { committed: false, reason: initialPlan.failure.code };
+  const lockedSources = initialPlan.sourceFiles;
+  // Re-read and re-plan under all locks below, validating revision and source
+  // identity again before writing so discovery cannot race another mutation.
 
   const result = await serializeStudioFileMutations(
     input.writeProjectFile,
@@ -124,7 +126,7 @@ export async function commitNativeTimelineDelete(
         throw new NativeProjectRevisionConflictError(input.expectedRevision, current.revision);
       }
 
-      const plan = planNativeTimelineDelete({ document: current, targets: input.targets });
+      let plan = planNativeTimelineDelete({ document: current, targets: input.targets });
       if (!plan.ok) return { committed: false, reason: plan.failure.code };
       if (
         plan.sourceFiles.length !== lockedSources.length ||
@@ -146,11 +148,18 @@ export async function commitNativeTimelineDelete(
         compatibilityBefore[sourceFile] = content;
       }
 
-      const accumulated: Record<string, string> = { ...compatibilityBefore };
+      const accumulated: Record<string, string> = {};
+      const canonicalTargets = plan.deletions.map(deletion => ({ attributes: { "data-studio-clip-id": deletion.address.clipId } }));
+      for (const sourceFile of plan.sourceFiles) {
+        accumulated[sourceFile] = stabilizeNativeBindingSource(current, sourceFile, compatibilityBefore[sourceFile]!);
+      }
+      plan = planNativeTimelineDelete({ document: current, targets: canonicalTargets });
+      if (!plan.ok) return { committed: false, reason: plan.failure.code };
       for (const deletion of [...plan.deletions].sort((left, right) =>
         plannedTargetKey(left).localeCompare(plannedTargetKey(right)),
       )) {
         throwIfAborted(input.signal);
+        if (deletion.sourceFile === null || deletion.binding === null) continue;
         const beforeRemoval = accumulated[deletion.sourceFile]!;
         const afterRemoval = input.removeCompatibilityTarget(
           beforeRemoval,

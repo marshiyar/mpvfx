@@ -119,6 +119,32 @@ describe("owned media reference planning", () => {
     expect(result).toEqual({ files: [], dependents: [".studio/project.json", "index.html", "scripts/classic.js", "scripts/loader.js"] });
   });
 
+  it("repairs stale bound clips left by HTML-only deletion in the same undoable snapshot", async () => {
+    const document = nativeDocument();
+    const before = JSON.stringify(document);
+    const root = await project({ ".studio/project.json": before, "index.html": '<main><!-- removed media/a.mov --></main>' });
+    const result = await planMediaReferences({ projectRoot: root, projectId: "demo", oldPath: "media/a.mov" });
+    expect(result.dependents).toEqual([]);
+    expect(result.files).toHaveLength(1);
+    const after = JSON.parse(result.files[0].after!);
+    expect(after.assets).toEqual([]);
+    expect(after.sequence.tracks[0].clips).toEqual([]);
+    expect(after.revision).toBe(5);
+    expect(result.files[0].expectedBefore).toBe(before);
+    expect(await readFile(join(root, ".studio/project.json"), "utf8")).toBe(before);
+  });
+
+  it.each(["native-only", "missing-source", "present-binding"])("retains %s clips as actual or uncertain usage", async kind => {
+    const document = nativeDocument();
+    if (kind === "native-only") delete document.sequence.tracks[0].clips[0].binding;
+    const root = await project({ ".studio/project.json": JSON.stringify(document),
+      ...(kind === "missing-source" ? {} : { "index.html": '<div id="media/a.mov"></div>' }),
+    });
+    const result = await planMediaReferences({ projectRoot: root, projectId: "demo", oldPath: "media/a.mov" });
+    expect(result.dependents).toEqual([".studio/project.json"]);
+    expect(result.files).toEqual([]);
+  });
+
   it("removes an unused native asset record on deletion without treating registration as usage", async () => {
     const document = nativeDocument();
     document.sequence.tracks[0].clips = [];

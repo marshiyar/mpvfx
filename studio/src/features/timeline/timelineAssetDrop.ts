@@ -11,7 +11,8 @@ import {
   type Property,
 } from "acorn";
 import type { RationalFrameRate } from "../../../shared/project/nativeKeyframeTypes";
-import { AUDIO_EXT, IMAGE_EXT, VIDEO_EXT } from "../media/mediaTypes";
+import { encodeMediaPath } from "../../../shared/media/mediaUrl";
+import { classifyMediaImportPath } from "../../../shared/media/mediaImportPolicy";
 import { roundToCenti } from "../../lib/rounding";
 import { patchRootCompositionDuration, readRootCompositionDuration } from "./rootDuration";
 import { applyPatchByTarget, type PatchTarget } from "../legacy/sourcePatcher";
@@ -457,10 +458,8 @@ export function neutralizeCompositionRoot3dTransforms(source: string): string {
 }
 
 export function getTimelineAssetKind(assetPath: string): TimelineAssetKind | null {
-  if (IMAGE_EXT.test(assetPath)) return "image";
-  if (VIDEO_EXT.test(assetPath)) return "video";
-  if (AUDIO_EXT.test(assetPath)) return "audio";
-  return null;
+  const kind = classifyMediaImportPath(assetPath);
+  return kind === "image" || kind === "video" || kind === "audio" ? kind : null;
 }
 
 export function buildTimelineAssetId(assetPath: string, existingIds: Iterable<string>): string {
@@ -482,7 +481,7 @@ export function resolveTimelineAssetSrc(targetPath: string, assetPath: string): 
   const targetDir = targetPath.includes("/")
     ? targetPath.slice(0, targetPath.lastIndexOf("/"))
     : "";
-  if (!targetDir) return assetPath;
+  if (!targetDir) return encodeMediaPath(assetPath);
 
   const fromParts = targetDir.split("/").filter(Boolean);
   const toParts = assetPath.split("/").filter(Boolean);
@@ -493,7 +492,7 @@ export function resolveTimelineAssetSrc(targetPath: string, assetPath: string): 
 
   const up = fromParts.map(() => "..");
   const relative = [...up, ...toParts].join("/");
-  return relative || assetPath.split("/").pop() || assetPath;
+  return encodeMediaPath(relative || assetPath.split("/").pop() || assetPath);
 }
 
 /**
@@ -604,6 +603,7 @@ export function buildTimelineAssetInsertHtml(input: {
   hfId: string;
   assetPath: string;
   kind: TimelineAssetKind;
+  hasAudio?: boolean;
   start: number;
   duration: number;
   track: number;
@@ -620,7 +620,8 @@ export function buildTimelineAssetInsertHtml(input: {
   }
 
   if (input.kind === "video") {
-    return `<video ${sharedAttrs} data-has-audio="true" playsinline style="${visualStyles}"></video>`;
+    const audioAttribute = input.hasAudio === undefined ? "" : ` data-has-audio="${input.hasAudio}"`;
+    return `<video ${sharedAttrs}${audioAttribute} playsinline style="${visualStyles}"></video>`;
   }
 
   return `<audio ${sharedAttrs} data-volume="1" style="z-index: ${input.zIndex}"></audio>`;

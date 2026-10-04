@@ -22,7 +22,7 @@ export function ContextMenu({
   asset: string;
   onClose: () => void;
   onCopy: (path: string) => void;
-  onDelete?: (path: string) => void;
+  onDelete?: (path: string, removePlacements?: boolean) => void;
   onRename?: (oldPath: string, newPath: string) => void;
   onAddAtPlayhead?: (path: string) => void;
 }) {
@@ -157,8 +157,8 @@ export function ContextMenu({
         {mode === "confirm-delete" && (
           <DeleteConfirm
             name={filename(asset)}
-            onConfirm={() => {
-              onDelete?.(asset);
+            onConfirm={(removePlacements) => {
+              onDelete?.(asset, removePlacements);
               onClose();
             }}
             onCancel={() => setMode("menu")}
@@ -211,15 +211,22 @@ function DeleteConfirm({
   onCancel,
 }: {
   name: string;
-  onConfirm: () => void;
+  onConfirm: (removePlacements: boolean) => void;
   onCancel: () => void;
 }) {
+  const [removePlacements, setRemovePlacements] = useState(false);
   return (
     <div className="px-2 py-1.5 bg-red-950/30 border-l-2 border-red-500 flex items-center justify-between gap-2">
-      <span className="text-[10px] text-red-400 truncate">Delete {name}?</span>
+      <div className="min-w-0">
+        <span className="text-[10px] text-red-400 truncate">Delete {name}?</span>
+        <label className="flex items-center gap-1 text-[10px] text-neutral-300">
+          <input type="checkbox" checked={removePlacements} onChange={event => setRemovePlacements(event.target.checked)} />
+          Also remove all timeline placements (undoable)
+        </label>
+      </div>
       <div className="flex items-center gap-1 flex-shrink-0">
         <button
-          onClick={onConfirm}
+          onClick={() => onConfirm(removePlacements)}
           className="px-2 py-0.5 text-[10px] rounded bg-red-600 text-white hover:bg-red-500 active:bg-red-700 transition-colors"
         >
           Delete

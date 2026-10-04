@@ -12,7 +12,7 @@
  * Switching to another not-added asset replaces the current preview.
  */
 import { useEffect, useCallback } from "react";
-import { VIDEO_EXT, IMAGE_EXT } from "./mediaTypes";
+import { classifyMediaImportPath } from "../../../shared/media/mediaImportPolicy";
 import { useAssetPreviewStore } from "./assetPreviewStore";
 import { usePlayerStore } from "../../player/store/playerStore";
 import { shouldDismissAssetPreview } from "./assetPreviewDismiss";
@@ -25,8 +25,8 @@ function basename(path: string): string {
 type AssetKind = "image" | "video" | "audio";
 
 function resolveAssetKind(path: string): AssetKind {
-  if (VIDEO_EXT.test(path)) return "video";
-  if (IMAGE_EXT.test(path)) return "image";
+  if (classifyMediaImportPath(path) === "video") return "video";
+  if (classifyMediaImportPath(path) === "image") return "image";
   return "audio";
 }
 

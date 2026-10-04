@@ -21,6 +21,7 @@ export interface NativeProjectSessionState {
 
 export interface UseNativeProjectSessionOptions {
   projectId: string | null | undefined;
+  activeSourceFile?: string;
   readOptionalProjectFile: (path: string) => Promise<string | null | undefined>;
   /** Bump after a native project save or external file-change notification. */
   reloadToken?: unknown;
@@ -58,6 +59,7 @@ export function useNativeProjectSession(
   const [state, setState] = useState<NativeProjectSessionState>(idleState);
   const [iframeDocumentVersion, setIframeDocumentVersion] = useState(0);
   const requestGeneration = useRef(0);
+  const documentOwners = useRef(new WeakMap<NativeProjectDocument, string>());
   const lastRequestedProjectId = useRef<string | null | undefined>(undefined);
   const transportSnapshot = useRef<{
     projectId: string;
@@ -95,6 +97,7 @@ export function useNativeProjectSession(
         const document = parseNativeProjectDocument(JSON.parse(content));
         if (abort.signal.aborted || generation !== requestGeneration.current)
           return;
+        documentOwners.current.set(document, options.projectId!);
         setState({ status: "ready", document, error: null });
       })
       .catch((error: unknown) => {
@@ -128,13 +131,15 @@ export function useNativeProjectSession(
   const iframeDocument = options.iframe?.contentDocument ?? null;
   useEffect(() => {
     const nativeDocument = state.document;
-    if (!nativeDocument || !iframeWindow || !iframeDocument) return;
+    if (!nativeDocument || documentOwners.current.get(nativeDocument) !== options.projectId || !iframeWindow || !iframeDocument) return;
     let runtime: ReturnType<typeof installNativeProjectRuntime> | null = null;
     try {
       runtime = installNativeProjectRuntime({
         window: iframeWindow,
         document: iframeDocument,
         project: nativeDocument,
+        activeSourceFile: options.activeSourceFile,
+        onBindingError: error => setState(previous => previous.document === nativeDocument ? { ...previous, status: "error", error } : previous),
         clock,
         getPlaybackRate: options.getPlaybackRate,
       });
@@ -183,6 +188,8 @@ export function useNativeProjectSession(
     options.getPlaybackRate,
     options.getPlayheadSeconds,
     options.onNativeDuration,
+    options.activeSourceFile,
+    options.projectId,
     state.document,
   ]);
 

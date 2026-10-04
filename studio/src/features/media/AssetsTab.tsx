@@ -21,7 +21,7 @@ interface AssetsTabProps {
   projectId: string;
   assets: string[];
   onImport?: (files: FileList) => void | Promise<void>;
-  onDelete?: (path: string) => void;
+  onDelete?: (path: string, removePlacements?: boolean) => void;
   onRename?: (oldPath: string, newPath: string) => void;
   onAddAssetToTimeline?: (path: string) => void;
 }

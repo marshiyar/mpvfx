@@ -1,3 +1,4 @@
+import { resolveNativeDomBinding } from "../../shared/project/nativeDomBinding";
 import {
   copyFileSync,
   existsSync,
@@ -41,6 +42,7 @@ function isUntouchedSingleVideoProject(project: NativeProjectDocument): boolean 
     clip.startFrame === 0 &&
     clip.durationFrames > 0 &&
     clip.sourceInFrame >= 0 &&
+    !clip.sourceInFraction &&
     clip.sourceInFrame + clip.durationFrames <= asset.durationFrames &&
     playbackRate?.numerator === 1 &&
     playbackRate.denominator === 1 &&
@@ -83,36 +85,7 @@ function nativeBindingTarget(document: Document, clip: NativeProjectDocument["se
   if (canonicalMatches.length > 0) return canonicalMatches.length === 1 ? canonicalMatches[0]! : null;
   const binding = clip.binding;
   if (!binding) return null;
-  const matches: Element[] = [];
-  if (binding.domId) {
-    const candidate = document.getElementById(binding.domId);
-    if (!candidate) return null;
-    matches.push(candidate);
-  }
-  if (binding.hfId) {
-    const candidates = Array.from(document.querySelectorAll("[data-hf-id]")).filter(
-      (candidate) => candidate.getAttribute("data-hf-id") === binding.hfId,
-    );
-    if (candidates.length !== 1) return null;
-    matches.push(candidates[0]!);
-  }
-  if (binding.selector) {
-    let candidates: Element[];
-    try {
-      candidates = Array.from(document.querySelectorAll(binding.selector));
-    } catch {
-      return null;
-    }
-    const candidate = typeof binding.selectorIndex === "number"
-      ? candidates[binding.selectorIndex] ?? null
-      : candidates.length === 1
-        ? candidates[0]!
-        : null;
-    if (!candidate) return null;
-    matches.push(candidate);
-  }
-  if (matches.length === 0 || matches.some((candidate) => candidate !== matches[0])) return null;
-  return matches[0]!;
+  return resolveNativeDomBinding(selector => [...document.querySelectorAll(selector)], binding);
 }
 
 /**
@@ -127,19 +100,18 @@ export function applyNativeProjectExportAudioMutes(
 ): string {
   const normalizedFile = normalizedSourceFile(sourceFile);
   const assetsById = new Map(project.assets.map((asset) => [asset.id, asset]));
-  const mutedClips = project.sequence.tracks
+  const boundClips = project.sequence.tracks
     .flatMap((track) => track.clips)
-    .filter((clip) => {
-      const asset = assetsById.get(clip.assetId);
-      return clip.muted && (asset?.kind === "audio" || asset?.kind === "video");
-    })
     .filter((clip) => normalizedSourceFile(clip.binding?.sourceFile ?? "") === normalizedFile);
-  if (mutedClips.length === 0) return html;
+  if (boundClips.length === 0) return html;
 
   const document = parseHTMLContent(html);
-  for (const clip of mutedClips) {
+  for (const clip of boundClips) {
     const asset = assetsById.get(clip.assetId)!;
     const bindingTarget = nativeBindingTarget(document, clip);
+    if (!bindingTarget) throw new Error(`Native export cannot resolve clip ${clip.id} in ${normalizedFile}`);
+    bindingTarget.setAttribute("data-studio-clip-id", clip.id);
+    if (!clip.muted || (asset.kind !== "audio" && asset.kind !== "video")) continue;
     const nestedMedia = bindingTarget
       ? Array.from(bindingTarget.querySelectorAll(asset.kind))
       : [];
@@ -171,13 +143,13 @@ function linkOrCopyFile(sourcePath: string, destinationPath: string): void {
 /**
  * Build a disposable, mostly hard-linked project view for offline rendering.
  * The authored project is never changed; only bound HTML files in the export
- * view receive static mixer exclusions.
+ * view receive canonical identities and static mixer exclusions.
  */
 export function createNativeProjectExportMaterialization(
   projectDir: string,
   destinationDir: string,
   stagingRootDir: string,
-  options: { renderBodyScripts?: readonly string[]; entryFile?: string } = {},
+  options: { renderBodyScripts?: readonly string[]; entryFile?: string; htmlOverrides?: ReadonlyMap<string, string>; sourceFiles?: ReadonlySet<string> } = {},
 ): string {
   const sourceRoot = resolve(projectDir);
   const destinationRoot = resolve(destinationDir);
@@ -195,14 +167,11 @@ export function createNativeProjectExportMaterialization(
   }
   const content = readNativeProjectDocumentContent(sourceRoot);
   const renderScripts = options.renderBodyScripts ?? [];
-  if (!content.trim() && renderScripts.length === 0) return sourceRoot;
+  if (!content.trim() && renderScripts.length === 0 && !options.htmlOverrides?.size) return sourceRoot;
   const project = content.trim() ? parseNativeProjectDocument(JSON.parse(content) as unknown) : null;
-  const assetsById = new Map(project?.assets.map((asset) => [asset.id, asset]) ?? []);
-  const mutedMediaClips = (project?.sequence.tracks.flatMap((track) => track.clips) ?? []).filter((clip) => {
-    const kind = assetsById.get(clip.assetId)?.kind;
-    return clip.muted && (kind === "audio" || kind === "video");
-  });
-  for (const clip of mutedMediaClips) {
+  const boundClips = (project?.sequence.tracks.flatMap((track) => track.clips) ?? []).filter(clip =>
+    clip.binding && (!options.sourceFiles || options.sourceFiles.has(normalizedSourceFile(clip.binding.sourceFile))));
+  for (const clip of boundClips) {
     if (!clip.binding) {
       throw new Error(
         `Native export cannot guarantee mute for unbound clip ${JSON.stringify(clip.id)}`,
@@ -215,11 +184,11 @@ export function createNativeProjectExportMaterialization(
       !lstatSync(compatibilitySource).isFile()
     ) {
       throw new Error(
-        `Native export cannot resolve compatibility source ${JSON.stringify(clip.binding.sourceFile)} for muted clip ${JSON.stringify(clip.id)}`,
+        `Native export cannot resolve compatibility source ${JSON.stringify(clip.binding.sourceFile)} for clip ${JSON.stringify(clip.id)}`,
       );
     }
   }
-  if (mutedMediaClips.length === 0 && renderScripts.length === 0) return sourceRoot;
+  if (boundClips.length === 0 && renderScripts.length === 0 && !options.htmlOverrides?.size) return sourceRoot;
 
   try {
     mkdirSync(destinationRoot);
@@ -247,17 +216,21 @@ export function createNativeProjectExportMaterialization(
       }
       if (!lstatSync(sourcePath).isFile()) continue;
       const normalizedFile = normalizedSourceFile(relativePath);
-      const ownsMutedBinding = mutedMediaClips.some(
+      const ownsBinding = boundClips.some(
         (clip) => normalizedSourceFile(clip.binding!.sourceFile) === normalizedFile,
       );
       const injectScripts = renderScripts.length > 0 &&
         normalizedFile === normalizedSourceFile(options.entryFile ?? "index.html");
-      if (ownsMutedBinding || injectScripts) {
-        let transformed = readFileSync(sourcePath, "utf8");
-        if (ownsMutedBinding && project) {
+      const override = options.htmlOverrides?.get(normalizedFile);
+      if (ownsBinding || injectScripts || override !== undefined) {
+        let transformed = override ?? readFileSync(sourcePath, "utf8");
+        if (ownsBinding && project) {
           transformed = applyNativeProjectExportAudioMutes(transformed, project, normalizedFile);
         }
         if (injectScripts) {
+          const marked = parseHTMLContent(transformed);
+          marked.documentElement?.setAttribute("data-studio-source-file", normalizedFile);
+          transformed = marked.toString();
           // The installed producer does not consume a renderBodyScripts config
           // property. Materialize the scripts into its actual compilation input.
           const tags = renderScripts.map(script => `<script>${script.replace(/<\/script/gi, "<\\/script")}</script>`).join("\n");

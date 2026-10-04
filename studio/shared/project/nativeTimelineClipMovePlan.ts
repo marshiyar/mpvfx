@@ -37,7 +37,7 @@ export type NativeTimelineClipMovePlanResult =
       readonly ok: true;
       readonly document: NativeProjectDocument;
       readonly address: NativeProjectClipAddress;
-      readonly sourceFile: string;
+      readonly sourceFile: string | null;
       readonly startFrame: number;
       readonly compatibilityStartSeconds: number;
       readonly destination: NativeProjectTrackLane & { readonly trackId: string };
@@ -97,10 +97,9 @@ export function planNativeTimelineClipMove(
       `Authored lane ${input.requestedTrack} has no mapped compatible native track`,
     );
   }
-  const sourceFile = clip.binding?.sourceFile;
-  if (!sourceFile) {
-    return fail("clip-not-found", `Native clip ${clip.id} has no compatibility source binding`);
-  }
+  const sourceFile = clip.binding?.sourceFile ?? null;
+  if (sourceFile && input.element.sourceFile && input.element.sourceFile !== sourceFile)
+    return fail("clip-not-found", "Selected source disagrees with the native binding");
 
   const startFrame = projectFrameFromSeconds(input.requestedStartSeconds, input.document.frameRate);
   const address: NativeProjectClipAddress = {

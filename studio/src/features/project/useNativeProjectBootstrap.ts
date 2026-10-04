@@ -43,6 +43,7 @@ export interface UseNativeProjectBootstrapOptions {
 
 export interface NativeProjectBootstrapState {
   readonly loading: boolean;
+  readonly error?: string;
   readonly document: NativeProjectDocument | null;
   readonly diagnostics: readonly (
     | NativeProjectBootstrapDiagnostic
@@ -138,32 +139,32 @@ export function useNativeProjectBootstrap(
     timelineElements,
   ]);
   const files = useMemo(() => sourceFilesOf(timelineElements), [timelineElements]);
-  const [parsedFiles, setParsedFiles] = useState<readonly LegacyGsapAnimationFile[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [parsed, setParsed] = useState<{
+    base: NonNullable<typeof base>;
+    files: readonly LegacyGsapAnimationFile[];
+    error?: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!base || !options.projectId) {
-      setParsedFiles([]);
-      setLoading(false);
+      setParsed(null);
       return;
     }
     let cancelled = false;
-    setLoading(true);
     void Promise.all(
-      files.map(async (sourceFile): Promise<LegacyGsapAnimationFile> => ({
-        sourceFile,
-        animations: (await options.readLegacyAnimations(options.projectId!, sourceFile)) ?? [],
-      })),
+      files.map(async (sourceFile): Promise<LegacyGsapAnimationFile> => {
+        const animations = await options.readLegacyAnimations(options.projectId!, sourceFile);
+        if (animations === null) throw new Error(`Could not read animations from ${sourceFile}`);
+        return { sourceFile, animations };
+      }),
     )
       .then((next) => {
         if (cancelled) return;
-        setParsedFiles(next);
-        setLoading(false);
+        setParsed({ base, files: next });
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (cancelled) return;
-        setParsedFiles([]);
-        setLoading(false);
+        setParsed({ base, files: [], error: error instanceof Error ? error.message : "Could not read the authored animations" });
       });
     return () => {
       cancelled = true;
@@ -171,8 +172,10 @@ export function useNativeProjectBootstrap(
   }, [base, files, options.projectId, options.readLegacyAnimations]);
 
   return useMemo(() => {
-    if (!base || loading) return { ...EMPTY_STATE, loading };
-    const collected = buildLegacyGsapNativeSources(base.document, timelineElements, parsedFiles);
+    if (!base) return EMPTY_STATE;
+    if (parsed?.base !== base) return { ...EMPTY_STATE, loading: true };
+    if (parsed.error) return { ...EMPTY_STATE, error: parsed.error };
+    const collected = buildLegacyGsapNativeSources(base.document, timelineElements, parsed.files);
     const merged = mergeLegacyGsapAnimationsIntoNativeProject({
       document: base.document,
       sources: collected.sources as readonly LegacyGsapNativeBootstrapSource[],
@@ -186,5 +189,5 @@ export function useNativeProjectBootstrap(
         ...unmatchedDiagnostic(collected.unmatched),
       ],
     };
-  }, [base, loading, timelineElements, parsedFiles]);
+  }, [base, timelineElements, parsed]);
 }

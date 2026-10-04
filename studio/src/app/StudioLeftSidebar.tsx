@@ -1,3 +1,4 @@
+import { LibraryNavigator } from "../features/library/LibraryNavigator";
 import { desktopRequest } from "../lib/desktopClient";
 import { parseSourceDocument } from "../lib/sourceDocument";
 import { useCallback, useEffect, useRef, type RefObject } from "react";
@@ -58,6 +59,7 @@ export function StudioLeftSidebar({
     handleDeleteComposition,
     handleRenameFile,
     handleImportFiles,
+    refreshFileTree,
   } = useFileManagerContext();
 
   const activeCompPathRef = useRef(activeCompPath);
@@ -180,6 +182,11 @@ export function StudioLeftSidebar({
     <>
       <LeftSidebar
         ref={leftSidebarRef}
+        libraryNavigation={<LibraryNavigator projectId={projectId} beforeSwitch={waitForPendingDomEditSaves} onAddAsset={async (path, placeOnTimeline) => {
+          const addingProject = projectIdRef.current;
+          await refreshFileTree();
+          if (placeOnTimeline && mountedRef.current && addingProject === projectIdRef.current) await onAddAssetToTimeline?.(path);
+        }} />}
         width={leftWidth}
         projectId={projectId}
         compositions={compositions}

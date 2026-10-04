@@ -89,6 +89,25 @@ describe("useElementLifecycleOps — deleting a canvas multi-selection", () => {
     expect(outcome).toEqual({ ok: true });
   });
 
+  it("uses native deletion before any SDK or HTML-only mutation", async () => {
+    const onTryNativeDelete = vi.fn(async () => true);
+    const onTrySdkDelete = vi.fn();
+    const ops = mountDeleteOps({ projectIdRef: { current: "p1" }, onTryNativeDelete, onTrySdkDelete });
+    const selections = [selectionFor("a"), selectionFor("b")];
+    await act(async () => { expect(await ops.handleDomEditElementsDelete(selections)).toEqual({ ok: true }); });
+    expect(onTryNativeDelete).toHaveBeenCalledWith(selections);
+    expect(onTrySdkDelete).not.toHaveBeenCalled();
+    expect(requests).toEqual([]);
+  });
+
+  it("does not fall back to HTML-only deletion after a native transaction failure", async () => {
+    const ops = mountDeleteOps({ projectIdRef: { current: "p1" },
+      onTryNativeDelete: vi.fn(async () => { throw new Error("Revision conflict"); }),
+    });
+    await act(async () => { expect(await ops.handleDomEditElementsDelete([selectionFor("a")])).toMatchObject({ ok: false }); });
+    expect(requests).toEqual([]);
+  });
+
   it("reports a successful SDK delete as landed", async () => {
     const ops = mountDeleteOps({
       projectIdRef: { current: "p1" },

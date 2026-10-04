@@ -82,6 +82,8 @@ export interface UseDomEditCommitsParams {
     options?: { label?: string; coalesceKey?: string; skipRefresh?: boolean },
   ) => Promise<CutoverResult>;
   /** Stage 7 §3.1: called before the server-side delete path. */
+  onTryNativeDelete?: (selections: DomEditSelection[]) => Promise<boolean>;
+  onTryNativePersist?: (selection: DomEditSelection, operations: PatchOperation[], targetPath: string, options?: { label?: string; coalesceKey?: string; prepareContent?: (html: string, sourceFile: string) => string }) => Promise<boolean>;
   onTrySdkDelete?: (
     hfId: string,
     originalContent: string,
@@ -111,6 +113,8 @@ export function useDomEditCommits({
   buildDomSelectionFromTarget,
   forceReloadSdkSession,
   onTrySdkPersist,
+  onTryNativeDelete,
+  onTryNativePersist,
   onTrySdkDelete,
   onReorderShadow,
 }: UseDomEditCommitsParams) {
@@ -176,6 +180,12 @@ export function useDomEditCommits({
         throw new DomEditPersistUnsafeValueError(`DOM patch contains unsafe values: ${fields}`, {
           alreadyToasted: true,
         });
+      }
+
+      if (onTryNativePersist && await onTryNativePersist(selection, operations, targetPath, options)) {
+        domEditSaveTimestampRef.current = Date.now();
+        forceReloadSdkSession?.();
+        return;
       }
 
       // Skip the SDK path when prepareContent is set (e.g. @font-face injection
@@ -291,6 +301,7 @@ export function useDomEditCommits({
       showToast,
       forceReloadSdkSession,
       onTrySdkPersist,
+      onTryNativePersist,
     ],
   );
 
@@ -440,7 +451,8 @@ export function useDomEditCommits({
       projectIdRef,
       reloadPreview,
       clearDomSelection,
-      onTrySdkDelete,
+      onTryNativeDelete,
+  onTrySdkDelete,
       onReorderShadow,
       forceReloadSdkSession,
       commitDomEditPatchBatches,

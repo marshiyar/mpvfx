@@ -71,7 +71,9 @@ afterEach(() => {
 });
 
 describe("useTimelineDeleteOps native-canonical integration", () => {
-  it("deletes a multi-file native selection as one undoable operation without legacy mutation requests", async () => {
+  it.each([false, true])("deletes and restores native selection with omitted UI source paths=%s", async (omitSources) => {
+    const selectedA = omitSources ? { ...clipA, sourceFile: undefined } : clipA;
+    const selectedB = omitSources ? { ...clipB, sourceFile: undefined } : clipB;
     const native = nativeDeleteProject();
     const nativeBefore = serializeNativeProjectDocument(native);
     const indexBefore = '<main data-composition-id="main" data-duration="4"><video class="clip" id="clip-a" data-hf-id="hf-a" data-start="0" data-duration="2"></video><div class="clip" id="keep" data-start="0" data-duration="1"></div></main>';
@@ -124,7 +126,7 @@ describe("useTimelineDeleteOps native-canonical integration", () => {
 
     const root = mountProbe(Harness);
     await act(async () => {
-      await removeMany!([clipA, clipB]);
+      await removeMany!([selectedA, selectedB]);
     });
 
     expect(fetchMock).not.toHaveBeenCalled();
@@ -172,7 +174,7 @@ describe("useTimelineDeleteOps native-canonical integration", () => {
       root.render(<Harness />);
     });
     await act(async () => {
-      await removeMany!([clipA]);
+      await removeMany!([selectedA]);
     });
 
     expect(fetchMock).not.toHaveBeenCalled();

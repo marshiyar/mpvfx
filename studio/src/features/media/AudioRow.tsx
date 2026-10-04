@@ -29,7 +29,7 @@ export function AudioRow({
   meta?: { description?: string; duration?: number };
   onCopy: (path: string) => void;
   copyFeedback: CopyFeedback;
-  onDelete?: (path: string) => void;
+  onDelete?: (path: string, removePlacements?: boolean) => void;
   onRename?: (oldPath: string, newPath: string) => void;
   onAddAssetToTimeline?: (path: string) => void;
 }) {

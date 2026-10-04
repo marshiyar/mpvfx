@@ -307,6 +307,40 @@ describe("useProjectAnimatedPropertyCommit", () => {
     ]);
   });
 
+  it("moves several native layers in one write and one history entry", async () => {
+    const base = project();
+    const second = { ...base.sequence.tracks[0]!.clips[0]!, id: "clip:second", startFrame: 200 };
+    const document = { ...base, sequence: { ...base.sequence, tracks: [{
+      ...base.sequence.tracks[0]!, clips: [...base.sequence.tracks[0]!.clips, second],
+    }] } };
+    const memory = memoryOptions(document);
+    const api = renderCommit(memory.options);
+
+    await api.commitNativeGroupProperties([
+      { selection: selection("clip:first"), properties: { x: 10, y: 20 } },
+      { selection: selection("clip:second"), properties: { x: -5, y: 7 } },
+    ], "Move layers");
+
+    expect(memory.writeProjectFile).toHaveBeenCalledTimes(1);
+    expect(memory.recordHistory).toHaveBeenCalledTimes(1);
+    expect(memory.legacyCommitProperties).not.toHaveBeenCalled();
+    const saved = parseNativeProjectDocument(JSON.parse(memory.getContent()!));
+    expect(saved.sequence.tracks[0]!.clips.map((clip) => clip.staticParameters)).toEqual([
+      { "transform.position.x": 10, "transform.position.y": 20 },
+      { "transform.position.x": -5, "transform.position.y": 7 },
+    ]);
+  });
+
+  it("saves nothing when any member of a native group move cannot be planned", async () => {
+    const memory = memoryOptions(project());
+    const api = renderCommit(memory.options);
+    await expect(api.commitNativeGroupProperties([
+      { selection: selection("clip:first"), properties: { x: 10, y: 20 } },
+      { selection: selection("clip:missing"), properties: { x: 1, y: 1 } },
+    ], "Move layers")).rejects.toBeInstanceOf(NativeProjectEditRoutingError);
+    expect(memory.writeProjectFile).not.toHaveBeenCalled();
+  });
+
   it("routes all exposed 3D transform channels through one native commit", async () => {
     const memory = memoryOptions(project());
     const api = renderCommit(memory.options);

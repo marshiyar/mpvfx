@@ -1,3 +1,4 @@
+import { discoverNativeTimelineSources } from "./nativeTimelineSources";
 import type { RecordEditInput } from "../history/studioFileHistory";
 import { serializeStudioFileMutations } from "../history/studioFileMutationCoordinator";
 import {
@@ -72,14 +73,14 @@ const throwIfAborted = (signal?: AbortSignal): void => {
 export async function commitNativeTimelineMove(
   input: CommitNativeTimelineMoveInput,
 ): Promise<CommitNativeTimelineMoveResult> {
-  const sourceFile = input.element.sourceFile;
-  if (typeof sourceFile !== "string" || sourceFile.length === 0) {
-    return { committed: false, reason: "clip-not-found" };
-  }
+  const discovery = await discoverNativeTimelineSources(input, [input.element]);
+  if (!discovery.ok) return { committed: false, reason: discovery.reason };
+  const sourceFile = discovery.sourceFiles[0] ?? null;
+  const sourcePaths = discovery.sourceFiles;
 
   const result = await serializeStudioFileMutations(
     input.writeProjectFile,
-    [NATIVE_PROJECT_DOCUMENT_PATH, sourceFile],
+    [NATIVE_PROJECT_DOCUMENT_PATH, ...sourcePaths],
     async (): Promise<CommitNativeTimelineMoveResult> => {
       throwIfAborted(input.signal);
       const nativeBefore = await input.readOptionalProjectFile(NATIVE_PROJECT_DOCUMENT_PATH);
@@ -105,23 +106,29 @@ export async function commitNativeTimelineMove(
         );
       }
 
-      const compatibilityBefore = await input.readOptionalProjectFile(sourceFile);
-      throwIfAborted(input.signal);
-      if (compatibilityBefore == null) {
+      let compatibilityBefore = "";
+      let compatibilityAfter = "";
+      if (sourceFile !== null) {
+        const sourceContent = await input.readOptionalProjectFile(sourceFile);
+        throwIfAborted(input.signal);
+        if (sourceContent == null) {
         return { committed: false, reason: "missing-compatibility-file" };
-      }
-      const compatibilityAfter = input.patchCompatibilityContent(
+        }
+        compatibilityBefore = sourceContent;
+        compatibilityAfter = input.patchCompatibilityContent(
         compatibilityBefore,
         plan.compatibilityStartSeconds,
         {
           authoredTrack: plan.destination.authoredTrack,
           displayTrack: plan.destination.displayTrack,
         },
-      );
-      if (compatibilityAfter === compatibilityBefore) {
+        );
+        if (compatibilityAfter === compatibilityBefore) {
         throw new NativeTimelineCompatibilityError(
           `Compatibility source ${sourceFile} did not accept the native clip timing patch`,
         );
+        }
+
       }
 
       const document = parseNativeProjectDocument({
@@ -131,9 +138,9 @@ export async function commitNativeTimelineMove(
       const nativeAfter = serializeNativeProjectDocument(document);
       const snapshots: Record<string, { before: string; after: string }> = {
         [NATIVE_PROJECT_DOCUMENT_PATH]: { before: nativeBefore, after: nativeAfter },
-        [sourceFile]: { before: compatibilityBefore, after: compatibilityAfter },
+        ...(sourceFile === null ? {} : { [sourceFile]: { before: compatibilityBefore, after: compatibilityAfter } }),
       };
-      const orderedPaths = [NATIVE_PROJECT_DOCUMENT_PATH, sourceFile];
+      const orderedPaths = [NATIVE_PROJECT_DOCUMENT_PATH, ...sourcePaths];
       await commitNativeTimelineFileSnapshots({
         orderedPaths,
         snapshots,

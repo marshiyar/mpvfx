@@ -1,3 +1,4 @@
+import { importProjectFiles } from "../../lib/importProjectFiles";
 import { desktopRequest } from "../../lib/desktopClient";
 import { useState, useCallback, useMemo, useRef } from "react";
 import type { EditingFile } from "../../lib/studioHelpers";
@@ -235,17 +236,9 @@ export function useFileManager({
       const acceptedFiles = partitioned.accepted.map(({ file }) => file);
       if (acceptedFiles.length === 0) return [];
 
-      const formData = new FormData();
-      for (const file of acceptedFiles) {
-        formData.append("file", file);
-      }
-
-      const qs = dir ? `?dir=${encodeURIComponent(dir)}` : "";
       try {
-        const res = await desktopRequest(`/api/projects/${encodeURIComponent(pid)}/upload${qs}`, {
-          method: "POST",
-          body: formData,
-        });
+        const res = await importProjectFiles(pid, acceptedFiles, dir);
+        if (projectIdRef.current !== pid) return [];
         if (res.ok) {
           let data: {
             files?: unknown;
@@ -262,8 +255,7 @@ export function useFileManager({
             showToast(`Skipped (too large): ${data.skipped.join(", ")}`);
           }
           if (data.invalid?.length) {
-            const names = data.invalid.map((entry: { name: string }) => entry.name).join(", ");
-            showToast(`Unsupported media skipped: ${names}`);
+            showToast(`Media not imported: ${data.invalid.map(entry => `${entry.name}${entry.reason ? ` (${entry.reason})` : ""}`).join(", ")}`);
           }
           await refreshFileTree();
           // Uploads receive unique asset paths and do not change the composition.
@@ -284,7 +276,7 @@ export function useFileManager({
 
   // ── File CRUD ──
 
-  const mutateProjectFile = useCallback(async (path: string, newPath?: string) => {
+  const mutateProjectFile = useCallback(async (path: string, newPath?: string, removePlacements = false) => {
     const pid = projectId;
     if (!pid || projectIdRef.current !== pid) return;
     const transactionId = createStudioWriteToken();
@@ -301,9 +293,13 @@ export function useFileManager({
         const response = await desktopRequest(`/api/projects/${encodeURIComponent(pid)}/files/${encodeURIComponent(path)}`, {
           method: newPath === undefined ? "DELETE" : "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ transactionId, newPath, writeTokens }),
+          body: JSON.stringify({ transactionId, newPath, writeTokens, ...(removePlacements ? { removeUsages: true } : {}) }),
         });
-        if (!response.ok) throw await createStudioSaveHttpError(response, `File operation failed for ${path}`);
+        if (!response.ok) {
+          const failure = await response.clone().json().catch(() => null) as { code?: string; error?: string; dependents?: string[] } | null;
+          if (failure?.code === "media-in-use") throw new Error(`${failure.error} Referenced by: ${(failure.dependents ?? []).join(", ")}`);
+          throw await createStudioSaveHttpError(response, `File operation failed for ${path}`);
+        }
         data = await response.json();
       } catch (error) {
         // The bytes may already be committed if only the IPC response was lost.
@@ -342,8 +338,8 @@ export function useFileManager({
   }, [fileTree, fileVersions, projectId, recordDurableEdit, refreshFileTree, setRefreshKey, showToast, writeProjectFile]);
 
   const handleDeleteFile = useCallback(
-    async (path: string) => {
-      try { await mutateProjectFile(path); }
+    async (path: string, removePlacements = false) => {
+      try { await mutateProjectFile(path, undefined, removePlacements); }
       catch (error) {
         showToast(`Couldn't delete ${path}: ${error instanceof Error ? error.message : "operation failed"}`, "error");
       }

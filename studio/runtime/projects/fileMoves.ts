@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { constants, type BigIntStats } from "node:fs";
-import { link, lstat, mkdir, open, unlink } from "node:fs/promises";
+import { lstat, mkdir, open, unlink } from "node:fs/promises";
+import { publishFileExclusive } from "../media/publishFile";
 import { dirname, isAbsolute, join } from "node:path";
 import type { ProjectFileMove } from "../../shared/desktopBridge";
 
@@ -120,7 +121,7 @@ export function normalizeFileMoves(moves: unknown): ProjectFileMove[] | undefine
   });
 }
 
-type MoveState = "before" | "linked" | "after";
+type MoveState = "before" | "linked" | "copied" | "after";
 
 export async function inspectFileMove(root: string, move: ProjectFileMove): Promise<MoveState> {
   const from = await binaryFileVersion(root, move.from);
@@ -133,6 +134,9 @@ export async function inspectFileMove(root: string, move: ProjectFileMove): Prom
       lstat(join(root, move.to), { bigint: true }),
     ]);
     if (a.ino === b.ino && a.dev === b.dev) return "linked";
+    // A filesystem without hard links can interrupt after a completed copy but
+    // before unlink. Both full SHA256 values must match the prepared journal.
+    return "copied";
   }
   throw new Error(`Media move ${move.from} → ${move.to} changed before commit or recovery`);
 }
@@ -150,12 +154,13 @@ export async function applyFileMove(
   const destination = direction === "forward" ? move.to : move.from;
   const from = await resolveMovePath(root, source);
   const to = await resolveMovePath(root, destination, true);
-  if (state !== "linked") {
-    await link(from, to);
+  if (state !== "linked" && state !== "copied") {
+    await publishFileExclusive(from, to);
     await syncDirectory(dirname(to));
     await afterLink?.();
   }
-  if (await inspectFileMove(root, move) !== "linked") throw new Error(`Media move ${source} changed before commit`);
+  const published = await inspectFileMove(root, move);
+  if (published !== "linked" && published !== "copied") throw new Error(`Media move ${source} changed before commit`);
   await unlink(from);
   await syncDirectory(dirname(from));
 }

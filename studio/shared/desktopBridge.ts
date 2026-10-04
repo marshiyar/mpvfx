@@ -1,11 +1,17 @@
+import type { LibraryCommand, LibraryResult } from "./library/library";
 /** The only messages the editor exchanges with Electron's main process. */
 export const DESKTOP_ORIGIN = "mpvfx://editor";
 export const DESKTOP_CHANNELS = {
   request: "mpvfx:request",
+  library: "mpvfx:library",
+  importFiles: "mpvfx:import-files",
   cancel: "mpvfx:cancel",
   subscribe: "mpvfx:subscribe",
   unsubscribe: "mpvfx:unsubscribe",
   event: "mpvfx:event",
+  prepareClose: "mpvfx:prepare-close",
+  closePrepared: "mpvfx:close-prepared",
+  cancelClose: "mpvfx:cancel-close",
 } as const;
 
 export interface DesktopRequest {
@@ -57,7 +63,16 @@ export interface VideoFramesResult {
   frames: string[];
 }
 
+export interface LocalMediaImportResult {
+  files: string[];
+  invalid: Array<{ name: string; reason: string }>;
+}
+
 export interface DesktopBridge {
+  onPrepareClose?(flush: () => Promise<void>, cancel?: () => void): () => void;
+  library?(command: LibraryCommand): Promise<LibraryResult>;
+  /** null means a synthetic File has no filesystem path; use the bounded upload route. */
+  importFiles?(projectId: string, files: Array<{ name: string; size: number; type: string }>, directory?: string): Promise<LocalMediaImportResult | null>;
   request(request: DesktopRequest): Promise<DesktopResponse>;
   cancel(id: string): void;
   subscribe(path: string, listener: (event: DesktopEvent) => void): () => void;

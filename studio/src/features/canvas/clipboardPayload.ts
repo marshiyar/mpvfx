@@ -161,7 +161,7 @@ export function deduplicateIds(html: string, existingIds: string[]): string {
   const existingSet = new Set(existingIds);
   return html
     .replace(/(?<=\s)id="([^"]+)"/g, (full, id: string) => {
-      if (!existingSet.has(id)) return full;
+      if (!existingSet.has(id)) { existingSet.add(id); return full; }
       let counter = 2;
       while (existingSet.has(`${id}-${counter}`)) counter++;
       const newId = `${id}-${counter}`;
@@ -170,5 +170,6 @@ export function deduplicateIds(html: string, existingIds: string[]): string {
     })
     // Selection and editing resolve these identities before DOM ids. A pasted
     // subtree must not retain any identity belonging to the copied elements.
-    .replace(/(?<=\s)data-hf-id="[^"]*"/g, () => `data-hf-id="hf-${generateId()}"`);
+    .replace(/(?<=\s)data-hf-id="[^"]*"/g, () => `data-hf-id="hf-${generateId()}"`)
+    .replace(/\sdata-studio-(?:clip-id|native-owned)=(?:"[^"]*"|'[^']*')/g, "");
 }

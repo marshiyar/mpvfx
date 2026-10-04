@@ -8,6 +8,7 @@ import { applyDesktopRuntimeEnvironment } from "./runtimeBinaries";
 import { createWindowOptions, installWindowGuards, isEditorFullscreenRequest } from "./windowPolicy";
 import { installEngineInMainProcess, resolveEngineModulePath } from "./engineModule";
 import { assertBundledMediaBinariesAvailable } from "../runtime/environment";
+import { flushRendererSaves } from "./rendererSaveBarrier";
 
 protocol.registerSchemesAsPrivileged([{
   scheme: "mpvfx",
@@ -19,6 +20,7 @@ app.setAppUserModelId("com.mpvfx.editor");
 
 let mainWindow: BrowserWindow | null = null;
 let quittingAfterCleanup = false;
+let quitInProgress = false;
 let controller: ReturnType<typeof createDesktopAppController> | null = null;
 let engineModulePath: string | undefined;
 
@@ -41,6 +43,21 @@ function createEditorWindow(): BrowserWindow {
   mainWindow = editorWindow;
   editorWindow.setMenu(null);
   editorWindow.once("ready-to-show", () => editorWindow.show());
+  let closeApproved = false;
+  let closeInProgress = false;
+  editorWindow.on("close", event => {
+    if (closeApproved) return;
+    event.preventDefault();
+    if (closeInProgress || quitInProgress) return;
+    closeInProgress = true;
+    void flushRendererSaves(editorWindow).then(() => {
+      closeApproved = true;
+      if (!editorWindow.isDestroyed()) editorWindow.close();
+    }).catch(error => {
+      closeInProgress = false;
+      dialog.showErrorBox("MpVFX could not finish saving", error instanceof Error ? error.message : String(error));
+    });
+  });
   editorWindow.on("closed", () => {
     if (mainWindow === editorWindow) mainWindow = null;
     controller?.forgetWindow();
@@ -84,6 +101,8 @@ async function startDesktopApplication(): Promise<void> {
     startRuntime: () =>
       startEditorRuntime({
         staticDir: join(appPath, ".build", "dist"),
+        userDataPath,
+        libraryModulePath: app.isPackaged ? join(process.resourcesPath, "mpvfx_library.node") : join(appPath, ".build/native/library/mpvfx_library.node"),
         projectsDir: paths.projects,
         studioDir: appPath,
         editorContents: () => mainWindow?.webContents,
@@ -91,6 +110,7 @@ async function startDesktopApplication(): Promise<void> {
     prepareRenderer: () => prepareEditorRendererSession(session.defaultSession),
     createWindow: createEditorWindow,
     closeSharedBrowser,
+    flushRenderer: () => flushRendererSaves(mainWindow),
   });
   await controller.start();
   console.log(`[MpVFX] Editor ready at ${controller.origin()}`);
@@ -125,10 +145,14 @@ if (!hasSingleInstanceLock) {
   app.on("before-quit", (event) => {
     if (quittingAfterCleanup) return;
     event.preventDefault();
-    quittingAfterCleanup = true;
+    if (quitInProgress) return;
+    quitInProgress = true;
     void (controller?.close() ?? Promise.resolve())
-      .catch((error) => console.error("[MpVFX] Shutdown cleanup failed:", error))
-      .finally(() => app.quit());
+      .then(() => { quittingAfterCleanup = true; app.quit(); })
+      .catch((error) => {
+        quitInProgress = false;
+        dialog.showErrorBox("MpVFX could not finish saving", error instanceof Error ? error.message : String(error));
+      });
   });
 
   for (const signal of ["SIGINT", "SIGTERM"] as const) {

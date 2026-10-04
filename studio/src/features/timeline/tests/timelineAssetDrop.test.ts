@@ -221,6 +221,7 @@ describe("buildTimelineAssetInsertHtml", () => {
         hfId: `hf-camera-${extension}`,
         assetPath,
         kind: "video",
+        hasAudio: true,
         start: 0,
         duration: 5,
         track: 0,

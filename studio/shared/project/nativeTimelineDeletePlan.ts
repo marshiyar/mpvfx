@@ -22,8 +22,8 @@ export interface NativeTimelineDeletePlanInput {
 
 export interface NativeTimelineDeletePlannedTarget {
   readonly address: NativeProjectClipAddress;
-  readonly sourceFile: string;
-  readonly binding: Readonly<NativeClipDomBinding>;
+  readonly sourceFile: string | null;
+  readonly binding: Readonly<NativeClipDomBinding> | null;
 }
 
 export type NativeTimelineDeletePlanFailureCode =
@@ -33,7 +33,6 @@ export type NativeTimelineDeletePlanFailureCode =
   | "clip-not-found"
   | "ambiguous-clip"
   | "duplicate-clip"
-  | "unbound-clip"
   | "binding-source-mismatch"
   | "native-command-rejected";
 
@@ -109,14 +108,8 @@ export function planNativeTimelineDelete(
     }
 
     const { clip, trackId } = resolution.located;
-    if (!clip.binding) {
-      return fail(
-        "unbound-clip",
-        `Native clip ${clip.id} has no compatibility source binding`,
-        targetIndex,
-      );
-    }
     if (
+      clip.binding &&
       typeof target.sourceFile === "string" &&
       target.sourceFile.length > 0 &&
       target.sourceFile !== clip.binding.sourceFile
@@ -144,8 +137,8 @@ export function planNativeTimelineDelete(
     addressed.add(key);
     deletions.push({
       address,
-      sourceFile: clip.binding.sourceFile,
-      binding: { ...clip.binding },
+      sourceFile: clip.binding?.sourceFile ?? null,
+      binding: clip.binding ? { ...clip.binding } : null,
     });
   }
 
@@ -161,6 +154,6 @@ export function planNativeTimelineDelete(
     ok: true,
     document: command.document,
     deletions,
-    sourceFiles: [...new Set(deletions.map((deletion) => deletion.sourceFile))].sort(),
+    sourceFiles: [...new Set(deletions.flatMap((deletion) => deletion.sourceFile === null ? [] : [deletion.sourceFile]))].sort(),
   };
 }

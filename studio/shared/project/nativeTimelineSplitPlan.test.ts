@@ -140,7 +140,6 @@ describe("native timeline split planner", () => {
     ["expanded child", [{ ...first, element: { ...first.element, expandedParentStart: 2 } }], "ambiguous-local-time"],
     ["nested child", [{ ...first, element: { ...first.element, parentCompositionId: "scene" } }], "ambiguous-local-time"],
     ["edge no-op", [{ ...first, requestedSplitSeconds: (30 * frameRate.denominator) / frameRate.numerator }], "native-command-rejected"],
-    ["unbound selection", [{ ...first, element: { attributes: { "data-studio-clip-id": "native:a" } }, rightBinding: { sourceFile: "a.html", domId: "new" } }], "binding-source-mismatch"],
     ["wrong right source", [{ ...first, rightBinding: { sourceFile: "b.html", domId: "new" } }], "right-binding-source-mismatch"],
   ])("rejects %s without mutating the document", (_label, splits, code) => {
     const original = project();

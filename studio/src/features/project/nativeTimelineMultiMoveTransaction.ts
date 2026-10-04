@@ -1,3 +1,4 @@
+import { discoverNativeTimelineSources } from "./nativeTimelineSources";
 import type { RecordEditInput } from "../history/studioFileHistory";
 import { serializeStudioFileMutations } from "../history/studioFileMutationCoordinator";
 import {
@@ -77,17 +78,6 @@ const throwIfAborted = (signal?: AbortSignal): void => {
   throw new DOMException("The native multi-clip move was aborted", "AbortError");
 };
 
-const sourcePathsFromChanges = (
-  changes: readonly NativeTimelineMultiMoveChange[],
-): string[] | null => {
-  const paths: string[] = [];
-  for (const change of changes) {
-    const path = change.element.sourceFile;
-    if (typeof path !== "string" || path.length === 0) return null;
-    paths.push(path);
-  }
-  return [...new Set(paths)].sort();
-};
 
 const plannedMoveKey = (move: NativeTimelineMultiMovePlannedMove): string =>
   JSON.stringify([move.sourceFile, move.address.sequenceId, move.address.trackId, move.address.clipId]);
@@ -101,10 +91,9 @@ export async function commitNativeTimelineMultiMove(
   input: CommitNativeTimelineMultiMoveInput,
 ): Promise<CommitNativeTimelineMultiMoveResult> {
   throwIfAborted(input.signal);
-  const requestedSourcePaths = sourcePathsFromChanges(input.changes);
-  if (!requestedSourcePaths) {
-    return { committed: false, reason: "unbound-clip" };
-  }
+  const discovery = await discoverNativeTimelineSources(input, input.changes.map(item => item.element));
+  if (!discovery.ok) return { committed: false, reason: discovery.reason };
+  const requestedSourcePaths = discovery.sourceFiles;
 
   const result = await serializeStudioFileMutations(
     input.writeProjectFile,
@@ -150,6 +139,7 @@ export async function commitNativeTimelineMultiMove(
       );
       for (const move of orderedMoves) {
         throwIfAborted(input.signal);
+        if (move.sourceFile === null || move.binding === null) continue;
         const beforePatch = compatibilityAfter[move.sourceFile]!;
         const afterPatch = input.patchCompatibilityContent(
           beforePatch,

@@ -128,6 +128,76 @@ function memory(options?: {
 }
 
 describe("native timeline delete transaction", () => {
+  it("deletes a native-only clip with one undoable snapshot and no HTML mutation", async () => {
+    const state = memory();
+    const native = project();
+    delete native.sequence.tracks[0]!.clips[0]!.binding;
+    const before = serializeNativeProjectDocument(native);
+    state.files.set(NATIVE_PROJECT_DOCUMENT_PATH, before);
+    const remove = vi.fn(removeCompatibilityTarget);
+    const result = await commitNativeTimelineDelete({
+      expectedRevision: 8, targets: [{ id: "clip:a" }],
+      readOptionalProjectFile: state.readOptionalProjectFile,
+      writeProjectFile: state.writeProjectFile, recordEdit: state.recordEdit,
+      removeCompatibilityTarget: remove, onCommitted: state.onCommitted,
+    });
+    expect(result.committed).toBe(true);
+    if (!result.committed) return;
+    expect(result.document.sequence.tracks[0]!.clips.map(clip => clip.id)).toEqual(["clip:b"]);
+    expect(result.document.sequence.tracks[1]).toEqual(native.sequence.tracks[1]);
+    expect(result.document.assets).toEqual(native.assets);
+    expect(result.compatibilityContents).toEqual({});
+    expect(remove).not.toHaveBeenCalled();
+    expect(state.recordEdit).toHaveBeenCalledExactlyOnceWith({
+      label: "Delete timeline clip", kind: "timeline",
+      files: { [NATIVE_PROJECT_DOCUMENT_PATH]: { before, after: result.nativeContent } },
+    });
+    expect(state.writeProjectFile).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a revision changed between source discovery and locked planning", async () => {
+    const state = memory();
+    const read = vi.fn(async (path: string) => {
+      if (path !== NATIVE_PROJECT_DOCUMENT_PATH) throw new Error("must not read mirrors after conflict");
+      return serializeNativeProjectDocument(project(read.mock.calls.length === 1 ? 8 : 9));
+    });
+    await expect(commitNativeTimelineDelete({
+      expectedRevision: 8, targets: [{ id: "clip-a" }],
+      readOptionalProjectFile: read, writeProjectFile: state.writeProjectFile,
+      recordEdit: state.recordEdit, removeCompatibilityTarget,
+    })).rejects.toBeInstanceOf(NativeProjectRevisionConflictError);
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(state.writeProjectFile).not.toHaveBeenCalled();
+    expect(state.recordEdit).not.toHaveBeenCalled();
+  });
+
+  it("commits mixed native-only and mirrored clips with exact undo snapshots", async () => {
+    const state = memory();
+    const native = project();
+    delete native.sequence.tracks[0]!.clips[0]!.binding;
+    const before = serializeNativeProjectDocument(native);
+    state.files.set(NATIVE_PROJECT_DOCUMENT_PATH, before);
+    const result = await commitNativeTimelineDelete({
+      expectedRevision: 8, targets: [{ id: "clip:a" }, { id: "clip-b" }],
+      readOptionalProjectFile: state.readOptionalProjectFile,
+      writeProjectFile: state.writeProjectFile, recordEdit: state.recordEdit,
+      removeCompatibilityTarget,
+    });
+    expect(result.committed).toBe(true);
+    if (!result.committed) return;
+    expect(result.document.sequence.tracks[0]!.clips).toEqual([]);
+    expect(result.document.sequence.tracks[1]).toEqual(native.sequence.tracks[1]);
+    expect(result.compatibilityContents["z.html"]).not.toContain('id="clip-b"');
+    // An unbound native ID cannot authorize deleting a similarly named HTML node.
+    expect(result.compatibilityContents["z.html"]).toContain('id="clip-a"');
+    expect(state.recordEdit).toHaveBeenCalledExactlyOnceWith({
+      label: "Delete timeline clips", kind: "timeline", files: {
+        [NATIVE_PROJECT_DOCUMENT_PATH]: { before, after: result.nativeContent },
+        "z.html": { before: state.compatibilityBefore["z.html"], after: result.compatibilityContents["z.html"] },
+      },
+    });
+  });
+
   it("uses one durable file transaction for every snapshot before publication", async () => {
     const state = memory();
     let resolveCommit!: () => void;

@@ -1,7 +1,7 @@
 {
   "name": "mpvfx",
   "productName": "MpVFX",
-  "version": "0.0.4",
+  "version": "0.0.7",
   "description": "Standalone media-first nonlinear video editor",
   "private": true,
   "license": "Apache-2.0",
@@ -19,7 +19,7 @@
   "main": ".build/desktop-dist/main.js",
   "scripts": {
     "dev": "npm run desktop:dev",
-    "build": "npm run typecheck && npm run build:engine && npm run build:frame-runtime && npm run build:renderer && npm run desktop:compile",
+    "build": "npm run typecheck && npm run build:engine && npm run build:library && npm run build:frame-runtime && npm run build:renderer && npm run desktop:compile",
     "build:engine": "node native/vkf/build.mjs",
     "build:frame-runtime": "node ../scripts/build/build-native-export-frame-runtime.mjs",
     "desktop:compile": "tsup --config .configurations/tsup.desktop.config.ts",
@@ -48,7 +48,8 @@
     "check:architecture": "node ../scripts/verification_checks/check-architecture.mjs",
     "typecheck:shared": "tsc --project .configurations/tsconfig.shared.json --noEmit",
     "check": "npm run check:architecture && npm run typecheck && npm test && npm run desktop:build",
-    "build:renderer": "vite build --config .configurations/vite.config.ts"
+    "build:renderer": "vite build --config .configurations/vite.config.ts",
+    "build:library": "node native/library/build.mjs"
   },
   "dependencies": {
     "@ffprobe-installer/ffprobe": "^2.1.2",

@@ -8,7 +8,7 @@
  * (one list per clip in `flattenClips` order, one entry per parameter track).
  */
 import { applyNativeFrameToDocument } from "./nativeFrameApplication";
-import { bindLegacyDomIds, flattenClips } from "./nativeProjectRuntime";
+import { bindLegacyDomIds, boundNativeClips, flattenClips } from "./nativeProjectRuntime";
 import { applyNativeMediaTransport } from "../../player/lib/nativePlaybackAdapter";
 import type { NativeProjectDocument } from "../../../shared/project/nativeProjectDocument";
 import {
@@ -59,15 +59,17 @@ export function installNativeExportFrameRuntime(
   ));
 
   const rate = input.project.frameRate;
-  bindLegacyDomIds(doc, clips);
+  const sourceFile = doc.documentElement.getAttribute("data-studio-source-file") ?? "index.html";
+  bindLegacyDomIds(doc, clips, sourceFile);
+  const renderedClips = boundNativeClips(doc, clips, sourceFile);
   const active = new Set<string>();
   const apply = (seconds: number): number => {
     const time = Math.max(0, Number(seconds) || 0);
     // Floor selects the frame whose interval contains the time; the epsilon
     // repairs binary floating-point error at exact rational frame boundaries.
     const projectFrame = Math.floor((time * rate.numerator) / rate.denominator + 1e-9);
-    const result = applyNativeFrameToDocument(doc, clips, projectFrame);
-    applyNativeMediaTransport(doc, clips, rate, projectFrame, true, active);
+    const result = applyNativeFrameToDocument(doc, renderedClips, projectFrame);
+    applyNativeMediaTransport(doc, renderedClips, rate, projectFrame, true, active);
     return result.appliedClipIds.length;
   };
 

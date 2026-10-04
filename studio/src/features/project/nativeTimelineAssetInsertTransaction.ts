@@ -10,6 +10,7 @@ import {
   type NativeProjectDocument,
 } from "../../../shared/project/nativeProjectDocument";
 import { NativeProjectRevisionConflictError } from "./nativeProjectPersistence";
+import { stabilizeNativeBindingSource } from "./nativeBindingSource";
 import {
   planNativeTimelineAssetInsertions,
   quantizeNativeTimelineAssetInsertion,
@@ -171,6 +172,9 @@ export async function commitNativeTimelineAssetInsertions(
       }
 
       const compatibilityAfter: Record<string, string> = { ...compatibilityBefore };
+      for (const sourceFile of sourceFiles) {
+        compatibilityAfter[sourceFile] = stabilizeNativeBindingSource(current, sourceFile, compatibilityBefore[sourceFile]!);
+      }
       const plannedInsertions: NativeTimelineAssetInsertion[] = [];
       const ordered = [...timed].sort(
         (left, right) => requestKey(left.request).localeCompare(requestKey(right.request)),

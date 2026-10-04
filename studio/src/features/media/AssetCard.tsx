@@ -4,7 +4,7 @@
  */
 import { useState, useEffect, useRef, useCallback } from "react";
 import { VideoFrameThumbnail } from "../../ui/VideoFrameThumbnail";
-import { VIDEO_EXT, IMAGE_EXT } from "./mediaTypes";
+import { classifyMediaImportPath } from "../../../shared/media/mediaImportPolicy";
 import { TIMELINE_ASSET_MIME } from "../timeline/timelineAssetDrop";
 import { ContextMenu } from "./AssetContextMenu";
 import { usePlayerStore } from "../../player/store/playerStore";
@@ -57,7 +57,7 @@ export interface AssetCardProps {
   duration?: number;
   onCopy: (path: string) => void;
   copyFeedback: CopyFeedback;
-  onDelete?: (path: string) => void;
+  onDelete?: (path: string, removePlacements?: boolean) => void;
   onRename?: (oldPath: string, newPath: string) => void;
   onAddAssetToTimeline?: (path: string) => void;
 }
@@ -93,8 +93,8 @@ export function AssetCard({
   const sourceUrl = resolveMediaPreviewUrl(asset, projectId);
   const sourceRevision = useMediaSourceVersion(projectId, sourceUrl);
   const serveUrl = revisionedMediaUrl(sourceUrl, sourceRevision);
-  const isVideo = VIDEO_EXT.test(asset);
-  const isImage = IMAGE_EXT.test(asset);
+  const isVideo = classifyMediaImportPath(asset) === "video";
+  const isImage = classifyMediaImportPath(asset) === "image";
   const [probedDuration, setProbedDuration] = useState<number>();
   useEffect(() => { setProbedDuration(undefined); setImgError(false); }, [serveUrl]);
   const resolvedDuration = probedDuration ?? (sourceRevision === 0 ? duration : undefined);
@@ -261,7 +261,7 @@ export interface FontRowProps {
   used: boolean;
   onCopy: (path: string) => void;
   copyFeedback: CopyFeedback;
-  onDelete?: (path: string) => void;
+  onDelete?: (path: string, removePlacements?: boolean) => void;
   onRename?: (oldPath: string, newPath: string) => void;
   onAddAssetToTimeline?: (path: string) => void;
 }

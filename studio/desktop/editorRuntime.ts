@@ -1,3 +1,5 @@
+import { LibraryService } from "../runtime/index";
+import { dispatchLibraryCommand } from "./libraryCommands";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -38,6 +40,8 @@ export function isResourcePath(path: string): boolean {
 }
 
 interface Options {
+  libraryModulePath?: string;
+  userDataPath?: string;
   staticDir: string;
   projectsDir: string;
   studioDir: string;
@@ -46,7 +50,11 @@ interface Options {
 
 /** Owns native commands, subscriptions and packaged resources. Opens no network listener. */
 export async function startEditorRuntime(options: Options) {
+  const libraries = options.libraryModulePath && options.userDataPath
+    ? new LibraryService(options.userDataPath, options.libraryModulePath) : undefined;
+  await libraries?.restore();
   const runtime = createStudioRuntime({
+    libraries,
     projectsDir: options.projectsDir,
     adapterHost: {
       studioDir: options.studioDir,
@@ -110,6 +118,18 @@ export async function startEditorRuntime(options: Options) {
     subscriptions.delete(subscriptionKey);
   };
   ipcMain.handle(DESKTOP_CHANNELS.request, dispatch);
+  ipcMain.handle(DESKTOP_CHANNELS.library, async (event, command) => {
+    assertEditor(event);
+    if (!libraries) throw new Error("Library service is unavailable");
+    return dispatchLibraryCommand(libraries, runtime, command);
+  });
+  ipcMain.handle(DESKTOP_CHANNELS.importFiles, async (event, projectId: string, paths: string[], directory?: string) => {
+    assertEditor(event);
+    if (typeof projectId !== "string" || !projectId || /[/\\\x00-\x1f]/.test(projectId) ||
+        !Array.isArray(paths) || !paths.length || paths.some(path => typeof path !== "string" || !isAbsolute(path)) ||
+        (directory !== undefined && typeof directory !== "string")) throw new Error("Invalid media import");
+    return runtime.importFiles(projectId, paths, directory);
+  });
   ipcMain.on(DESKTOP_CHANNELS.cancel, cancel);
   ipcMain.handle(DESKTOP_CHANNELS.subscribe, async (event, id: string, path: string) => {
     assertEditor(event);
@@ -159,10 +179,13 @@ export async function startEditorRuntime(options: Options) {
       releaseRenderer();
       protocol.unhandle("mpvfx");
       ipcMain.removeHandler(DESKTOP_CHANNELS.request);
+      ipcMain.removeHandler(DESKTOP_CHANNELS.library);
+      ipcMain.removeHandler(DESKTOP_CHANNELS.importFiles);
       ipcMain.removeHandler(DESKTOP_CHANNELS.subscribe);
       ipcMain.removeListener(DESKTOP_CHANNELS.cancel, cancel);
       ipcMain.removeListener(DESKTOP_CHANNELS.unsubscribe, unsubscribe);
       await runtime.close();
+      await libraries?.close();
     },
   };
 }

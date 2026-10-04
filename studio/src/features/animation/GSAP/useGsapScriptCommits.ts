@@ -517,6 +517,7 @@ export function useGsapScriptCommits({ projectIdRef, activeCompPath, previewIfra
   );
 
   const propertyOps = useGsapPropertyDebounce(commitMutationSafely, {
+    persistMutation: commitMutation,
     sdkSession,
     sdkDeps,
     activeCompPath,

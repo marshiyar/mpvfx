@@ -3,6 +3,7 @@
 // Extracted verbatim from useTimelineEditing.ts to keep it under the studio
 // 600-line cap.
 import { useCallback, type MutableRefObject, type RefObject } from "react";
+import { trackStudioPendingEdit } from "../history/studioPendingEdits";
 import type { TimelineElement } from "../../player/index";
 import type { NativeProjectDocument } from "../../../shared/project/nativeProjectDocument";
 import {
@@ -28,6 +29,7 @@ import {
   resolveTimelineAssetCompositionSize,
   resolveTimelineAssetSrc,
 } from "./timelineAssetDrop";
+import { resolveProjectMediaMetadata } from "../../lib/projectMediaMetadata";
 import { generateId } from "../../lib/generateId";
 import { saveProjectFilesWithHistory, type RecordEditInput } from "../history/studioFileHistory";
 import { collectHtmlIds, resolveDroppedAssetDuration } from "../../lib/studioHelpers";
@@ -59,10 +61,12 @@ interface UseTimelineAssetDropOpsOptions {
 }
 
 interface PreparedTimelineAsset {
+  readonly hasAudio?: boolean;
   readonly assetPath: string;
   readonly kind: "video" | "audio" | "image";
   readonly start: number;
   readonly duration: number;
+  readonly sourceDuration: number;
   readonly track: number;
 }
 
@@ -178,7 +182,7 @@ export function useTimelineAssetDropOps({
         sourceFile: targetPath,
         requestedStartSeconds: asset.start,
         requestedDurationSeconds: asset.duration,
-        sourceDurationSeconds: asset.duration,
+        sourceDurationSeconds: asset.sourceDuration,
         requestedTrack: asset.track,
       }));
       const run = async (): Promise<void> => {
@@ -220,6 +224,7 @@ export function useTimelineAssetDropOps({
                   hfId,
                   assetPath: resolvedAssetSrc,
                   kind: insertion.kind,
+                  hasAudio: assets[insertion.insertionIndex]?.hasAudio,
                   start: insertion.compatibilityStartSeconds,
                   duration: insertion.compatibilityDurationSeconds,
                   track: insertion.requestedTrack,
@@ -325,10 +330,14 @@ export function useTimelineAssetDropOps({
 
       const targetPath = activeCompPath || "index.html";
       try {
+        const metadata = kind === "image" ? null : await resolveProjectMediaMetadata(pid, assetPath);
+        const sourceDuration = await resolveDroppedAssetDuration(pid, assetPath, kind, metadata);
         const duration =
           Number.isFinite(durationOverride) && durationOverride != null && durationOverride > 0
-            ? durationOverride
-            : await resolveDroppedAssetDuration(pid, assetPath, kind);
+            ? kind === "image" ? durationOverride : Math.min(durationOverride, sourceDuration)
+            : sourceDuration;
+        const hasAudio = kind === "video" && metadata?.hasVideo ? metadata.hasAudio : undefined;
+        if (projectIdRef.current !== pid) return;
         const resolvedTargetPath = targetPath || "index.html";
         const relevantElements = timelineElements.filter(
           (te) => (te.sourceFile || activeCompPath || "index.html") === resolvedTargetPath,
@@ -350,8 +359,10 @@ export function useTimelineAssetDropOps({
             [{
               assetPath,
               kind,
+              hasAudio,
               start: placement.start,
               duration,
+              sourceDuration: kind === "image" ? duration : sourceDuration,
               track: safeTrack,
             }],
             targetPath,
@@ -388,6 +399,7 @@ export function useTimelineAssetDropOps({
             hfId,
             assetPath: resolvedAssetSrc,
             kind,
+            hasAudio,
             start: normalizedStart,
             duration: normalizedDuration,
             track: safeTrack,
@@ -464,65 +476,76 @@ export function useTimelineAssetDropOps({
         );
         return;
       }
-      const uploaded = await uploadProjectFiles(files);
-      if (uploaded.length === 0) return;
-      const durations: number[] = [];
-      for (const assetPath of uploaded) {
-        const kind = getTimelineAssetKind(assetPath);
-        const duration = kind ? await resolveDroppedAssetDuration(pid, assetPath, kind) : 0;
-        durations.push(duration);
-      }
-      const nativeDropActive = Boolean(nativeProjectEditing && nativeDocumentRef?.current);
-      const basePlacement = placement ?? { start: 0, track: 0 };
-      const frameRate = nativeDropActive
-        ? nativeDocumentRef?.current?.frameRate
-        : usePlayerStore.getState().timelineFrameRate ?? undefined;
-      const placements = buildTimelineFileDropPlacements(basePlacement, durations, frameRate);
-      if (nativeDropActive) {
-        const placementOrder = [...new Set(timelineElements.map((element) => element.track))].sort(
-          (left, right) => left - right,
-        );
-        const prepared: PreparedTimelineAsset[] = [];
-        for (const [index, assetPath] of uploaded.entries()) {
+      try {
+        const uploaded = await uploadProjectFiles(files);
+        if (uploaded.length === 0) return;
+        const durations: number[] = [];
+        const audioPresence: Array<boolean | undefined> = [];
+        for (const assetPath of uploaded) {
           const kind = getTimelineAssetKind(assetPath);
-          if (!kind) {
-            showToast("Only image, video, and audio assets can be dropped onto the timeline.");
-            return;
-          }
-          const nextPlacement = placements[index] ?? placements[0];
-          if (!nextPlacement) return;
-          const safeTrack = resolveCollisionFreeTrack({
-            elements: timelineElements,
-            trackOrder: placementOrder,
-            desiredTrack: nextPlacement.track,
-            start: nextPlacement.start,
-            duration: durations[index]!,
-            isAudio: kind === "audio",
-          });
-          prepared.push({
-            assetPath,
-            kind,
-            start: nextPlacement.start,
-            duration: durations[index]!,
-            track: safeTrack,
-          });
+          const metadata = kind && kind !== "image" ? await resolveProjectMediaMetadata(pid, assetPath) : null;
+          const duration = kind ? await resolveDroppedAssetDuration(pid, assetPath, kind, metadata) : 0;
+          durations.push(duration);
+          audioPresence.push(kind === "video" && metadata?.hasVideo ? metadata.hasAudio : undefined);
         }
-        try {
-          await commitNativeAssets(prepared, targetPath);
-        } catch (error) {
-          showToast(
-            error instanceof Error ? error.message : "Failed to drop media onto timeline",
-            "error",
+        if (projectIdRef.current !== pid) return;
+        const nativeDropActive = Boolean(nativeProjectEditing && nativeDocumentRef?.current);
+        const basePlacement = placement ?? { start: 0, track: 0 };
+        const frameRate = nativeDropActive
+          ? nativeDocumentRef?.current?.frameRate
+          : usePlayerStore.getState().timelineFrameRate ?? undefined;
+        const placements = buildTimelineFileDropPlacements(basePlacement, durations, frameRate);
+        if (nativeDropActive) {
+          const placementOrder = [...new Set(timelineElements.map((element) => element.track))].sort(
+            (left, right) => left - right,
+          );
+          const prepared: PreparedTimelineAsset[] = [];
+          for (const [index, assetPath] of uploaded.entries()) {
+            const kind = getTimelineAssetKind(assetPath);
+            if (!kind) {
+              showToast("Only image, video, and audio assets can be dropped onto the timeline.");
+              return;
+            }
+            const nextPlacement = placements[index] ?? placements[0];
+            if (!nextPlacement) return;
+            const safeTrack = resolveCollisionFreeTrack({
+              elements: timelineElements,
+              trackOrder: placementOrder,
+              desiredTrack: nextPlacement.track,
+              start: nextPlacement.start,
+              duration: durations[index]!,
+              isAudio: kind === "audio",
+            });
+            prepared.push({
+              assetPath,
+              kind,
+              hasAudio: audioPresence[index],
+              start: nextPlacement.start,
+              duration: durations[index]!,
+              sourceDuration: durations[index]!,
+              track: safeTrack,
+            });
+          }
+          if (projectIdRef.current !== pid) return;
+          try {
+            await commitNativeAssets(prepared, targetPath);
+          } catch (error) {
+            showToast(
+              error instanceof Error ? error.message : "Failed to drop media onto timeline",
+              "error",
+            );
+          }
+          return;
+        }
+        for (const [index, assetPath] of uploaded.entries()) {
+          await handleTimelineAssetDrop(
+            assetPath,
+            placements[index] ?? placements[0],
+            durations[index],
           );
         }
-        return;
-      }
-      for (const [index, assetPath] of uploaded.entries()) {
-        await handleTimelineAssetDrop(
-          assetPath,
-          placements[index] ?? placements[0],
-          durations[index],
-        );
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : "Failed to drop media onto timeline", "error");
       }
     },
     [
@@ -584,5 +607,20 @@ export function useTimelineAssetDropOps({
     ],
   );
 
-  return { handleTimelineAssetDrop, handleTimelineFileDrop, handleTimelineCompositionDrop };
+  const trackedAssetDrop = useCallback((...args: Parameters<typeof handleTimelineAssetDrop>) => {
+    const operation = handleTimelineAssetDrop(...args);
+    trackStudioPendingEdit(operation);
+    return operation;
+  }, [handleTimelineAssetDrop]);
+  const trackedFileDrop = useCallback((...args: Parameters<typeof handleTimelineFileDrop>) => {
+    const operation = handleTimelineFileDrop(...args);
+    trackStudioPendingEdit(operation);
+    return operation;
+  }, [handleTimelineFileDrop]);
+  const trackedCompositionDrop = useCallback((...args: Parameters<typeof handleTimelineCompositionDrop>) => {
+    const operation = handleTimelineCompositionDrop(...args);
+    trackStudioPendingEdit(operation);
+    return operation;
+  }, [handleTimelineCompositionDrop]);
+  return { handleTimelineAssetDrop: trackedAssetDrop, handleTimelineFileDrop: trackedFileDrop, handleTimelineCompositionDrop: trackedCompositionDrop };
 }

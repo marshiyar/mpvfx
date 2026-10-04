@@ -207,7 +207,15 @@ export const resolveNativeClipSelection = (
       );
     }
     const explicitMatches = findClip(document, explicitClipId);
-    if (explicitMatches.length === 1) return { ok: true, located: explicitMatches[0] };
+    if (explicitMatches.length === 1) {
+      const located = explicitMatches[0]!;
+      const binding = located.clip.binding;
+      if (binding && (
+        (selectedElement.sourceFile && selectedElement.sourceFile !== binding.sourceFile) ||
+        (selectedElement.hfId && binding.hfId && selectedElement.hfId !== binding.hfId)
+      )) return resolutionFailure("clip-not-found", "The selected element's native identity belongs to a different source element");
+      return { ok: true, located };
+    }
     if (explicitMatches.length > 1) {
       return resolutionFailure(
         "ambiguous-clip",

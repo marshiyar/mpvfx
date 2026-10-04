@@ -1,3 +1,4 @@
+import { discoverNativeTimelineSources } from "./nativeTimelineSources";
 import type { RecordEditInput } from "../history/studioFileHistory";
 import { serializeStudioFileMutations } from "../history/studioFileMutationCoordinator";
 import {
@@ -80,17 +81,6 @@ const throwIfAborted = (signal?: AbortSignal): void => {
   throw new DOMException("The native multi-clip range edit was aborted", "AbortError");
 };
 
-const sourcePathsFromChanges = (
-  changes: readonly NativeTimelineMultiRangeEditChange[],
-): string[] | null => {
-  const paths: string[] = [];
-  for (const change of changes) {
-    const path = change.element.sourceFile;
-    if (typeof path !== "string" || path.length === 0) return null;
-    paths.push(path);
-  }
-  return [...new Set(paths)].sort();
-};
 
 const plannedEditKey = (edit: NativeTimelineMultiRangePlannedEdit): string =>
   JSON.stringify([edit.sourceFile, edit.address.sequenceId, edit.address.trackId, edit.address.clipId]);
@@ -105,10 +95,9 @@ export async function commitNativeTimelineMultiRangeEdit(
   input: CommitNativeTimelineMultiRangeEditInput,
 ): Promise<CommitNativeTimelineMultiRangeEditResult> {
   throwIfAborted(input.signal);
-  const requestedSourcePaths = sourcePathsFromChanges(input.changes);
-  if (!requestedSourcePaths) {
-    return { committed: false, reason: "unbound-clip" };
-  }
+  const discovery = await discoverNativeTimelineSources(input, input.changes.map(item => item.element));
+  if (!discovery.ok) return { committed: false, reason: discovery.reason };
+  const requestedSourcePaths = discovery.sourceFiles;
 
   const result = await serializeStudioFileMutations(
     input.writeProjectFile,
@@ -154,6 +143,7 @@ export async function commitNativeTimelineMultiRangeEdit(
       );
       for (const edit of orderedEdits) {
         throwIfAborted(input.signal);
+        if (edit.sourceFile === null || edit.binding === null) continue;
         const beforePatch = compatibilityAfter[edit.sourceFile]!;
         const afterPatch = input.patchCompatibilityContent(
           beforePatch,
