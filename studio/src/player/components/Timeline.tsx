@@ -22,7 +22,6 @@ import { useResolvedTimelineEditCallbacks } from "./useResolvedTimelineEditCallb
 import type { TimelineProps } from "./TimelineTypes";
 import {
   getTrackStyle,
-  mergeTimelineLaneCounts,
   padTimelineTrackOrder,
   useTimelineDisplayLayout,
   useTimelineTrackLayout,
@@ -42,12 +41,9 @@ import { getTimelineElementIdentity } from "../lib/timelineElementHelpers";
 import { useTimelineClipRenderWindow } from "./useTimelineClipRenderWindow";
 import { useTimelineActiveClips } from "./useTimelineActiveClips";
 import { useTimelineLaneMoveRefresh } from "./useTimelineLaneMoveRefresh";
+import { useTimelineNativeLaneModels } from "./useTimelineNativeLaneModels";
 import { useTimelineLogicalFocus } from "./useTimelineLogicalFocus";
 import { useDomEditActionsContextOptional, useDomEditSelectionContextOptional } from "../../features/canvas/DomEditContext";
-import {
-  buildNativeTimelineLaneProjectionMap,
-} from "./nativeTimelinePropertyLaneBridge";
-import { buildNativeTimelineEffectMap } from "./timelineAttachedEffects";
 
 export {
   shouldAutoScrollTimeline,
@@ -125,18 +121,8 @@ export const Timeline = memo(function Timeline({
   const nativeProjectDocument =
     useDomEditSelectionContextOptional()?.nativeProjectDocument ?? null;
   const persistedNativeDocument = useDomEditActionsContextOptional()?.nativeDocument ?? null;
-  const nativeLaneProjections = useMemo(
-    () => buildNativeTimelineLaneProjectionMap(nativeProjectDocument, expandedElements),
-    [expandedElements, nativeProjectDocument],
-  );
-  const nativeEffectMap = useMemo(
-    () => buildNativeTimelineEffectMap(nativeProjectDocument, expandedElements),
-    [expandedElements, nativeProjectDocument],
-  );
-  const timelineLaneCountMap = useMemo(
-    () => mergeTimelineLaneCounts(gsapAnimations, nativeLaneProjections, expandedElements),
-    [expandedElements, gsapAnimations, nativeLaneProjections],
-  );
+  const { nativeLaneProjections, nativeEffectMap, timelineLaneCountMap } =
+    useTimelineNativeLaneModels(nativeProjectDocument, expandedElements, gsapAnimations);
   // Every strip keeps its full title/control column. The red pre-roll surface
   // follows it, and t=0 begins only after both fixed-width regions.
   const contentOrigin = LABEL_COL_W + GUTTER;

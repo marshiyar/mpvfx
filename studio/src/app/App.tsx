@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useMemo, useLayoutEffect, useEffect } from "react";
+import { useState, useCallback, useRef, useMemo, useLayoutEffect } from "react";
 import type { LeftSidebarHandle } from "../features/media/LeftSidebar";
 import { useRenderQueue } from "../features/export/useRenderQueue";
 import { usePlayerStore } from "../player/index";
@@ -59,11 +59,8 @@ import { useStudioSessionStart } from "./useStudioSessionStart";
 import { useTimelineAddAtPlayhead } from "../features/timeline/useTimelineAddAtPlayhead";
 import { readStudioUrlStateFromWindow, resolveMasterCompositionPath } from "./studioUrlState";
 import { useHydrateActiveCompPathFromUrl } from "./useHydrateActiveCompPathFromUrl";
-import { useNativeProjectSession } from "../features/project/useNativeProjectSession";
-import { useNativeProjectBootstrap } from "../features/project/useNativeProjectBootstrap";
-import type { NativeProjectHistoryEntry } from "../features/project/nativeProjectPersistence";
-import { fetchParsedAnimations } from "../features/animation/Keyframe/keyframeCacheAstLoad";
 import { useDurableStudioFileTransactions } from "../features/history/useDurableStudioFileTransactions";
+import { useAppNativeProjectBridge } from "./useAppNativeProjectBridge";
 const getTimelineSelectionSet = () => usePlayerStore.getState().selectedElementIds;
 // fallow-ignore-next-line complexity
 export function StudioApp() {
@@ -82,7 +79,6 @@ function StudioProjectApp({ projectId, resolving, waitingForRuntime }: ReturnTyp
   const [previewIframe, setPreviewIframe] = useState<HTMLIFrameElement | null>(null);
   const [compositionLoading, setCompositionLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [nativeProjectReloadToken, setNativeProjectReloadToken] = useState(0);
   const [previewDocumentVersion, refreshPreviewDocumentVersion] = usePreviewDocumentVersion();
   const [blockPreview, setBlockPreview] = useState<BlockPreviewInfo | null>(null);
   const previewIframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -130,83 +126,19 @@ function StudioProjectApp({ projectId, resolving, waitingForRuntime }: ReturnTyp
     `${projectId}:${activeCompPath ?? ""}`,
     previewIframeRef,
   );
-  const handleNativeDuration = useCallback((durationSeconds: number) => {
-    usePlayerStore.getState().setDuration(durationSeconds);
-  }, []);
-  const getNativePlaybackRate = useCallback(
-    () => usePlayerStore.getState().playbackRate,
-    [],
-  );
-  const getNativePlayheadSeconds = useCallback(
-    () => usePlayerStore.getState().currentTime,
-    [],
-  );
-  const nativeProjectSession = useNativeProjectSession({
+  const { nativeProjectEditing, reloadNativeProject } = useAppNativeProjectBridge({
     projectId,
-    activeSourceFile: activeCompPath ?? "index.html",
-    readOptionalProjectFile: fileManager.readExistingProjectFile,
-    iframe: previewIframe,
-    reloadToken: `${refreshKey}:${nativeProjectReloadToken}`,
-    onNativeDuration: handleNativeDuration,
-    getPlaybackRate: getNativePlaybackRate,
-    getPlayheadSeconds: getNativePlayheadSeconds,
-  });
-  const readLegacyAnimations = useCallback(
-    async (legacyProjectId: string, sourceFile: string) =>
-      (await fetchParsedAnimations(legacyProjectId, sourceFile))?.animations ?? null,
-    [],
-  );
-  const nativeBootstrapState = useNativeProjectBootstrap({
-    status: nativeProjectSession.status,
-    projectId,
+    activeCompPath,
+    previewIframe,
+    refreshKey,
     compositionDimensions,
-    frameRate: timelineFrameRate,
+    timelineFrameRate,
     timelineElements,
-    activeSourceFile: activeCompPath ?? "index.html",
-    readLegacyAnimations,
+    fileManager,
+    editHistory,
+    commitNativeFileTransaction,
+    showToast,
   });
-  const nativeBootstrapDocument = nativeBootstrapState.document;
-  useEffect(() => {
-    if (nativeProjectSession.status !== "error" || !nativeProjectSession.error) return;
-    showToast(`Native project could not be loaded: ${nativeProjectSession.error.message}`, "error");
-  }, [nativeProjectSession.error, nativeProjectSession.status, showToast]);
-  const recordNativeProjectHistory = useCallback(
-    async (entry: NativeProjectHistoryEntry) => {
-      await editHistory.recordEdit({
-        label: entry.label,
-        kind: "motion",
-        files: {
-          [entry.path]: { before: entry.before ?? "", after: entry.after },
-        },
-      });
-    },
-    [editHistory.recordEdit],
-  );
-  const handleNativeDocumentCommitted = useCallback(() => {
-    setNativeProjectReloadToken((token) => token + 1);
-  }, []);
-  const nativeProjectEditing = useMemo(
-    () => ({
-      nativeDocument: nativeProjectSession.document,
-      nativeBootstrapDocument,
-      readOptionalProjectFile: fileManager.readExistingProjectFile,
-      writeProjectFile: fileManager.writeProjectFile,
-      recordHistory: recordNativeProjectHistory,
-      onNativeDocumentCommitted: handleNativeDocumentCommitted,
-      commitFileTransaction: commitNativeFileTransaction,
-      getPlayheadSeconds: getNativePlayheadSeconds,
-    }),
-    [
-      fileManager.readExistingProjectFile,
-      fileManager.writeProjectFile,
-      commitNativeFileTransaction,
-      getNativePlayheadSeconds,
-      handleNativeDocumentCommitted,
-      nativeProjectSession.document,
-      nativeBootstrapDocument,
-      recordNativeProjectHistory,
-    ],
-  );
   const masterCompPath = useMemo(
     () => resolveMasterCompositionPath(fileManager.compositions, projectId),
     [fileManager.compositions, projectId],
@@ -345,7 +277,7 @@ function StudioProjectApp({ projectId, resolving, waitingForRuntime }: ReturnTyp
     onAfterUndoRedo: () => {
       clearKeyframeInteractionAfterHistory();
       invalidateGsapCacheRef.current();
-      setNativeProjectReloadToken((token) => token + 1);
+      reloadNativeProject();
       void fileManager.refreshFileTree();
     },
     onGroupSelection: () => domEditSessionRef.current.handleGroupSelection(),
