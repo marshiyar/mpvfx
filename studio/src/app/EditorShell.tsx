@@ -15,6 +15,7 @@ import { usePlayerStore, type TimelineElement } from "../player/index";
 import type { BlockPreviewInfo } from "../features/media/BlocksTab";
 import type { GestureRecordingState } from "../features/canvas/GestureRecordControl";
 import { useTimelineSelectionPreviewSync } from "../features/timeline/useTimelineSelectionPreviewSync";
+import { shouldBlockNativeGhostDrag } from "../lib/editorDefaultInteractions";
 
 type RenderClipContent = (
   element: TimelineElement,
@@ -67,6 +68,7 @@ export interface EditorShellProps extends TimelineEditCallbackDeps {
 // full-width timeline spanning the bottom. Owns the shared player +
 // composition-stack state via NLEProvider so both rows share one player.
 export function EditorShell({
+  handleNativeAudioAction,
   left,
   right,
   timelineToolbar,
@@ -130,6 +132,7 @@ export function EditorShell({
   });
 
   const timelineEditCallbacks = useTimelineEditCallbacks({
+    handleNativeAudioAction,
     handleTimelineElementMove,
     handleTimelineElementsMove,
     handleTimelineElementResize,
@@ -255,7 +258,10 @@ function EditorShellBody({
       ref={containerRef}
       // Shell canvas is a step LIGHTER than the near-black panel cards so the
       // gaps between panels read as visible seams (CapCut-style).
-      className="flex flex-col flex-1 min-h-0 bg-[#18181B]"
+      className="studio-editor-chrome flex flex-col flex-1 min-h-0 bg-[#18181B]"
+      onDragStartCapture={(event) => {
+        if (shouldBlockNativeGhostDrag(event.target)) event.preventDefault();
+      }}
       onKeyDown={handleKeyDown}
       tabIndex={-1}
     >

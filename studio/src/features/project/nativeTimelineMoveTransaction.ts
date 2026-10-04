@@ -1,4 +1,5 @@
 import { discoverNativeTimelineSources } from "./nativeTimelineSources";
+import { stabilizeNativeBindingSource } from "./nativeBindingSource";
 import type { RecordEditInput } from "../history/studioFileHistory";
 import { serializeStudioFileMutations } from "../history/studioFileMutationCoordinator";
 import {
@@ -6,6 +7,7 @@ import {
   parseNativeProjectDocument,
   serializeNativeProjectDocument,
   type NativeProjectDocument,
+  type NativeClipDomBinding,
   type NativeProjectTrackLane,
 } from "../../../shared/project/nativeProjectDocument";
 import { NativeProjectRevisionConflictError } from "./nativeProjectPersistence";
@@ -34,6 +36,7 @@ export interface CommitNativeTimelineMoveInput {
     content: string,
     exactStartSeconds: number,
     destinationLane: Readonly<NativeProjectTrackLane>,
+    binding: Readonly<NativeClipDomBinding>,
   ) => string;
   readonly onCommitted?: (document: NativeProjectDocument) => void;
   readonly signal?: AbortSignal;
@@ -115,13 +118,18 @@ export async function commitNativeTimelineMove(
         return { committed: false, reason: "missing-compatibility-file" };
         }
         compatibilityBefore = sourceContent;
+        const binding = current.sequence.tracks.find(track => track.id === plan.address.trackId)
+          ?.clips.find(clip => clip.id === plan.address.clipId)?.binding;
+        if (!binding) throw new NativeTimelineCompatibilityError(`Native clip ${plan.address.clipId} has no source binding`);
+        const stableSource = stabilizeNativeBindingSource(current, sourceFile, compatibilityBefore);
         compatibilityAfter = input.patchCompatibilityContent(
-        compatibilityBefore,
+        stableSource,
         plan.compatibilityStartSeconds,
         {
           authoredTrack: plan.destination.authoredTrack,
           displayTrack: plan.destination.displayTrack,
         },
+        binding,
         );
         if (compatibilityAfter === compatibilityBefore) {
         throw new NativeTimelineCompatibilityError(

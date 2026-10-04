@@ -33,6 +33,8 @@ import {
 } from "./timelineTrackVisibility";
 import { useTimelineGroupEditing } from "./useTimelineGroupEditing";
 import { useBlockedTimelineEditToast } from "./useBlockedTimelineEditToast";
+import { useRemoveSilence } from "./useRemoveSilence";
+import { useNativeAudioActions } from "./useNativeAudioActions";
 import { serializeZLaneGesture } from "./zLaneGesture";
 import { cutoverCommittedOrThrow, sdkTimingPersist } from "../legacy/sdkCutover";
 import type { TimelineMoveUpdates, UseTimelineEditingOptions } from "./useTimelineEditingTypes";
@@ -40,7 +42,7 @@ import { getStudioSaveErrorMessage } from "../history/studioSaveDiagnostics";
 import { trackStudioPendingEdit } from "../history/studioPendingEdits";
 import { commitNativeTimelineMove } from "../project/nativeTimelineMoveTransaction";
 import { commitNativeTimelineRangeEdit } from "../project/nativeTimelineRangeEditTransaction";
-import { resolveNativeClipSelection } from "../../../shared/project/nativePropertyEditPlan";
+import { projectFrameFromSeconds, resolveNativeClipSelection } from "../../../shared/project/nativePropertyEditPlan";
 import {
   NATIVE_PROJECT_DOCUMENT_PATH,
   parseNativeProjectDocument,
@@ -256,7 +258,6 @@ export function useTimelineEditing({
             if (!currentDocument || !dependencies) {
               throw new Error("The authoritative native project is no longer available");
             }
-            const target = buildPatchTarget(element);
             const commitAgainst = (expectedRevision: number) =>
               commitNativeTimelineMove({
                 expectedRevision,
@@ -270,17 +271,19 @@ export function useTimelineEditing({
                 writeProjectFile,
                 recordEdit,
                 commitFileTransaction: dependencies.commitFileTransaction,
-                patchCompatibilityContent: (original, exactStartSeconds, destinationLane) =>
-                  target
-                    ? buildTimelineMoveTimingPatch(
-                        original,
-                        target,
-                        exactStartSeconds,
-                        element.duration,
-                        trackChanged ? destinationLane.authoredTrack : undefined,
-                        String(exactStartSeconds),
-                      )
-                    : original,
+                patchCompatibilityContent: (original, exactStartSeconds, destinationLane, binding) => {
+                  // The native binding identifies the authored source; the
+                  // preview element may contain runtime-only IDs.
+                  const target = buildPatchTarget(binding);
+                  return target ? buildTimelineMoveTimingPatch(
+                    original,
+                    target,
+                    exactStartSeconds,
+                    element.duration,
+                    trackChanged ? destinationLane.authoredTrack : undefined,
+                    String(exactStartSeconds),
+                  ) : original;
+                },
                 onCommitted: (document) => {
                   nativeDocumentRef.current = document;
                   dependencies.onNativeDocumentCommitted(document);
@@ -501,7 +504,6 @@ export function useTimelineEditing({
           if (!currentDocument || !dependencies) {
             throw new Error("The authoritative native project is no longer available");
           }
-          const target = buildPatchTarget(element);
           const commitAgainst = (expectedRevision: number) =>
             commitNativeTimelineRangeEdit({
               expectedRevision,
@@ -512,23 +514,23 @@ export function useTimelineEditing({
               writeProjectFile,
               recordEdit,
               commitFileTransaction: dependencies.commitFileTransaction,
-              patchCompatibilityContent: (original, timing) =>
-                target
-                  ? buildTimelineResizeTimingPatch(
-                      original,
-                      target,
-                      element,
-                      {
-                        ...updates,
-                        playbackStart: Number(timing.sourceOffset),
-                      },
-                      {
-                        start: timing.start,
-                        duration: timing.duration,
-                        playbackStart: timing.sourceOffset,
-                      },
-                    )
-                  : original,
+              patchCompatibilityContent: (original, timing, binding) => {
+                const target = buildPatchTarget(binding);
+                return target ? buildTimelineResizeTimingPatch(
+                  original,
+                  target,
+                  element,
+                  {
+                    ...updates,
+                    playbackStart: Number(timing.sourceOffset),
+                  },
+                  {
+                    start: timing.start,
+                    duration: timing.duration,
+                    playbackStart: timing.sourceOffset,
+                  },
+                ) : original;
+              },
               onCommitted: (document) => {
                 nativeDocumentRef.current = document;
                 dependencies.onNativeDocumentCommitted(document);
@@ -673,6 +675,15 @@ export function useTimelineEditing({
     previewIframeRef,
     pendingTimelineEditPathRef,
     isRecordingRef,
+    nativeProjectEditing,
+    nativeDocumentRef,
+    editQueueRef,
+  });
+
+  const { handleNativeAudioAction } = useNativeAudioActions({
+    projectIdRef, nativeProjectEditing, nativeDocumentRef, editQueueRef,
+    writeProjectFile, recordEdit, showToast, domEditSaveTimestampRef,
+    pendingTimelineEditPathRef, reloadPreview, forceReloadSdkSession, isRecordingRef,
   });
 
   const setElementFxAttribute = useSetElementAttribute({
@@ -685,6 +696,10 @@ export function useTimelineEditing({
     previewIframeRef,
     pendingTimelineEditPathRef,
     isRecordingRef,
+    nativeProjectEditing,
+    nativeDocumentRef,
+    editQueueRef,
+    reloadPreview,
   });
 
   const setAudioGroupAttribute = useSetAudioGroupAttribute({
@@ -697,6 +712,9 @@ export function useTimelineEditing({
     previewIframeRef,
     pendingTimelineEditPathRef,
     isRecordingRef,
+    nativeProjectEditing,
+    nativeDocumentRef,
+    editQueueRef,
   });
 
   const { handleTimelineElementsDelete, handleTimelineElementDelete } = useTimelineDeleteOps({
@@ -737,7 +755,7 @@ export function useTimelineEditing({
 
   const handleBlockedTimelineEdit = useBlockedTimelineEditToast(showToast);
 
-  const { handleRazorSplit, handleRazorSplitAll } = useRazorSplit({
+  const { handleRazorSplit, handleRazorSplitAll, splitForSilence } = useRazorSplit({
     projectId,
     activeCompPath,
     showToast,
@@ -753,12 +771,48 @@ export function useTimelineEditing({
     editQueueRef,
   });
 
+  const { handleRemoveSilence, isRemovingSilence } = useRemoveSilence({
+    projectId,
+    activeCompPath,
+    showToast,
+    writeProjectFile,
+    observeProjectFileVersion,
+    recordEdit,
+    domEditSaveTimestampRef,
+    reloadPreview,
+    forceReloadSdkSession,
+    isRecordingRef,
+    deleteElements: handleTimelineElementsDelete,
+    moveElement: handleTimelineElementMove,
+    splitElement: splitForSilence,
+    nativeProjectEditing,
+    nativeDocumentRef,
+    editQueueRef,
+    snapTimelineTime: (time) => {
+      const document = nativeDocumentRef.current;
+      if (!document) return time;
+      return projectFrameFromSeconds(time, document.frameRate) * document.frameRate.denominator / document.frameRate.numerator;
+    },
+    isNativeElement: (element) => {
+      const document = nativeDocumentRef.current;
+      if (!nativeProjectEditing || !document) return false;
+      return resolveNativeClipSelection(document, {
+        id: element.id,
+        hfId: element.hfId,
+        sourceFile: element.sourceFile,
+        selector: element.selector,
+        selectorIndex: element.selectorIndex,
+      }).ok;
+    },
+  });
+
   return {
     handleTimelineElementMove,
     handleTimelineElementResize,
     handleToggleTrackHidden,
     handleToggleElementHidden,
     handleAutoGroupCarveSources,
+    handleNativeAudioAction,
     setAudioGroupAttribute,
     setElementFxAttribute,
     handleTimelineElementDelete,
@@ -766,6 +820,8 @@ export function useTimelineEditing({
     handleTimelineElementSplit: handleRazorSplit,
     handleRazorSplit,
     handleRazorSplitAll,
+    handleRemoveSilence,
+    isRemovingSilence,
     handleTimelineAssetDrop,
     handleTimelineFileDrop,
     handleTimelineCompositionDrop,

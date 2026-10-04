@@ -160,6 +160,11 @@ export function resolveCollisionFreeTrack(input: {
   duration: number;
   isAudio: boolean;
 }): number {
+  // On an empty composition there is no lane topology to normalize against.
+  // Keep the requested authored track, including a sparse first track.
+  if (input.elements.length === 0 && input.trackOrder.length === 0) {
+    return input.desiredTrack;
+  }
   const zoneElements = input.elements.filter((element) =>
     isSameMediaZone(element, input.isAudio),
   );

@@ -14,9 +14,12 @@
  * the NEXT parse honest, and a live attribute patch never triggers one.
  */
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { usePlayerStore, type TimelineElement } from "../../../player/index";
 import { resolveGroupSourceFile, useSetAudioGroupAttribute } from "../timelineAudioGroupVolume";
+import {
+  NATIVE_PROJECT_DOCUMENT_PATH, parseNativeProjectDocument, serializeNativeProjectDocument,
+} from "../../../../shared/project/nativeProjectDocument";
 
 afterEach(() => {
   usePlayerStore.getState().reset();
@@ -64,6 +67,44 @@ function makeSetter() {
 }
 
 describe("group attribute writes reach the store", () => {
+  it("persists a native bus fader in the sidecar and HTML in one history entry", async () => {
+    const project = parseNativeProjectDocument({
+      schemaVersion: 1, mediaEngine: "ffmpeg", id: "project", revision: 0,
+      frameRate: { numerator: 30, denominator: 1 },
+      canvas: { width: 64, height: 32, background: "#000000" },
+      assets: [], sequence: { id: "sequence", name: "Sequence", tracks: [], audioGroups: [{ id: "voiceover" }] },
+    });
+    const files = new Map([
+      [NATIVE_PROJECT_DOCUMENT_PATH, serializeNativeProjectDocument(project)],
+      ["index.html", '<html><body><hf-audio-group id="voiceover"></hf-audio-group></body></html>'],
+    ]);
+    const nativeDocumentRef = { current: project };
+    const recordEdit = vi.fn(async () => {});
+    const editing = {
+      readOptionalProjectFile: async (path: string) => files.get(path),
+      onNativeDocumentCommitted: (document: typeof project) => { nativeDocumentRef.current = document; },
+    };
+    const input = {
+      projectIdRef: { current: "project" }, activeCompPath: "index.html", showToast: vi.fn(),
+      writeProjectFile: async (path: string, content: string, expected?: string) => {
+        expect(files.get(path)).toBe(expected);
+        files.set(path, content);
+      },
+      recordEdit, domEditSaveTimestampRef: { current: 0 },
+      pendingTimelineEditPathRef: { current: new Set<string>() },
+      previewIframeRef: { current: null }, nativeProjectEditing: editing,
+      nativeDocumentRef, editQueueRef: { current: Promise.resolve() },
+    };
+    let setter: ReturnType<typeof useSetAudioGroupAttribute> | null = null;
+    const Probe = () => { setter = useSetAudioGroupAttribute(input as never); return null; };
+    const react = await import("react");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    renderToStaticMarkup(react.createElement(Probe));
+    await setter!.setQuiet("voiceover", "data-volume", "0.5", "Set bus gain");
+    expect(nativeDocumentRef.current.sequence.audioGroups?.[0]?.volume).toBe(0.5);
+    expect(files.get("index.html")).toContain('data-volume="0.5"');
+    expect(recordEdit).toHaveBeenCalledOnce();
+  });
   it("mirrors data-hidden onto every member so the header can flip", async () => {
     const react = await import("react");
     const { renderToStaticMarkup } = await import("react-dom/server");

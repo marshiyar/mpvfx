@@ -117,7 +117,10 @@ export function ImageFillField({
     () => resolveSelectedAsset(value, sourceFile, imageAssets),
     [imageAssets, sourceFile, value],
   );
-  const externalUrlValue = selectedAsset ? "" : value;
+  // Existing URL fills remain editable, but new fills use the project asset
+  // picker instead of presenting a second, empty source field.
+  // Callers pass the URL extracted from the CSS fill, or an empty string.
+  const externalUrlValue = selectedAsset ? "" : value.trim();
 
   const handleUpload = async (files: FileList | null) => {
     if (!files?.length || !onImportAssets) return;
@@ -218,14 +221,16 @@ export function ImageFillField({
         )}
       </div>
 
-      <DetailField
-        label="External URL"
-        value={externalUrlValue}
-        disabled={disabled}
-        onCommit={(next) =>
-          onCommit(next.trim() ? `url("${next.trim()}")` : "none")
-        }
-      />
+      {externalUrlValue && (
+        <DetailField
+          label="Existing image URL"
+          value={externalUrlValue}
+          disabled={disabled}
+          onCommit={(next) =>
+            onCommit(next.trim() ? `url("${next.trim()}")` : "none")
+          }
+        />
+      )}
     </div>
   );
 }
@@ -362,9 +367,9 @@ export function GradientField({
               style={{
                 left: `calc(${stop.position}% - 8px)`,
                 backgroundColor: stop.color,
-                boxShadow:
+                outline:
                   index === selectedStop
-                    ? "0 0 0 2px var(--color-panel-accent, #5d8aff)"
+                    ? "2px solid var(--color-panel-accent, #5d8aff)"
                     : undefined,
               }}
               onClick={(event) => {
@@ -470,6 +475,11 @@ export function GradientField({
                     onPreview={(next) => updateStop(index, { position: next }, true)}
                     onPreviewEnd={endNestedPreview}
                     onCommit={(next) => updateStop(index, { position: next })}
+                    onReset={() => updateStop(index, {
+                      position: parsed.stops.length <= 1
+                        ? 0
+                        : Math.round((index / (parsed.stops.length - 1)) * 1000) / 10,
+                    })}
                     onPreviewText={(next) => {
                       const position = Number.parseFloat(next);
                       if (Number.isFinite(position)) updateStop(index, { position: Math.max(0, Math.min(100, position)) }, true);

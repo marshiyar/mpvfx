@@ -67,7 +67,7 @@ describe("Media library asset drop", () => {
     });
 
     expect(source).toContain('data-composition-id="main"');
-    expect(source).toContain('<video id="vid8"');
+    expect(source).toMatch(/<video id="vid8-[^"]+"/);
     expect(source).toContain('src="vid8.m4v"');
     expect(source).toContain('data-start="6"');
     expect(source).toContain('data-duration="10"');

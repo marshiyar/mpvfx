@@ -181,11 +181,11 @@ export function useDomSelection({
         if (options?.revealPanel !== false) {
           setRightCollapsed(false);
         }
-        announceTimelineSelection(nextGroup, nextSelection);
+        if (options?.announce !== false) announceTimelineSelection(nextGroup, nextSelection);
         return;
       }
 
-      announceTimelineSelection([], null);
+      if (options?.announce !== false) announceTimelineSelection([], null);
     },
     [announceTimelineSelection, setRightCollapsed],
   );
@@ -328,7 +328,7 @@ export function useDomSelection({
     async (element: TimelineElement | null) => {
       const seq = ++timelineSelectSeqRef.current;
       if (!element) {
-        applyDomSelection(null, { revealPanel: false });
+        applyDomSelection(null, { revealPanel: false, announce: false });
         return;
       }
 
@@ -336,7 +336,7 @@ export function useDomSelection({
       // A newer selection superseded this one while we were resolving — drop the stale result.
       if (seq !== timelineSelectSeqRef.current) return;
       if (selection) {
-        applyDomSelection(selection);
+        applyDomSelection(selection, { announce: false });
         return;
       }
       // No canvas node (audio, a comp that is not the active one). Leaving the
@@ -409,7 +409,7 @@ export function useDomSelection({
           await refreshDomEditGroupSelectionsFromPreviewRef.current(group);
           return;
         }
-        applyDomSelection(null, { revealPanel: false });
+        applyDomSelection(null, { revealPanel: false, announce: false });
         return;
       }
 
@@ -419,6 +419,7 @@ export function useDomSelection({
         applyDomSelection(nextSelection, {
           revealPanel: false,
           preserveGroup: true,
+          announce: false,
         });
       }
     },
@@ -459,9 +460,10 @@ export function useDomSelection({
       setDomEditSelection(nextSelection);
       setDomEditGroupSelections(nextGroup);
 
-      announceTimelineSelection(nextGroup, nextSelection);
+      // Refreshing a replaced iframe node must not rewrite the user's timeline
+      // selection; it only repairs the canvas representation.
     },
-    [activeCompPath, announceTimelineSelection, beginSelectionRefresh, buildDomSelectionFromTarget],
+    [activeCompPath, beginSelectionRefresh, buildDomSelectionFromTarget],
   );
 
   // ── Effects ──
@@ -517,10 +519,10 @@ export function useDomSelection({
 
   const applyMarqueeSelection = useCallback(
     // fallow-ignore-next-line complexity
-    (selections: DomEditSelection[], additive: boolean) => {
+    (selections: DomEditSelection[], additive: boolean, options?: { announce?: boolean }) => {
       logSelect("marquee", { hits: selections.length, additive });
       if (selections.length === 0) {
-        if (!additive) applyDomSelection(null, { revealPanel: false });
+        if (!additive) applyDomSelection(null, { revealPanel: false, announce: options?.announce });
         return;
       }
       const current = domEditSelectionRef.current;
@@ -543,7 +545,7 @@ export function useDomSelection({
       domEditGroupSelectionsRef.current = nextGroup;
       setDomEditSelection(nextSelection);
       setDomEditGroupSelections(nextGroup);
-      announceTimelineSelection(nextGroup, nextSelection);
+      if (options?.announce !== false) announceTimelineSelection(nextGroup, nextSelection);
     },
     [applyDomSelection, announceTimelineSelection],
   );

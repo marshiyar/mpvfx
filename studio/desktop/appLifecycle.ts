@@ -111,10 +111,13 @@ export function createDesktopAppController(
     },
     async close() {
       if (closePromise) return closePromise;
+      // Close must claim the lifetime before yielding to a pending startup.
+      // Otherwise startRuntime can resolve while close waits and open a window
+      // that teardown did not intend to show.
+      stopping = true;
       const pending = (async () => {
         await startPromise?.catch(() => {});
         await dependencies.flushRenderer?.();
-        stopping = true;
         let windowCloseError: unknown;
         const destroyActiveWindow = () => {
           const activeWindow = window;

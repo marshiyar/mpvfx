@@ -2,10 +2,6 @@ name: Code security
 
 on:
   pull_request:
-    paths:
-      - "studio/**"
-      - "scripts/**"
-      - ".github/workflows/security.yml"
   push:
     branches:
       - main
@@ -20,6 +16,7 @@ on:
 permissions:
   actions: read
   contents: read
+  pull-requests: read
   security-events: read
 
 concurrency:
@@ -27,8 +24,39 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Relevant changes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    outputs:
+      run: ${{ steps.filter.outputs.run }}
+    steps:
+      - name: Check changed paths
+        id: filter
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if (( CHANGED_FILES > 3000 )); then
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          paths="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)')"
+          relevant=false
+          while IFS= read -r path; do
+            case "$path" in
+              studio/*|scripts/*|.github/workflows/security.yml) relevant=true; break ;;
+            esac
+          done <<< "$paths"
+          echo "run=$relevant" >> "$GITHUB_OUTPUT"
+
   analyze:
     name: CodeQL (JavaScript and TypeScript)
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.run == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:

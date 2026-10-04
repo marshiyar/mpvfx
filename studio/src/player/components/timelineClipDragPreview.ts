@@ -19,6 +19,7 @@ import {
   type TimelineGroupResizeSession,
 } from "./timelineGroupEditing";
 import { clampGroupMoveDelta } from "./timelineMultiDragPreview";
+import { resolveRigidGroupMove } from "./timelineRigidGroupMove";
 import type { DraggedClipState, ResizingClipState } from "./timelineClipDragTypes";
 import type { RationalFrameRate } from "../../../shared/project/nativeKeyframeTypes";
 
@@ -197,6 +198,26 @@ export function computeDragPreview(
     elements,
     selectedKeys,
   );
+  const group = resolveRigidGroupMove({
+    elements, selectedKeys, dragged: drag.element,
+    desiredTrack: nextMove.track, trackOrder,
+    deltaSeconds: previewStart - drag.element.start,
+  });
+  if (group) {
+    return {
+      ...drag,
+      started: true,
+      pointerClientX: clientX,
+      pointerClientY: clientY,
+      previewStart: group.valid ? previewStart : drag.element.start,
+      previewTrack: group.valid ? nextMove.track : drag.element.track,
+      desiredTrack: nextMove.track,
+      groupRowDelta: group.rowDelta,
+      insertRow: null,
+      snapTime: group.valid ? snap.snapTime : null,
+      snapType: group.valid ? snap.snapType : null,
+    };
+  }
   const { track: previewTrack, insertRow } = resolveDropPlacement(
     drag,
     clientY,

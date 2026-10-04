@@ -7,8 +7,8 @@ export interface ApplyDomSelectionOptions {
   revealPanel?: boolean;
   additive?: boolean;
   preserveGroup?: boolean;
-  // A clear that came FROM the timeline must not be echoed back, or picking a
-  // clip with no canvas node would deselect the clip you just picked.
+  // A selection coming FROM the timeline must not be echoed back; the preview
+  // can resolve after a newer click or temporarily lack the matching DOM node.
   announce?: boolean;
 }
 
@@ -77,5 +77,7 @@ export interface UseDomSelectionReturn {
   handleTimelineElementSelect: (element: TimelineElement | null) => Promise<void>;
   refreshDomEditSelectionFromPreview: (selection: DomEditSelection) => Promise<void>;
   refreshDomEditGroupSelectionsFromPreview: (selections: DomEditSelection[]) => Promise<void>;
-  applyMarqueeSelection: (selections: DomEditSelection[], additive: boolean) => void;
+  applyMarqueeSelection: (
+    selections: DomEditSelection[], additive: boolean, options?: { announce?: boolean },
+  ) => void;
 }

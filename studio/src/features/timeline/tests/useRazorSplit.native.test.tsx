@@ -266,7 +266,7 @@ describe("useRazorSplit native-canonical integration", () => {
     expect(nativeDocumentRef.current?.revision).toBe(1);
     expect(forceReloadSdkSession).toHaveBeenCalledOnce();
     expect(reloadPreview).toHaveBeenCalledOnce();
-    expect(showToast).toHaveBeenCalledWith(expect.stringContaining("Split"), "info");
+    expect(showToast).not.toHaveBeenCalledWith(expect.any(String), "info");
 
     act(() => root.unmount());
   });

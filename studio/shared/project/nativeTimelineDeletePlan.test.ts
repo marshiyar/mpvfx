@@ -209,7 +209,8 @@ describe("native timeline delete planner", () => {
         attributes: { "data-studio-clip-id": "clip:a" },
         sourceFile: "wrong.html",
       }],
-    })).toMatchObject({ ok: false, failure: { code: "binding-source-mismatch" } });
+    // Exact selection resolution rejects the wrong source before planning a delete.
+    })).toMatchObject({ ok: false, failure: { code: "clip-not-found" } });
   });
 
   it("rejects an empty target set", () => {

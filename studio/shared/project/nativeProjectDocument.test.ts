@@ -50,6 +50,31 @@ function validDocument(): NativeProjectDocumentInput {
 }
 
 describe("native project document", () => {
+  it("round-trips optional audio buses and native clip membership without changing timing", () => {
+    const document = validDocument();
+    document.assets.push({ id: "asset:voice", kind: "audio", name: "voice.wav", durationFrames: 300 });
+    document.sequence.audioGroups = [{ id: "dialogue", label: "Dialogue", volume: 0.5, muted: false, fxChain: '{"version":1,"nodes":[]}' }];
+    document.sequence.tracks[0]!.clips[0]!.audioGroupId = "dialogue";
+    document.sequence.tracks[0]!.clips[0]!.sourceInFraction = { numerator: 1, denominator: 3 };
+    const restored = parseNativeProjectDocument(JSON.parse(serializeNativeProjectDocument(document)));
+    expect(restored.sequence.audioGroups).toEqual(document.sequence.audioGroups);
+    expect(restored.sequence.tracks[0]!.clips[0]).toMatchObject({
+      id: "clip:camera-a-1", audioGroupId: "dialogue", sourceInFraction: { numerator: 1, denominator: 3 },
+    });
+    expect(parseNativeProjectDocument(validDocument()).sequence.audioGroups).toBeUndefined();
+  });
+
+  it("rejects dangling, duplicate, or non-media audio memberships", () => {
+    const document = validDocument();
+    document.sequence.tracks[0]!.clips[0]!.audioGroupId = "missing";
+    expect(() => parseNativeProjectDocument(document)).toThrow("Clip audio group must name a defined bus");
+    document.sequence.audioGroups = [{ id: "missing" }, { id: "missing" }];
+    expect(() => parseNativeProjectDocument(document)).toThrow("Duplicate stable ID missing");
+    document.sequence.audioGroups.pop();
+    document.assets[0]!.kind = "image";
+    expect(() => parseNativeProjectDocument(document)).toThrow("Only audio and video clips can join an audio group");
+  });
+
   it("preserves native engine ownership, media paths, and authored blank tails across saves", () => {
     const document = validDocument();
     document.mediaEngine = "ffmpeg";

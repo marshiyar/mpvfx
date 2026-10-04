@@ -386,6 +386,20 @@ describe("TimelineTrackHeader", () => {
     act(() => view.root.unmount());
   });
 
+  it("explains why an unconfirmed video-sound track cannot be grouped", () => {
+    const first: TimelineElement = { ...ELEMENT, id: "video-one", domId: "video-one", tag: "video" };
+    const second: TimelineElement = { ...ELEMENT, id: "video-two", domId: "video-two", tag: "video" };
+    const view = renderHeader({
+      keyframeClip: first,
+      trackElements: [first, second],
+      clipCount: 2,
+      animations: [],
+    });
+    click(view.host, "Effects — group these clips first");
+    expect(document.body.textContent).toContain("Every video clip on this track needs a confirmed audio stream.");
+    act(() => view.root.unmount());
+  });
+
   // The visibility control is the old hide eye. On an audio track it silences
   // rather than hides, and the row already says so with a speaker elsewhere —
   // so the eye's slot stays empty there. A non-audio track is untouched.

@@ -12,6 +12,7 @@ import { mountReactHarness } from "../../../canvas/domSelectionTestHarness";
 const mocks = vi.hoisted(() => ({
   resize: vi.fn(),
   drag: vi.fn(),
+  rotation: vi.fn(),
   readPosition: vi.fn(),
   setPosition: vi.fn(),
   commitAnimatedProperty: vi.fn(),
@@ -26,7 +27,7 @@ vi.mock("../gsapResizeIntercept", () => ({ tryGsapResizeIntercept: mocks.resize 
 vi.mock("../gsapRuntimeBridge", () => ({
   POSITION_CHANNELS: ["x", "y"],
   tryGsapDragIntercept: mocks.drag,
-  tryGsapRotationIntercept: vi.fn(),
+  tryGsapRotationIntercept: mocks.rotation,
 }));
 vi.mock("../gsapPositionDetection", () => ({
   readGsapPositionFromIframe: mocks.readPosition,
@@ -129,6 +130,44 @@ function mountGroupHandler({
 }
 
 describe("useGsapAwareEditing anchored resize", () => {
+  it("commits cropped rotation and its pivot position in one native revision", async () => {
+    mocks.isNativeSelection.mockReturnValue(true);
+    const h = mountResizeHandler([]);
+    h.selection.element.setAttribute("data-hf-drag-gsap-base-x", "240");
+    h.selection.element.setAttribute("data-hf-drag-gsap-base-y", "180");
+    await act(() => h.api.handleGsapAwareRotationCommit(
+      h.selection, { angle: 90 }, { x: 10, y: -10 },
+    ));
+    expect(mocks.projectCommitAnimatedProperties).toHaveBeenCalledTimes(1);
+    expect(mocks.projectCommitAnimatedProperties).toHaveBeenCalledWith(
+      h.selection, { rotation: 90, x: 250, y: 170 }, { intent: "edit" },
+    );
+    act(() => h.root.unmount());
+  });
+
+  it("batches a legacy cropped rotation with its pivot position", async () => {
+    const h = mountResizeHandler([]);
+    const batch = vi.fn().mockResolvedValue(undefined);
+    Object.assign(h.commitMutation, { batch });
+    mocks.rotation.mockImplementation(async (selection, angle, _animations, _iframe, commit) => {
+      await commit(selection, { type: "rotation-test", angle }, { label: "Rotate layer" });
+      return { status: "persisted" };
+    });
+    mocks.drag.mockImplementation(async (selection, offset, _animations, _iframe, commit) => {
+      await commit(selection, { type: "position-test", offset }, { label: "Move layer" });
+      return { status: "persisted" };
+    });
+    await act(() => h.api.handleGsapAwareRotationCommit(
+      h.selection, { angle: 90 }, { x: 10, y: -10 },
+    ));
+    expect(batch).toHaveBeenCalledTimes(1);
+    expect(batch.mock.calls[0]![0]).toEqual(expect.arrayContaining([
+      expect.objectContaining({ mutation: { type: "rotation-test", angle: 90 } }),
+      expect.objectContaining({ mutation: { type: "position-test", offset: { x: 10, y: -10 } } }),
+    ]));
+    act(() => h.root.unmount());
+  });
+
   it("commits a native drag from its captured starting position, not from zero", async () => {
     mocks.isNativeSelection.mockReturnValue(true);
     const h = mountResizeHandler([]);

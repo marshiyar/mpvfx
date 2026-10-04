@@ -15,8 +15,8 @@
  * stops with it — the formation never deforms. On DROP the commit shifts every
  * selected clip by this same delta (see timelineClipDragCommit / useTimelineClipDrag).
  *
- * Track changes apply to the grabbed clip only (mirroring the commit); passengers
- * keep their lanes, so only their x moves.
+ * A validated row change shifts every member by one row-index delta. Passenger
+ * Y offsets use the rendered row geometry so expanded rows retain alignment.
  */
 
 export interface MultiDragPreviewInput {
@@ -28,8 +28,22 @@ export interface MultiDragPreviewInput {
   draggedOriginStart: number;
   /** The dragged clip's live preview start (already group-clamped upstream). */
   draggedPreviewStart: number;
+  /** Validated formation shift in display-row indices. */
+  groupRowDelta?: number;
   /** The current multi-selection (store.selectedElementIds). */
   selectedKeys: ReadonlySet<string>;
+}
+
+export function multiDragPassengerRowOffsetPx(
+  clipTrack: number,
+  input: MultiDragPreviewInput,
+  rowGeometry: { getRowIndex: (track: number) => number; getRowTop: (row: number) => number },
+): number {
+  if (!isMultiDragActive(input) || !input.groupRowDelta) return 0;
+  const row = rowGeometry.getRowIndex(clipTrack);
+  const targetRow = row + input.groupRowDelta;
+  if (row < 0 || targetRow < 0) return 0;
+  return rowGeometry.getRowTop(targetRow) - rowGeometry.getRowTop(row);
 }
 
 /**

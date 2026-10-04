@@ -1,5 +1,6 @@
 import { LibraryService } from "../runtime/index";
 import { dispatchLibraryCommand } from "./libraryCommands";
+import { launchCrosspost, resolveCrosspostRender } from "./crosspostCommands";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -9,6 +10,7 @@ import { DESKTOP_CHANNELS, DESKTOP_ORIGIN, type DesktopRequest, type DesktopResp
 
 const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8", ".json": "application/json", ".svg": "image/svg+xml",
   ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".ico": "image/x-icon",
   ".webp": "image/webp", ".woff": "font/woff", ".woff2": "font/woff2", ".wasm": "application/wasm",
@@ -40,6 +42,7 @@ export function isResourcePath(path: string): boolean {
 }
 
 interface Options {
+  crosspostDir?: string;
   libraryModulePath?: string;
   userDataPath?: string;
   staticDir: string;
@@ -118,6 +121,16 @@ export async function startEditorRuntime(options: Options) {
     subscriptions.delete(subscriptionKey);
   };
   ipcMain.handle(DESKTOP_CHANNELS.request, dispatch);
+  ipcMain.handle(DESKTOP_CHANNELS.crosspost, async (event, projectId: string, filename: string) => {
+    assertEditor(event);
+    if (!options.crosspostDir || !options.userDataPath) throw new Error("Publishing is unavailable");
+    if (typeof projectId !== "string" || !projectId || /[/\\\x00-\x1f]/.test(projectId)) throw new Error("Invalid project");
+    await runtime.withProject(projectId, async () => {
+      const root = libraries?.outputDirectory(projectId) ?? resolve(options.projectsDir, "../renders");
+      const file = await resolveCrosspostRender(root, filename);
+      await launchCrosspost(options.crosspostDir!, options.userDataPath!, file);
+    });
+  });
   ipcMain.handle(DESKTOP_CHANNELS.library, async (event, command) => {
     assertEditor(event);
     if (!libraries) throw new Error("Library service is unavailable");
@@ -179,6 +192,7 @@ export async function startEditorRuntime(options: Options) {
       releaseRenderer();
       protocol.unhandle("mpvfx");
       ipcMain.removeHandler(DESKTOP_CHANNELS.request);
+      ipcMain.removeHandler(DESKTOP_CHANNELS.crosspost);
       ipcMain.removeHandler(DESKTOP_CHANNELS.library);
       ipcMain.removeHandler(DESKTOP_CHANNELS.importFiles);
       ipcMain.removeHandler(DESKTOP_CHANNELS.subscribe);

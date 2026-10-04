@@ -35,6 +35,7 @@ import type { NativeProjectKeyframeTarget } from "../animation/Keyframe/useNativ
 import type { NativeInterpolation } from "../../../shared/project/nativeKeyframeTypes";
 
 export interface TimelineEditCallbackDeps {
+  handleNativeAudioAction?: NonNullable<TimelineEditCallbacks["onNativeAudioAction"]>;
   handleTimelineElementMove: (
     element: TimelineElement,
     updates: Pick<TimelineElement, "start" | "track">,
@@ -189,6 +190,7 @@ export function resolveTimelineKeyframeTarget(
  */
 // fallow-ignore-next-line complexity
 export function useTimelineEditCallbacks({
+  handleNativeAudioAction,
   handleTimelineElementMove,
   handleTimelineElementsMove,
   handleTimelineElementResize,
@@ -289,6 +291,7 @@ export function useTimelineEditCallbacks({
 
   return useMemo(
     () => ({
+      onNativeAudioAction: handleNativeAudioAction,
       onMoveElement: handleTimelineElementMove,
       onMoveElements: handleTimelineElementsMove,
       onResizeElement: handleTimelineElementResize,
@@ -645,6 +648,7 @@ export function useTimelineEditCallbacks({
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
+      handleNativeAudioAction,
       handleTimelineElementMove,
       handleTimelineElementsMove,
       handleTimelineElementResize,

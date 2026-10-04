@@ -1,10 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, mkdir, rm, symlink, writeFile, readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, rm, symlink, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { resolveInstalledMediaBinaryPaths } from "../../../desktop/installedMediaBinaries";
 import { parseNativeProjectDocument, type NativeProjectDocument } from "../../../shared/project/nativeProjectDocument";
+import { detachNativeVideoAudio } from "../../../shared/project/nativeProjectAudioCommands";
 import { renderNativeTimeline } from "../timelineRenderer";
 import { createStandaloneAdapter, createProjectSignatureCache } from "../../adapter";
 
@@ -21,6 +22,10 @@ beforeAll(async () => {
       "-f", "lavfi", "-i", `sine=frequency=${frequency}:sample_rate=48000:duration=2`,
       "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", join(root, `${color}.mp4`)]);
   }
+  execFileSync(ffmpeg, ["-v", "error", "-f", "lavfi", "-i", "sine=frequency=660:sample_rate=48000:duration=2",
+    "-c:a", "pcm_s16le", join(root, "voice.wav")]);
+  execFileSync(ffmpeg, ["-v", "error", "-f", "lavfi", "-i", "color=c=green:size=64x32:rate=10:duration=2",
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", join(root, "silent.mp4")]);
 });
 afterAll(async () => { if (root) await rm(root, { recursive: true, force: true }); });
 
@@ -48,6 +53,132 @@ function rms(path: string, seconds: number): number {
 }
 
 describe("native timeline rendering from project data", () => {
+  it("renders detached sound once while leaving its video picture intact", async () => {
+    const document = project();
+    document.sequence.tracks[0]!.clips.pop();
+    const video = document.sequence.tracks[0]!.clips[0]!;
+    video.durationFrames = 10;
+    video.sourceInFrame = 0;
+    video.playbackRate = { numerator: 1, denominator: 1 };
+    const baseline = join(root, "detach-baseline.mp4");
+    await renderNativeTimeline({ project: document, projectDir: root, outputPath: baseline, format: "mp4" }, binary);
+    const detached = detachNativeVideoAudio(document, video.id, true,
+      { assetId: "red-audio", clipId: "red-audio-clip", trackId: "red-audio-track" });
+    // A stale preview/UI mute state must not make the native export play both.
+    detached.sequence.tracks[0]!.clips[0]!.muted = false;
+    const output = join(root, "detach-output.mp4");
+    await renderNativeTimeline({ project: detached, projectDir: root, outputPath: output, format: "mp4" }, binary);
+    expect(rms(output, 0.2) / rms(baseline, 0.2)).toBeCloseTo(1, 1);
+    expect(frame(output, 0.2)[0]).toBeGreaterThan(220);
+  });
+
+  it("routes mixed video and audio into one native bus with gain and mute", async () => {
+    const document = project();
+    const red = document.sequence.tracks[0]!.clips[0]!;
+    red.durationFrames = 10;
+    red.sourceInFrame = 0;
+    red.playbackRate = { numerator: 1, denominator: 1 };
+    red.audioGroupId = "dialogue";
+    document.sequence.tracks[0]!.clips.pop();
+    document.assets.push({ id: "voice", kind: "audio", name: "voice.wav", source: "voice.wav", durationFrames: 20 });
+    document.sequence.tracks.push({ id: "voice-track", kind: "audio", lane: { authoredTrack: 1, displayTrack: 1 }, clips: [
+      { ...red, id: "voice-clip", assetId: "voice", audioGroupId: "dialogue" },
+    ] });
+    document.sequence.audioGroups = [{ id: "dialogue", label: "Dialogue", volume: 1 }];
+    const full = join(root, "group-full.mp4");
+    await renderNativeTimeline({ project: document, projectDir: root, outputPath: full, format: "mp4" }, binary);
+    expect(frame(full, 0.2)[0]).toBeGreaterThan(220);
+    const fullRms = rms(full, 0.2);
+    expect(fullRms).toBeGreaterThan(0.01);
+
+    document.sequence.audioGroups[0]!.volume = 0.25;
+    const quiet = join(root, "group-quiet.mp4");
+    await renderNativeTimeline({ project: document, projectDir: root, outputPath: quiet, format: "mp4" }, binary);
+    expect(rms(quiet, 0.2) / fullRms).toBeCloseTo(0.25, 1);
+
+    document.sequence.audioGroups[0]!.muted = true;
+    const muted = join(root, "group-muted.mp4");
+    await renderNativeTimeline({ project: document, projectDir: root, outputPath: muted, format: "mp4" }, binary);
+    const streams = JSON.parse(execFileSync(ffprobe, ["-v", "error", "-show_entries", "stream=codec_type", "-of", "json", muted]).toString()).streams;
+    expect(streams).toEqual([{ codec_type: "video" }]);
+  }, 30_000);
+
+  it("rejects grouping a video without an audio stream", async () => {
+    const document = project();
+    document.assets[0]!.source = "silent.mp4";
+    document.sequence.audioGroups = [{ id: "dialogue" }];
+    document.sequence.tracks[0]!.clips[0]!.audioGroupId = "dialogue";
+    await expect(renderNativeTimeline({ project: document, projectDir: root,
+      outputPath: join(root, "silent-group.mp4"), format: "mp4" }, binary)).rejects.toThrow("no audio stream");
+  });
+
+  it("keeps two grouped video sound tracks on their native trim and gap positions", async () => {
+    const document = project();
+    document.sequence.audioGroups = [{ id: "videos", volume: 0.5 }];
+    for (const clip of document.sequence.tracks[0]!.clips) {
+      clip.audioGroupId = "videos";
+      clip.muted = false;
+    }
+    const output = join(root, "group-two-videos.mp4");
+    await renderNativeTimeline({ project: document, projectDir: root, outputPath: output, format: "mp4" }, binary);
+    expect(rms(output, 0.2)).toBeGreaterThan(0.005);
+    expect(rms(output, 0.7)).toBeLessThan(0.001);
+    expect(rms(output, 1.2)).toBeGreaterThan(0.005);
+    expect(frame(output, 0.2)[0]).toBeGreaterThan(220);
+    expect(frame(output, 1.2)[2]).toBeGreaterThan(220);
+  }, 30_000);
+
+  it("cleans grouped render staging when cancelled before video encoding", async () => {
+    const document = project();
+    document.sequence.audioGroups = [{ id: "dialogue" }];
+    document.sequence.tracks[0]!.clips[0]!.audioGroupId = "dialogue";
+    const controller = new AbortController();
+    const outputPath = join(root, "group-cancelled.mp4");
+    await expect(renderNativeTimeline({ project: document, projectDir: root, outputPath, format: "mp4",
+      signal: controller.signal, onProgress: progress => { if (progress >= 10) controller.abort(); },
+    }, binary)).rejects.toMatchObject({ name: "AbortError" });
+    expect(await readdir(root)).not.toContain("group-cancelled.mp4");
+    expect((await readdir(root)).some(name => name.startsWith(".mpvfx-group-render-"))).toBe(false);
+  });
+
+  it("applies the saved bus FX chain through the shared audio processor", async () => {
+    const document = project();
+    document.sequence.tracks[0]!.clips.pop();
+    const red = document.sequence.tracks[0]!.clips[0]!;
+    red.durationFrames = 10;
+    red.sourceInFrame = 0;
+    red.playbackRate = { numerator: 1, denominator: 1 };
+    red.audioGroupId = "fx";
+    document.sequence.audioGroups = [{ id: "fx", volume: 1 }];
+    const dry = join(root, "group-fx-dry.mp4");
+    await renderNativeTimeline({ project: document, projectDir: root, outputPath: dry, format: "mp4" }, binary);
+    document.sequence.audioGroups[0]!.fxChain = JSON.stringify({
+      version: 1, nodes: [{ type: "gain", params: { gain: -6 }, enabled: true }],
+    });
+    const wet = join(root, "group-fx-wet.mp4");
+    await renderNativeTimeline({ project: document, projectDir: root, outputPath: wet, format: "mp4" }, binary);
+    expect(rms(wet, 0.2) / rms(dry, 0.2)).toBeCloseTo(10 ** (-6 / 20), 1);
+  }, 30_000);
+
+  it("exports clip FX saved after detaching video audio", async () => {
+    const document = project();
+    document.sequence.tracks[0]!.clips.pop();
+    const red = document.sequence.tracks[0]!.clips[0]!;
+    red.durationFrames = 10;
+    red.sourceInFrame = 0;
+    red.playbackRate = { numerator: 1, denominator: 1 };
+    const detached = detachNativeVideoAudio(document, red.id, true,
+      { assetId: "clip-fx-audio", clipId: "clip-fx-clip", trackId: "clip-fx-track" });
+    const dry = join(root, "clip-fx-dry.mp4");
+    await renderNativeTimeline({ project: detached, projectDir: root, outputPath: dry, format: "mp4" }, binary);
+    detached.sequence.tracks[1]!.clips[0]!.audioFxChain = JSON.stringify({
+      version: 1, nodes: [{ type: "gain", params: { gain: -6 }, enabled: true }],
+    });
+    const wet = join(root, "clip-fx-wet.mp4");
+    await renderNativeTimeline({ project: detached, projectDir: root, outputPath: wet, format: "mp4" }, binary);
+    expect(rms(wet, 0.2) / rms(dry, 0.2)).toBeCloseTo(10 ** (-6 / 20), 1);
+  }, 30_000);
+
   it("exports cuts, source trims, speed, gaps, and mute with no HTML file", async () => {
     const outputPath = join(root, "cuts.mp4");
     await renderNativeTimeline({ project: project(), projectDir: root, outputPath, format: "mp4" }, binary);

@@ -42,6 +42,7 @@ function drag(
     previewTrack: number;
     desiredTrack?: number;
     insertRow?: number | null;
+    groupRowDelta?: number;
   },
 ): DraggedClipState {
   return {
@@ -59,6 +60,7 @@ function drag(
     // Defaults to previewTrack (a lane change) when a test doesn't distinguish a
     // horizontal collision bump — the commit's `desiredTrack ?? previewTrack`.
     desiredTrack: opts.desiredTrack,
+    groupRowDelta: opts.groupRowDelta,
     insertRow: opts.insertRow ?? null,
     snapTime: null,
     snapType: null,
@@ -460,6 +462,67 @@ describe("commitDraggedClipMove", () => {
     expect(map.a).toEqual({ start: 4, track: 1 }); // dragged: new time + new lane
     expect(map.c).toEqual({ start: 24, track: 2 }); // passenger: same +4 delta, own lane
     expect(map.b).toBeUndefined(); // unselected clip is NOT rewritten
+  });
+
+  it("persists a validated sparse-row formation in one undo batch", () => {
+    const a = { ...el("a", 2, 2, 2), sourceFile: "scene.html", authoredTrack: 4 };
+    const b = { ...el("b", 5, 8, 2), sourceFile: "scene.html", authoredTrack: 7 };
+    const c = { ...el("c", 9, 20, 2), sourceFile: "scene.html", authoredTrack: 11 };
+    const { onMoveElements } = runClipMove(
+      drag(a, { previewStart: 5, previewTrack: 5, desiredTrack: 5, groupRowDelta: 1 }),
+      { elements: [a, b, c], trackOrder: [2, 5, 9], selectedKeys: new Set(["a", "b"]) },
+    );
+    expect(onMoveElements).toHaveBeenCalledOnce();
+    expect(onMoveElements.mock.calls[0][2]).toBe("lane-reorder");
+    const edits = onMoveElements.mock.calls[0][0] as TimelineMoveEdit[];
+    // Persist callbacks receive authored file-space tracks; display rows are
+    // carried separately so the store keeps the sparse visible layout.
+    expect(editMap(edits)).toEqual({ a: { start: 5, track: 7 }, b: { start: 11, track: 11 } });
+    expect(edits.map((edit) => edit.persistTrack)).toEqual([7, 11]);
+    expect(edits.map((edit) => edit.displayTrack)).toEqual([5, 9]);
+  });
+
+  it("refuses a stale formation collision without a grabbed-only fallback", () => {
+    const a = el("a", 0, 2, 2);
+    const b = el("b", 1, 8, 2);
+    const blocker = el("blocker", 2, 11, 2);
+    const spies = runClipMove(
+      drag(a, { previewStart: 5, previewTrack: 1, desiredTrack: 1, groupRowDelta: 1 }),
+      { elements: [a, b, blocker], trackOrder: [0, 1, 2], selectedKeys: new Set(["a", "b"]) },
+    );
+    expect(spies.onMoveElements).not.toHaveBeenCalled();
+    expect(spies.updateElement).not.toHaveBeenCalled();
+  });
+
+  it("rolls back every formation member and skips stacking after a failed batch", async () => {
+    const a = el("a", 0, 2, 2);
+    const b = el("b", 1, 8, 2);
+    const c = el("c", 2, 20, 2);
+    const updateElement = vi.fn();
+    const onStackingPatches = vi.fn();
+    const onMoveElements = vi.fn().mockRejectedValue(new Error("write refused"));
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      commitDraggedClipMove(
+        drag(a, { previewStart: 5, previewTrack: 1, desiredTrack: 1, groupRowDelta: 1 }),
+        {
+          elements: [a, b, c], trackOrder: [0, 1, 2],
+          selectedKeys: new Set(["a", "b"]), updateElement, onMoveElements,
+          readZIndex: () => 0, onStackingPatches,
+        },
+      );
+      await flushMicrotasks();
+      expect(onMoveElements).toHaveBeenCalledOnce();
+      expect(updateElement).toHaveBeenCalledWith("a", {
+        start: a.start, track: a.track, authoredTrack: a.authoredTrack,
+      });
+      expect(updateElement).toHaveBeenCalledWith("b", {
+        start: b.start, track: b.track, authoredTrack: b.authoredTrack,
+      });
+      expect(onStackingPatches).not.toHaveBeenCalled();
+    } finally {
+      error.mockRestore();
+    }
   });
 
   it("inserting a new lane places the dragged clip at the aimed row and +1-shifts the clips below", () => {

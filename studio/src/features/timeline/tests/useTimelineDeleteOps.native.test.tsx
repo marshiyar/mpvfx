@@ -100,7 +100,7 @@ describe("useTimelineDeleteOps native-canonical integration", () => {
     usePlayerStore.getState().setDuration(4);
     const nativeDocumentRef = { current: native as NativeProjectDocument | null };
     let suppliedDocument = native;
-    let removeMany: ((selection: TimelineElement[]) => Promise<void>) | undefined;
+    let removeMany: ReturnType<typeof useTimelineDeleteOps>["handleTimelineElementsDelete"] | undefined;
 
     function Harness() {
       removeMany = useTimelineDeleteOps({
@@ -173,8 +173,9 @@ describe("useTimelineDeleteOps native-canonical integration", () => {
     await act(async () => {
       root.render(<Harness />);
     });
+    showToast.mockClear();
     await act(async () => {
-      await removeMany!([selectedA]);
+      await removeMany!([selectedA], { suppressSuccessToast: true });
     });
 
     expect(fetchMock).not.toHaveBeenCalled();
@@ -186,6 +187,7 @@ describe("useTimelineDeleteOps native-canonical integration", () => {
       .toEqual(["native:b"]);
     expect(recordEdit).toHaveBeenCalledTimes(2);
     expect(onNativeDocumentCommitted).toHaveBeenCalledTimes(2);
+    expect(showToast).not.toHaveBeenCalled();
 
     act(() => root.unmount());
   });

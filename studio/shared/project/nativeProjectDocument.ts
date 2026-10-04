@@ -85,6 +85,13 @@ export interface NativeClipDomBinding {
 export interface NativeProjectClip {
   id: string;
   assetId: string;
+  /** Audio bus membership. Video keeps its picture and contributes only its sound. */
+  audioGroupId?: string;
+  /** Serialized clip-level audio processing, matching the HTML media attributes. */
+  audioFxChain?: string;
+  audioAutomation?: string;
+  /** Stable source video clip ID for an extracted audio clip. It survives edits. */
+  audioDetachedFrom?: string;
   binding?: NativeClipDomBinding;
   startFrame: number;
   durationFrames: number;
@@ -131,7 +138,20 @@ export interface NativeProjectSequence {
   name: string;
   /** Optional explicit end, including an authored blank tail. */
   durationFrames?: number;
+  /** Optional in v1 documents. The group is an audio bus, never a timeline clip. */
+  audioGroups?: NativeAudioGroup[];
   tracks: NativeProjectTrack[];
+}
+
+export interface NativeAudioGroup {
+  id: string;
+  label?: string;
+  /** Linear gain, matching the HTML audio-group fader. */
+  volume?: number;
+  muted?: boolean;
+  /** Serialized shared Web Audio processing, as on an HTML group element. */
+  fxChain?: string;
+  automation?: string;
 }
 
 export interface NativeProjectDocument {
@@ -744,6 +764,38 @@ export function validateNativeProjectDocument(
     return issues;
   }
 
+  const audioGroupIds = new Set<string>();
+  if (input.sequence.audioGroups !== undefined) {
+    if (!Array.isArray(input.sequence.audioGroups)) {
+      pushIssue(issues, "invalid-track", "sequence.audioGroups", "Audio groups must be an array");
+    } else {
+      input.sequence.audioGroups.forEach((group, index) => {
+        const path = `sequence.audioGroups[${index}]`;
+        if (!isRecord(group)) {
+          pushIssue(issues, "invalid-track", path, "Audio group must be an object");
+          return;
+        }
+        requireId(group.id, `${path}.id`, issues);
+        collectDuplicateId(audioGroupIds, group.id, `${path}.id`, issues);
+        if (group.label !== undefined && !isNonEmptyString(group.label)) {
+          pushIssue(issues, "invalid-track", `${path}.label`, "Audio group label must be a non-empty string");
+        }
+        if (group.volume !== undefined &&
+            (typeof group.volume !== "number" || !Number.isFinite(group.volume) || group.volume < 0 || group.volume > 10 ** (12 / 20))) {
+          pushIssue(issues, "invalid-track", `${path}.volume`, "Audio group gain must be within the supported fader range");
+        }
+        if (group.muted !== undefined && typeof group.muted !== "boolean") {
+          pushIssue(issues, "invalid-track", `${path}.muted`, "Audio group mute must be a boolean");
+        }
+        for (const name of ["fxChain", "automation"] as const) {
+          if (group[name] !== undefined && (typeof group[name] !== "string" || !group[name])) {
+            pushIssue(issues, "invalid-track", `${path}.${name}`, `${name} must be serialized text`);
+          }
+        }
+      });
+    }
+  }
+
   const trackIds = new Set<string>();
   const authoredLaneIds = new Set<string>();
   const displayLaneIds = new Set<number>();
@@ -807,6 +859,23 @@ export function validateNativeProjectDocument(
       const asset = isNonEmptyString(clip.assetId) ? assetsById.get(clip.assetId) : undefined;
       if (!asset && isNonEmptyString(clip.assetId)) {
         pushIssue(issues, "missing-reference", `${clipPath}.assetId`, `Missing asset ${clip.assetId}`);
+      }
+      if (clip.audioGroupId !== undefined) {
+        if (!isNonEmptyString(clip.audioGroupId) || !audioGroupIds.has(clip.audioGroupId)) {
+          pushIssue(issues, "missing-reference", `${clipPath}.audioGroupId`, "Clip audio group must name a defined bus");
+        }
+        if (asset && asset.kind !== "audio" && asset.kind !== "video") {
+          pushIssue(issues, "invalid-clip", `${clipPath}.audioGroupId`, "Only audio and video clips can join an audio group");
+        }
+      }
+      if (clip.audioDetachedFrom !== undefined &&
+          (!isNonEmptyString(clip.audioDetachedFrom) || asset?.kind !== "audio")) {
+        pushIssue(issues, "invalid-clip", `${clipPath}.audioDetachedFrom`, "Only an audio clip can link to a source video clip");
+      }
+      for (const name of ["audioFxChain", "audioAutomation"] as const) {
+        if (clip[name] !== undefined && (typeof clip[name] !== "string" || !clip[name])) {
+          pushIssue(issues, "invalid-clip", `${clipPath}.${name}`, `${name} must be serialized text`);
+        }
       }
       if (
         asset &&
@@ -919,6 +988,14 @@ export function parseNativeProjectDocument(input: unknown): NativeProjectDocumen
       id: document.sequence.id,
       name: document.sequence.name,
       ...(document.sequence.durationFrames !== undefined ? { durationFrames: document.sequence.durationFrames } : {}),
+      ...(document.sequence.audioGroups ? { audioGroups: document.sequence.audioGroups.map((group) => ({
+        id: group.id,
+        ...(group.label ? { label: group.label } : {}),
+        volume: group.volume ?? 1,
+        muted: group.muted ?? false,
+        ...(group.fxChain ? { fxChain: group.fxChain } : {}),
+        ...(group.automation ? { automation: group.automation } : {}),
+      })) } : {}),
       tracks: document.sequence.tracks.map((track, trackIndex) => ({
         id: track.id,
         kind: track.kind,
@@ -928,6 +1005,10 @@ export function parseNativeProjectDocument(input: unknown): NativeProjectDocumen
         clips: track.clips.map((clip) => ({
           id: clip.id,
           assetId: clip.assetId,
+          ...(clip.audioGroupId ? { audioGroupId: clip.audioGroupId } : {}),
+          ...(clip.audioFxChain ? { audioFxChain: clip.audioFxChain } : {}),
+          ...(clip.audioAutomation ? { audioAutomation: clip.audioAutomation } : {}),
+          ...(clip.audioDetachedFrom ? { audioDetachedFrom: clip.audioDetachedFrom } : {}),
           ...(clip.binding
             ? {
                 binding: {

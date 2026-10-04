@@ -43,7 +43,7 @@ import { useTimelineClipRenderWindow } from "./useTimelineClipRenderWindow";
 import { useTimelineActiveClips } from "./useTimelineActiveClips";
 import { useTimelineLaneMoveRefresh } from "./useTimelineLaneMoveRefresh";
 import { useTimelineLogicalFocus } from "./useTimelineLogicalFocus";
-import { useDomEditSelectionContextOptional } from "../../features/canvas/DomEditContext";
+import { useDomEditActionsContextOptional, useDomEditSelectionContextOptional } from "../../features/canvas/DomEditContext";
 import {
   buildNativeTimelineLaneProjectionMap,
 } from "./nativeTimelinePropertyLaneBridge";
@@ -100,6 +100,7 @@ export const Timeline = memo(function Timeline({
     onSetKeyframeInterpolation,
     onMoveKeyframe,
     onSetElementAttributeQuiet,
+    onNativeAudioAction,
   } = useResolvedTimelineEditCallbacks({
     onMoveElement: onMoveElementOverride,
     onMoveElements: onMoveElementsOverride,
@@ -123,6 +124,7 @@ export const Timeline = memo(function Timeline({
   const gsapAnimations = usePlayerStore((s) => s.gsapAnimations);
   const nativeProjectDocument =
     useDomEditSelectionContextOptional()?.nativeProjectDocument ?? null;
+  const persistedNativeDocument = useDomEditActionsContextOptional()?.nativeDocument ?? null;
   const nativeLaneProjections = useMemo(
     () => buildNativeTimelineLaneProjectionMap(nativeProjectDocument, expandedElements),
     [expandedElements, nativeProjectDocument],
@@ -132,8 +134,8 @@ export const Timeline = memo(function Timeline({
     [expandedElements, nativeProjectDocument],
   );
   const timelineLaneCountMap = useMemo(
-    () => mergeTimelineLaneCounts(gsapAnimations, nativeLaneProjections),
-    [gsapAnimations, nativeLaneProjections],
+    () => mergeTimelineLaneCounts(gsapAnimations, nativeLaneProjections, expandedElements),
+    [expandedElements, gsapAnimations, nativeLaneProjections],
   );
   // Every strip keeps its full title/control column. The red pre-roll surface
   // follows it, and t=0 begins only after both fixed-width regions.
@@ -595,6 +597,8 @@ export const Timeline = memo(function Timeline({
         currentTime={currentTime}
         onSplitElement={onSplitElement}
         onSetElementAttributeQuiet={onSetElementAttributeQuiet}
+        onNativeAudioAction={onNativeAudioAction}
+        nativeProjectDocument={persistedNativeDocument}
         pinZoomBeforeEdit={pinZoomBeforeEdit}
         onDeleteElement={_onDeleteElement}
         gapContextMenu={gapMenuModel}

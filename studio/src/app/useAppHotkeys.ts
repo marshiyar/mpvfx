@@ -7,6 +7,7 @@ import type { DomEditSelection } from "../features/canvas/domEditing";
 import type { LeftSidebarHandle } from "../features/media/LeftSidebar";
 import { STUDIO_MOTION_PATH } from "../features/animation/studioMotion";
 import { isApplicationControlKey, isTypingTarget } from "../lib/typingTarget";
+import { shouldBlockChromeSelection, shouldBlockNativeGhostDrag } from "../lib/editorDefaultInteractions";
 import { isEditableTarget } from "../features/timeline/timelineDiscovery";
 import { useCaptionStore } from "../captions/store";
 import {
@@ -130,6 +131,7 @@ interface UseAppHotkeysParams {
   handleCopy: () => boolean;
   handlePaste: () => Promise<void>;
   handleCut: () => Promise<boolean>;
+  handleDuplicate?: () => boolean;
   onResetKeyframes: () => boolean | Promise<boolean>;
   onDeleteSelectedKeyframes: () => void | Promise<boolean>;
   onAfterUndoRedo?: () => void;
@@ -162,6 +164,7 @@ interface HotkeyCallbacks {
   handleCopy: () => boolean;
   handlePaste: () => Promise<void>;
   handleCut: () => Promise<boolean>;
+  handleDuplicate?: () => boolean;
   onResetKeyframes: () => boolean | Promise<boolean>;
   onDeleteSelectedKeyframes: () => void | Promise<boolean>;
   onToggleRecording?: () => void;
@@ -209,10 +212,32 @@ export function dispatchModifierKey(
     return true;
   }
 
+  if (key === "a" && !event.shiftKey && !event.altKey && !isTypingTarget(event.target)) {
+    // Browser Select All highlights the entire app (and the preview document).
+    // In the timeline, Select All has the expected clip meaning instead.
+    event.preventDefault();
+    const target = event.target as Element | null;
+    if (target && typeof target.closest === "function" && target.closest('[aria-label="Timeline"]')) {
+      const store = usePlayerStore.getState();
+      const ids = store.elements.map((element) => element.key ?? element.id);
+      if (ids.length > 0) {
+        store.setSelectedElementId(ids[0]);
+        store.setSelectedElementIds(new Set(ids));
+      }
+    }
+    return true;
+  }
+
   if (key === "g" && !event.altKey && !isTypingTarget(event.target)) {
     event.preventDefault();
     if (event.shiftKey) cb.onUngroupSelection?.();
     else cb.onGroupSelection?.();
+    return true;
+  }
+
+  if (key === "d" && !event.shiftKey && !event.altKey && !isEditableTarget(event.target) && cb.handleDuplicate) {
+    event.preventDefault();
+    if (cb.handleDuplicate()) trackStudioEvent("keyboard_shortcut", { action: "duplicate" });
     return true;
   }
 
@@ -390,6 +415,7 @@ export function useAppHotkeys({
   handleCopy,
   handlePaste,
   handleCut,
+  handleDuplicate,
   onResetKeyframes,
   onDeleteSelectedKeyframes,
   onAfterUndoRedo,
@@ -544,6 +570,7 @@ export function useAppHotkeys({
     handleCopy,
     handlePaste,
     handleCut,
+    handleDuplicate,
     onResetKeyframes,
     onDeleteSelectedKeyframes,
     onToggleRecording,
@@ -593,8 +620,20 @@ export function useAppHotkeys({
       if (!win) return;
       const appHandler = handleAppKeyDown as EventListener;
       safeAddListener(win, "keydown", appHandler, true);
+      let doc: Document | null = null;
+      try { doc = win.document; } catch { /* cross-origin preview */ }
+      const blockSelection = (event: Event) => {
+        if (shouldBlockChromeSelection(event.target)) event.preventDefault();
+      };
+      const blockGhostDrag = (event: Event) => {
+        if (shouldBlockNativeGhostDrag(event.target)) event.preventDefault();
+      };
+      safeAddListener(doc, "selectstart", blockSelection, true);
+      safeAddListener(doc, "dragstart", blockGhostDrag, true);
       previewHistoryCleanupRef.current = () => {
         safeRemoveListener(win, "keydown", appHandler, true);
+        safeRemoveListener(doc, "selectstart", blockSelection, true);
+        safeRemoveListener(doc, "dragstart", blockGhostDrag, true);
       };
     },
     [handleAppKeyDown],

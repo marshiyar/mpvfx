@@ -7,18 +7,21 @@ const { assertPackagedLegalResources } = require("../../scripts/verification_che
 const {
   assertPackagedRuntimeDependencies,
 } = require("../../scripts/verification_checks/verify-packaged-runtime-dependencies.cjs");
+const integrationMarker = process.env.MPVFX_INTEGRATION_PROFILE_MARKER;
+const integrationBundle = Boolean(integrationMarker);
 
 module.exports = {
   packagerConfig: {
     name: "MpVFX",
     executableName: "MpVFX",
-    appBundleId: "com.mpvfx.editor",
-    extendInfo: { LSMinimumSystemVersion: "15.0" },
+    appBundleId: integrationBundle ? "com.mpvfx.editor.integration-preview" : "com.mpvfx.editor",
+    ...(process.env.MPVFX_ELECTRON_ZIP_DIR ? { electronZipDir: process.env.MPVFX_ELECTRON_ZIP_DIR } : {}),
+    extendInfo: { LSMinimumSystemVersion: "15.0", ...(integrationBundle ? { CFBundleDisplayName: "MpVFX Integration Preview" } : {}) },
     asar: {
       unpack:
         "**/node_modules/{ffmpeg-static,@ffprobe-installer/**,@img/**,esbuild/**,@esbuild/**}/**",
     },
-    extraResource: [".puppeteer-cache/chrome-headless-shell", "legal", ".build/native/vkf/vkf.node", ".build/native/library/mpvfx_library.node"],
+    extraResource: [".puppeteer-cache/chrome-headless-shell", "legal", ".build/native/vkf/vkf.node", ".build/native/library/mpvfx_library.node", ".build/Crosspost", ...(integrationMarker ? [integrationMarker] : [])],
     ignore: [
       /^\/(?:src|desktop|runtime|shared|tests|fixtures|data|cache|renders|scripts|legal|native|design)(?:\/|$)/,
       /^\/\.puppeteer-cache(?:\/|$)/,

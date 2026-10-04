@@ -158,7 +158,9 @@ export function installNativeProjectRuntime(options: NativeProjectRuntimeOptions
   const durationFrames = Math.max(
     1,
     Number.isFinite(authoredDuration) && authoredDuration > 0 ? Math.ceil(authoredDuration * options.project.frameRate.numerator / options.project.frameRate.denominator) : 0,
-    ...clips.map((clip) => clip.startFrame + clip.durationFrames),
+    // The sidecar owns composition duration even when an audio clip or a
+    // not-yet-mounted nested source has no live preview node to bind.
+    ...allClips.map((clip) => clip.startFrame + clip.durationFrames),
   );
   const priorNativePlayer = options.window.__studioNativePlayer;
   let player: ReturnType<typeof createNativePlaybackAdapter>;

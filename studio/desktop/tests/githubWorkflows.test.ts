@@ -10,22 +10,37 @@ function readRepositoryFile(path: string): string {
 }
 
 describe("GitHub Actions readiness", () => {
-  it("keeps tests and source compilation in a dedicated non-publishing workflow", () => {
+  it("reports PR checks before deciding whether expensive work is needed", () => {
+    for (const file of ["desktop.yml", "tests.yml", "security.yml"]) {
+      const workflow = readRepositoryFile(`.github/workflows/${file}`);
+      expect(workflow).toMatch(/pull_request:\s*\n\s*push:/);
+      expect(workflow).toContain("needs: changes");
+      expect(workflow).toContain("!cancelled()");
+      expect(workflow).toContain("needs.changes.result != 'success'");
+      expect(workflow).toContain(".previous_filename // empty");
+    }
+  });
+
+  it("keeps source compilation in a non-publishing workflow without the retired unit-test job", () => {
     const workflow = readRepositoryFile(".github/workflows/tests.yml");
 
     expect(workflow).toContain("npm ci --prefix studio");
-    expect(workflow).toContain("npm --prefix studio test");
-    expect(workflow).toContain("npm --prefix studio run typecheck");
+    expect(workflow).not.toContain("npm --prefix studio test");
+    expect(workflow).not.toContain("npm --prefix studio run typecheck");
     expect(workflow).toContain("npm --prefix studio run build");
-    expect(workflow.match(/persist-credentials: false/g)).toHaveLength(3);
+    expect(readFileSync(resolve(studioRoot, "package.json"), "utf8")).toContain(
+      '"build": "npm run typecheck &&',
+    );
+    expect(workflow.match(/persist-credentials: false/g)).toHaveLength(1);
     expect(workflow).not.toMatch(/npm publish|electron-forge publish|gh release|upload-artifact/i);
   });
 
-  it("builds native installers on matching macOS, Windows, and Linux hosts", () => {
+  it("builds Apple Silicon, Windows, and Linux installers without the retired Intel macOS target", () => {
     const workflow = readRepositoryFile(".github/workflows/desktop.yml");
 
     expect(workflow).toContain("macos-15\n            arch: arm64");
-    expect(workflow).toContain("macos-15-intel\n            arch: x64");
+    expect(workflow).not.toContain("macos-15-intel");
+    expect(workflow).not.toContain("desktop:make:mac:x64");
     expect(workflow).toContain("windows-2025\n            arch: x64");
     expect(workflow).toContain("ubuntu-24.04\n            arch: x64");
     expect(workflow).toContain("npm --prefix studio run ${{ matrix.script }}");

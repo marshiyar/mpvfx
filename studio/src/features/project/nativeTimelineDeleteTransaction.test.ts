@@ -76,9 +76,11 @@ const removeCompatibilityTarget = (
   edit: NativeTimelineDeleteCompatibilityEdit,
 ): string => {
   const binding = edit.binding as NativeClipDomBinding;
-  const identity = binding.domId ?? (binding.selector === ".clip-c" ? "clip-c" : null);
-  return identity
-    ? content.replace(new RegExp(`<div id="${identity}"[^>]*></div>`, "g"), "")
+  const attribute = binding.hfId
+    ? `data-hf-id="${binding.hfId}"`
+    : `id="${binding.domId ?? (binding.selector === ".clip-c" ? "clip-c" : "")}"`;
+  return attribute !== 'id=""'
+    ? content.replace(new RegExp(`<div\\b(?=[^>]*\\b${attribute})[^>]*></div>`, "g"), "")
     : content;
 };
 
@@ -91,7 +93,7 @@ function memory(options?: {
 }) {
   const nativeBefore = serializeNativeProjectDocument(project(options?.revision ?? 8));
   const compatibilityBefore = {
-    "a.html": '<main data-composition-id="a" data-duration="9"><div id="clip-c" data-start="0.333" data-duration="1.667"></div><div id="keep-a" data-start="2" data-duration="3"></div></main>',
+    "a.html": '<main data-composition-id="a" data-duration="9"><div id="clip-c" class="clip-c" data-start="0.333" data-duration="1.667"></div><div id="keep-a" data-start="2" data-duration="3"></div></main>',
     "z.html": '<main data-composition-id="z" data-duration="20"><div id="clip-a" data-start="1" data-duration="4"></div><div id="clip-b" data-start="10" data-duration="2"></div></main>',
   } as const;
   const files = new Map<string, string>([

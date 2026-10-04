@@ -13,7 +13,18 @@ assertInstalledExactKeyframeWriter();
 
 export default defineConfig({
   root: resolve(__dirname, ".."),
-  plugins: [react()],
+  plugins: [react(), {
+    name: "local-speech-model-resources",
+    generateBundle() {
+      for (const [filename, source] of [
+        ["silero_vad_legacy.onnx", "@ricky0123/vad-web/dist/silero_vad_legacy.onnx"],
+        ["ort-wasm-simd-threaded.mjs", "onnxruntime-web/dist/ort-wasm-simd-threaded.mjs"],
+        ["ort-wasm-simd-threaded.wasm", "onnxruntime-web/dist/ort-wasm-simd-threaded.wasm"],
+      ]) {
+        this.emitFile({ type: "asset", fileName: `vad/${filename}`, source: readFileSync(resolve(__dirname, "../node_modules", source)) });
+      }
+    },
+  }],
   css: { postcss: __dirname },
   define: { __STUDIO_VERSION__: JSON.stringify(studioPkg.version) },
   build: {

@@ -4,6 +4,7 @@ export const DESKTOP_ORIGIN = "mpvfx://editor";
 export const DESKTOP_CHANNELS = {
   request: "mpvfx:request",
   library: "mpvfx:library",
+  crosspost: "mpvfx:crosspost",
   importFiles: "mpvfx:import-files",
   cancel: "mpvfx:cancel",
   subscribe: "mpvfx:subscribe",
@@ -69,6 +70,7 @@ export interface LocalMediaImportResult {
 }
 
 export interface DesktopBridge {
+  openCrosspost?(projectId: string, filename: string): Promise<void>;
   onPrepareClose?(flush: () => Promise<void>, cancel?: () => void): () => void;
   library?(command: LibraryCommand): Promise<LibraryResult>;
   /** null means a synthetic File has no filesystem path; use the bounded upload route. */

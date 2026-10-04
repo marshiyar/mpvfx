@@ -1,6 +1,6 @@
-import { memo, useEffect, useMemo, useRef, type RefObject } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 import { type DomEditSelection } from "./domEditing";
-import type { PreviewMouseDownOptions } from "../preview/usePreviewInteraction";
+import { eventIsInsideProgramFrame, resolveProgramFrameClipPath, type DomEditOverlayProps } from "./domEditOverlayContract";
 import { useMarqueeGestures } from "./marqueeCommit";
 import { MarqueeOverlay } from "./MarqueeOverlay";
 import {
@@ -14,7 +14,6 @@ import {
 import { useCanvasContextMenuState } from "./useCanvasContextMenuState";
 import {
   type BlockedMoveState,
-  type DomEditGroupPathOffsetCommit,
   type FocusableDomEditOverlay,
   type GestureState,
   type GroupGestureState,
@@ -27,7 +26,6 @@ import { createDomEditOverlayGestureHandlers } from "./useDomEditOverlayGestures
 import { useDomEditNudge } from "./useDomEditNudge";
 import { SnapGuideOverlay, type SnapGuidesState } from "./SnapGuideOverlay";
 import { GridOverlay } from "./GridOverlay";
-import type { GestureRecordingState } from "./GestureRecordControl";
 import {
   DomEditGroupChrome,
   DomEditSelectionChrome,
@@ -40,11 +38,8 @@ import {
 import { useDomEditCompositionRect } from "./useDomEditCompositionRect";
 import { CanvasContextMenu } from "./CanvasContextMenu";
 import { useInlineTextEditing } from "./useInlineTextEditing";
-import type { ZOrderAction, ZOrderPatch } from "./canvasContextMenuZOrder";
 import { getPreviewTargetFromPointer } from "../preview/studioPreviewHelpers";
 import { logSelect } from "../../lib/selectDebug";
-import type { CropLinkState } from "./domEditOverlayCrop";
-import type { ClipPathInsetSides } from "../inspector/clipPathHelpers";
 
 // Re-exports for external consumers — preserving existing import paths.
 export {
@@ -58,108 +53,7 @@ export {
   resolveDomEditRotationGesture,
 } from "./domEditOverlayGestures";
 export type { DomEditGroupPathOffsetCommit } from "./domEditOverlayGestures";
-
-interface DomEditOverlayProps {
-  iframeRef: RefObject<HTMLIFrameElement | null>;
-  activeCompositionPath: string | null;
-  selection: DomEditSelection | null;
-  groupSelections?: DomEditSelection[];
-  hoverSelection: DomEditSelection | null;
-  allowCanvasMovement?: boolean;
-  cropActive?: boolean;
-  cropDisabled?: boolean;
-  cropLinks?: CropLinkState;
-  cropInsets?: ClipPathInsetSides;
-  onCropInsetsPreview?: (insets: ClipPathInsetSides) => void;
-  onCanvasMouseDown: (
-    event: React.MouseEvent<HTMLDivElement>,
-    options?: PreviewMouseDownOptions,
-  ) => void;
-  onCanvasPointerMove: (
-    event: React.PointerEvent<HTMLDivElement>,
-    options?: { preferClipAncestor?: boolean },
-  ) => Promise<DomEditSelection | null>;
-  onCanvasPointerLeave: () => void;
-  onSelectionChange: (
-    selection: DomEditSelection,
-    options?: { revealPanel?: boolean; additive?: boolean },
-  ) => void;
-  onBlockedMove: (selection: DomEditSelection) => void;
-  onManualDragStart?: () => void;
-  onPathOffsetCommit: (
-    selection: DomEditSelection,
-    next: { x: number; y: number },
-    modifiers?: { altKey?: boolean },
-  ) => Promise<void> | void;
-  onGroupPathOffsetCommit: (
-    updates: DomEditGroupPathOffsetCommit[],
-  ) => Promise<void> | void;
-  onBoxSizeCommit: (
-    selection: DomEditSelection,
-    next: { width: number; height: number },
-    offset?: { x: number; y: number },
-    restore?: () => void,
-  ) => Promise<void> | void;
-  onRotationCommit: (
-    selection: DomEditSelection,
-    next: { angle: number },
-  ) => Promise<void> | void;
-  gridVisible?: boolean;
-  gridSpacing?: number;
-  recordingState?: GestureRecordingState;
-  onToggleRecording?: () => void;
-  onMarqueeSelect?: (selections: DomEditSelection[], additive: boolean) => void;
-  /**
-   * Delete the selected canvas element.
-   * Wire to handleDomEditElementDelete from useDomEditActionsContext —
-   * same handler the Delete/Backspace hotkey uses.
-   */
-  onDeleteSelection?: (selection: DomEditSelection) => void;
-  /**
-   * Called with the resolved z-order patch list and the menu action that
-   * produced it (feeds the undo coalesce key). The patch list is tie-aware and
-   * may include sibling elements (see canvasContextMenuZOrder); the live DOM is
-   * NOT yet mutated. Wire to handleDomZIndexReorderCommit from
-   * useDomEditActionsContext. See CanvasContextMenu.tsx module comment.
-   */
-  onApplyZIndex?: (
-    selection: DomEditSelection,
-    patches: ZOrderPatch[],
-    action: ZOrderAction,
-    /** Sibling a forward/backward step moved past (pre-mutation render order);
-     *  null for front/back. Feeds the timeline z-mirror's crossedKey. */
-    crossed: HTMLElement | null,
-  ) => void;
-}
-
-export function resolveProgramFrameClipPath(rect: {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-}): string | undefined {
-  if (rect.width <= 0 || rect.height <= 0) return undefined;
-  const right = rect.left + rect.width;
-  const bottom = rect.top + rect.height;
-  return `polygon(${rect.left}px ${rect.top}px, ${right}px ${rect.top}px, ${right}px ${bottom}px, ${rect.left}px ${bottom}px)`;
-}
-
-function eventIsInsideProgramFrame(
-  event: { clientX: number; clientY: number },
-  overlay: HTMLElement | null,
-  rect: { left: number; top: number; width: number; height: number },
-): boolean {
-  if (!overlay || rect.width <= 0 || rect.height <= 0) return false;
-  const overlayRect = overlay.getBoundingClientRect();
-  const x = event.clientX - overlayRect.left;
-  const y = event.clientY - overlayRect.top;
-  return (
-    x >= rect.left &&
-    x <= rect.left + rect.width &&
-    y >= rect.top &&
-    y <= rect.top + rect.height
-  );
-}
+export { resolveProgramFrameClipPath } from "./domEditOverlayContract";
 
 // fallow-ignore-next-line complexity
 export const DomEditOverlay = memo(function DomEditOverlay({

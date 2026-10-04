@@ -45,6 +45,23 @@ export function scaleCropInsetsForBoxResize(input: {
   };
 }
 
+/** Screen-space translation that keeps the cropped visible center fixed while
+ * the source rotates around its own (non-destructive) center. `visibleOffset`
+ * is the visible center minus the source center at the gesture-start angle. */
+export function croppedRotationPivotTranslation(
+  visibleOffset: { x: number; y: number },
+  startAngle: number,
+  nextAngle: number,
+): { x: number; y: number } {
+  const radians = ((nextAngle - startAngle) * Math.PI) / 180;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  return {
+    x: visibleOffset.x - (visibleOffset.x * cosine - visibleOffset.y * sine),
+    y: visibleOffset.y - (visibleOffset.x * sine + visibleOffset.y * cosine),
+  };
+}
+
 /** Element-space insets → the cropped region in overlay (screen) space. */
 export function cropRectFromInsets(
   rect: CropScreenRect,

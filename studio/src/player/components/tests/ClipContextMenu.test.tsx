@@ -17,12 +17,13 @@ afterEach(() => {
   usePlayerStore.setState({ thumbnailMode: "adaptive" });
 });
 
-function renderMenu(element: TimelineElement) {
+function renderMenu(element: TimelineElement, nativeAudioAction?: "detach" | "reattach") {
   const host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
   const onClose = vi.fn();
   const onToggleMuted = vi.fn();
+  const onNativeAudioAction = vi.fn();
   act(() => {
     root!.render(
       <ClipContextMenu
@@ -34,10 +35,12 @@ function renderMenu(element: TimelineElement) {
         onSplit={vi.fn()}
         onDelete={vi.fn()}
         onToggleMuted={onToggleMuted}
+        nativeAudioAction={nativeAudioAction}
+        onNativeAudioAction={onNativeAudioAction}
       />,
     );
   });
-  return { onClose, onToggleMuted };
+  return { onClose, onToggleMuted, onNativeAudioAction };
 }
 
 const video: TimelineElement = {
@@ -84,6 +87,27 @@ describe("ClipContextMenu thumbnail setting", () => {
         action.textContent?.includes("Show thumbnails"),
       ),
     ).toBe(false);
+  });
+});
+
+describe("ClipContextMenu native video audio action", () => {
+  it("offers detach for a native video and calls its owner once", () => {
+    const { onClose, onNativeAudioAction } = renderMenu(video, "detach");
+    const action = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'))
+      .find(button => button.textContent?.includes("Detach audio"));
+    expect(action).toBeDefined();
+    act(() => action?.click());
+    expect(onNativeAudioAction).toHaveBeenCalledExactlyOnceWith(video, "detach");
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("offers reattach for linked audio only when the owner supplies the action", () => {
+    const audio = { ...video, id: "detached", tag: "audio" } satisfies TimelineElement;
+    const { onNativeAudioAction } = renderMenu(audio, "reattach");
+    const action = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'))
+      .find(button => button.textContent?.includes("Reattach audio"));
+    act(() => action?.click());
+    expect(onNativeAudioAction).toHaveBeenCalledExactlyOnceWith(audio, "reattach");
   });
 });
 

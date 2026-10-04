@@ -128,6 +128,32 @@ describe("useDomSelection — inspector reveal", () => {
   });
 });
 
+describe("useDomSelection — timeline-origin mirror", () => {
+  it("updates preview selection without changing the live timeline set", () => {
+    const store = usePlayerStore.getState();
+    store.setSelection(["clip-a", "clip-b"], "clip-a");
+    const setTimelineSelectionSet = vi.fn();
+    const setSelectedTimelineElementId = vi.fn();
+    const harness = renderHarness({
+      setRightPanelTab: vi.fn(),
+      iframe: null,
+      timelineElements: [],
+      setTimelineSelectionSet,
+      setSelectedTimelineElementId,
+    });
+    const element = document.createElement("div");
+    element.id = "clip-a";
+    act(() => harness.current().applyDomSelection(makeSelection("Clip A", element), {
+      announce: false,
+    }));
+    expect(setTimelineSelectionSet).not.toHaveBeenCalled();
+    expect(setSelectedTimelineElementId).not.toHaveBeenCalled();
+    expect(usePlayerStore.getState().selectedElementIds).toEqual(new Set(["clip-a", "clip-b"]));
+    harness.cleanup();
+    store.clearSelection();
+  });
+});
+
 describe("useDomSelection — canvas-only targets replace timeline clips", () => {
   beforeEach(() => {
     deferreds.clear();
@@ -372,6 +398,9 @@ describe("useDomSelection — marquee multi-select survives the late async prima
 
     let pending: Promise<void> = Promise.resolve();
     act(() => {
+      // The timeline click owns the store write before asking the canvas to
+      // reveal that clip. Its delayed DOM resolution must not write back.
+      usePlayerStore.getState().setSelectedElementId("d");
       pending = harness.current().handleTimelineElementSelect(timelineEl("d"));
     });
     await act(async () => {

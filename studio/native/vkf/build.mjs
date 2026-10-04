@@ -39,7 +39,7 @@ run("cmake", [
   "-DVKF_ENABLE_VULKAN=OFF",
   "-DVKF_WARNINGS_AS_ERRORS=ON",
   // Node-API headers from the Node running this build (ABI-stable across Electron).
-  `-DVKF_NODE_API_INCLUDE_DIR=${resolve(dirname(process.execPath), "../include/node")}`,
+  `-DVKF_NODE_API_INCLUDE_DIR=${resolve(process.env.NODE_API_INCLUDE_DIR ?? resolve(dirname(process.execPath), "../include/node"))}`,
 ]);
 run("cmake", ["--build", buildDir, "--target", "vkf_node", "--config", "Release"]);
 copyFileSync(join(buildDir, "node/vkf.node"), join(outDir, "vkf.node"));

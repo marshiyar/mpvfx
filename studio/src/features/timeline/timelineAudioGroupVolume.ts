@@ -9,6 +9,10 @@ import {
   persistElementAttribute,
   type RecordEditInput,
 } from "./timelineEditingHelpers";
+import { commitNativeTimelineAudioAttribute } from "../project/nativeTimelineAudioAttributeTransaction";
+import { NativeProjectRevisionConflictError } from "../project/nativeProjectPersistence";
+import { NATIVE_PROJECT_DOCUMENT_PATH, parseNativeProjectDocument, type NativeProjectDocument } from "../../../shared/project/nativeProjectDocument";
+import type { NativeTimelineEditingDependencies } from "./useTimelineEditingTypes";
 import type {
   MutableRef,
   UseTimelineElementVisibilityEditingInput,
@@ -211,7 +215,14 @@ export function useSetAudioGroupAttribute({
   previewIframeRef,
   pendingTimelineEditPathRef,
   isRecordingRef,
-}: UseTimelineElementVisibilityEditingInput): {
+  nativeProjectEditing,
+  nativeDocumentRef,
+  editQueueRef,
+}: UseTimelineElementVisibilityEditingInput & {
+  nativeProjectEditing?: NativeTimelineEditingDependencies;
+  nativeDocumentRef?: MutableRef<NativeProjectDocument | null>;
+  editQueueRef?: MutableRef<Promise<unknown>>;
+}): {
   setLive: (groupId: string, attr: string, value: string | null) => void;
   setQuiet: (groupId: string, attr: string, value: string | null, label: string) => Promise<void>;
 } {
@@ -233,6 +244,53 @@ export function useSetAudioGroupAttribute({
       }
       const pid = projectIdRef.current;
       if (!pid) return;
+      const native = nativeDocumentRef?.current;
+      const nativeGroup = native?.sequence.audioGroups?.find(group => group.id === groupId);
+      const liveGroup = previewIframeRef.current?.contentDocument?.getElementById(groupId) ?? null;
+      const sourceFile = resolveGroupSourceFile(liveGroup) || activeCompPath || "index.html";
+      if (native && nativeGroup && nativeProjectEditing && editQueueRef) {
+        const previous = attr === "data-volume" ? (nativeGroup.volume == null ? null : String(nativeGroup.volume))
+          : attr === "data-hidden" ? (nativeGroup.muted ? "" : null)
+          : attr === "data-fx-chain" ? nativeGroup.fxChain ?? null
+          : attr === "data-automation" ? nativeGroup.automation ?? null
+          : attr === "data-label" ? nativeGroup.label ?? null : null;
+        const operation = editQueueRef.current.then(async () => {
+          const commitAgainst = (document: NativeProjectDocument) => commitNativeTimelineAudioAttribute({
+            expectedRevision: document.revision,
+            target: { kind: "group", id: groupId, sourceFile }, attr, value, label,
+            readOptionalProjectFile: nativeProjectEditing.readOptionalProjectFile,
+            writeProjectFile, recordEdit,
+            commitFileTransaction: nativeProjectEditing.commitFileTransaction,
+            onCommitted: next => {
+              nativeDocumentRef.current = next;
+              nativeProjectEditing.onNativeDocumentCommitted(next);
+            },
+          });
+          try { await commitAgainst(nativeDocumentRef.current ?? native); }
+          catch (error) {
+            if (!(error instanceof NativeProjectRevisionConflictError)) throw error;
+            const content = await nativeProjectEditing.readOptionalProjectFile(NATIVE_PROJECT_DOCUMENT_PATH);
+            if (!content) throw error;
+            const latest = parseNativeProjectDocument(JSON.parse(content));
+            nativeDocumentRef.current = latest;
+            await commitAgainst(latest);
+          }
+        });
+        editQueueRef.current = operation.catch(() => undefined);
+        try {
+          await operation;
+          domEditSaveTimestampRef.current = Date.now();
+          pendingTimelineEditPathRef.current.add(sourceFile);
+          pendingTimelineEditPathRef.current.add(NATIVE_PROJECT_DOCUMENT_PATH);
+          patchLiveGroupAttribute(previewIframeRef.current, groupId, attr, value);
+          syncStoredGroupAttribute(groupId, attr, value);
+        } catch (error) {
+          patchLiveGroupAttribute(previewIframeRef.current, groupId, attr, previous);
+          syncStoredGroupAttribute(groupId, attr, previous);
+          showToast(error instanceof Error ? error.message : "Failed to update group", "error");
+        }
+        return;
+      }
       try {
         await setAudioGroupAttribute({
           projectId: pid,
@@ -274,6 +332,9 @@ export function useSetAudioGroupAttribute({
       isRecordingRef,
       showToast,
       projectIdRef,
+      nativeProjectEditing,
+      nativeDocumentRef,
+      editQueueRef,
     ],
   );
   return { setLive, setQuiet };

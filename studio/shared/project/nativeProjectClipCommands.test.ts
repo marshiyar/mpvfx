@@ -391,31 +391,39 @@ describe("native project clip trim, split, and delete commands", () => {
     });
   });
 
-  it("rejects trim and split boundaries that cannot map to an integer source frame", () => {
+  it("preserves exact fractional source positions through trims, splits, and serialization", () => {
     const original = documentFixture();
     findClip(original, "clip:first")!.playbackRate = { numerator: 1, denominator: 2 };
 
-    const trim = applyNativeProjectClipCommand(original, {
+    const trim = expectMove(original, {
       type: "trim-in",
       address: firstAddress,
       startFrame: 1,
     });
-    expect(trim).toMatchObject({
-      ok: false,
-      document: original,
-      failure: { code: "non-integral-source-boundary" },
+    expect(findClip(trim.document, "clip:first")).toMatchObject({
+      startFrame: 1,
+      durationFrames: 119,
+      sourceInFrame: 12,
+      sourceInFraction: { numerator: 1, denominator: 2 },
     });
 
-    const split = applyNativeProjectClipCommand(original, {
+    const split = expectMove(original, {
       type: "split",
       address: firstAddress,
       splitFrame: 1,
     });
-    expect(split).toMatchObject({
-      ok: false,
-      document: original,
-      failure: { code: "non-integral-source-boundary" },
+    expect(findClip(split.document, nativeSplitClipId("clip:first", 1))).toMatchObject({
+      startFrame: 1,
+      sourceInFrame: 12,
+      sourceInFraction: { numerator: 1, denominator: 2 },
     });
+    const restored = parseNativeProjectDocument(JSON.parse(serializeNativeProjectDocument(trim.document)));
+    expect(findClip(restored, "clip:first")?.sourceInFraction).toEqual({ numerator: 1, denominator: 2 });
+    const nextTrim = expectMove(restored, { type: "trim-in", address: firstAddress, startFrame: 2 });
+    expect(findClip(nextTrim.document, "clip:first")?.sourceInFrame).toBe(13);
+    expect(findClip(nextTrim.document, "clip:first")?.sourceInFraction).toBeUndefined();
+    expect(findClip(original, "clip:first")?.sourceInFrame).toBe(12);
+    expect(findClip(original, "clip:first")?.durationFrames).toBe(120);
   });
 
   it("requires a bound split to provide a unique explicit right-side binding", () => {

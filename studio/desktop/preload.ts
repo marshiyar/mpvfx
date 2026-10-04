@@ -30,6 +30,7 @@ ipcRenderer.on(DESKTOP_CHANNELS.cancelClose, (_event, id: unknown) => {
 
 // Keep Electron objects and event.sender out of the renderer's JavaScript context.
 const bridge: DesktopBridge = {
+  openCrosspost: (projectId, filename) => ipcRenderer.invoke(DESKTOP_CHANNELS.crosspost, projectId, filename),
   onPrepareClose(flush, cancel) {
     const handler = { flush, cancel };
     closeHandlers.add(handler);

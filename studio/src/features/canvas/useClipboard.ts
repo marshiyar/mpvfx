@@ -82,12 +82,15 @@ export function useClipboard({
   }, [nativeProjectEditing, showToast]);
 
   // fallow-ignore-next-line complexity
-  const handleCopy = useCallback((): boolean => {
-    const { selectedElementId, elements } = usePlayerStore.getState();
+  const handleCopy = useCallback((silent = false): boolean => {
+    const { selectedElementId, selectedElementIds, elements } = usePlayerStore.getState();
+    const selectedKey = selectedElementIds.size === 1
+      ? selectedElementIds.values().next().value ?? selectedElementId
+      : selectedElementId;
 
     // Timeline clip copy
-    if (selectedElementId) {
-      const element = elements.find((el) => (el.key ?? el.id) === selectedElementId);
+    if (selectedKey) {
+      const element = elements.find((el) => (el.key ?? el.id) === selectedKey);
       if (!element) return false;
       const targetPath = element.sourceFile || activeCompPath || "index.html";
 
@@ -119,7 +122,7 @@ export function useClipboard({
 
       const payload: ClipboardPayload = { kind: "timeline-clip", html, sourceFile: targetPath };
       if (!capture(payload)) return false;
-      showToast("Copied clip", "info");
+      if (!silent) showToast("Copied clip", "info");
       return true;
     }
 
@@ -140,14 +143,14 @@ export function useClipboard({
         originSelectorIndex: domSelection.selectorIndex,
       };
       if (!capture(payload)) return false;
-      showToast("Copied element", "info");
+      if (!silent) showToast("Copied element", "info");
       return true;
     }
 
     return false;
   }, [activeCompPath, domEditSelectionRef, previewIframeRef, showToast, capture]);
 
-  const handlePaste = useCallback(async () => {
+  const handlePaste = useCallback(async (placementTime?: number) => {
     const payload = clipboardRef.current;
     if (!payload) {
       showToast("Nothing to paste.", "info");
@@ -160,7 +163,7 @@ export function useClipboard({
     try {
       if (payload.native) {
         if (!nativeProjectEditing) throw new Error("The native project is not ready for paste");
-        const operation = pasteNativeClipboard({ payload, snapshot: payload.native, workspaceProjectId: pid, targetPath, playhead: usePlayerStore.getState().currentTime, editing: nativeProjectEditing, recordEdit });
+        const operation = pasteNativeClipboard({ payload, snapshot: payload.native, workspaceProjectId: pid, targetPath, playhead: placementTime ?? usePlayerStore.getState().currentTime, editing: nativeProjectEditing, recordEdit });
         trackStudioPendingEdit(operation);
         await operation;
         if (projectIdRef.current !== pid) return;
@@ -178,7 +181,7 @@ export function useClipboard({
         // Only rewrite data-start on the outermost opening tag. The non-global
         // regex matches the first occurrence, which is always in the root tag
         // since outerHTML starts with it. Nested clips keep their own timing.
-        const { currentTime } = usePlayerStore.getState();
+        const currentTime = placementTime ?? usePlayerStore.getState().currentTime;
         const rootTagEnd = deduped.indexOf(">");
         const rootTag = rootTagEnd >= 0 ? deduped.slice(0, rootTagEnd + 1) : deduped;
         const patchedRootTag = rootTag.replace(
@@ -223,6 +226,25 @@ export function useClipboard({
     nativeProjectEditing,
   ]);
 
+  const handleDuplicate = useCallback((): boolean => {
+    const { selectedElementId, selectedElementIds, elements } = usePlayerStore.getState();
+    if (selectedElementIds.size > 1) {
+      showToast("Duplicate one selected clip at a time.", "info");
+      return false;
+    }
+    const selectedKey = selectedElementIds.size === 1
+      ? selectedElementIds.values().next().value ?? selectedElementId
+      : selectedElementId;
+    const selected = elements.find((element) => (element.key ?? element.id) === selectedKey);
+    const previousClipboard = clipboardRef.current;
+    if (!handleCopy(true)) return false;
+    // Paste captures the payload before its first await. Restore the user's
+    // copy buffer so Duplicate leaves later Cmd+V behavior unchanged.
+    void handlePaste(selected ? selected.start + selected.duration : undefined);
+    clipboardRef.current = previousClipboard;
+    return true;
+  }, [handleCopy, handlePaste, showToast]);
+
   const handleCut = useCallback(async (): Promise<boolean> => {
     const copied = handleCopy();
     if (!copied) return false;
@@ -244,5 +266,5 @@ export function useClipboard({
     return true;
   }, [handleCopy, domEditSelectionRef, handleTimelineElementDelete, handleDomEditElementDelete]);
 
-  return { handleCopy, handlePaste, handleCut };
+  return { handleCopy, handlePaste, handleCut, handleDuplicate };
 }

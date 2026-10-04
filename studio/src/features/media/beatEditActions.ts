@@ -3,7 +3,7 @@
 // coordinates internally and strength is measured from the decoded audio.
 
 import { usePlayerStore, type TimelineElement } from "../../player/store/playerStore";
-import { isMusicTrack } from "../timeline/timelineInspector";
+import { getTimelineElementIndexes } from "../../player/lib/timelineElementIndexes";
 import { strengthAtTime, type MusicBeatAnalysis } from "@hyperframes/core/beats";
 import {
   addUserBeat,
@@ -46,7 +46,7 @@ export function remapBeatAnalysisToComposition(
 
 function ctx() {
   const s = usePlayerStore.getState();
-  const music = s.elements.find(isMusicTrack);
+  const music = getTimelineElementIndexes(s.elements).musicElement;
   const analysis = s.beatAnalysis;
   if (!music || !analysis || !music.src) return null;
   return { s, music, analysis, src: music.src };

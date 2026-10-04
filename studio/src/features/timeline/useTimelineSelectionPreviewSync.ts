@@ -23,7 +23,9 @@ interface UseTimelineSelectionPreviewSyncParams {
       announce?: boolean;
     },
   ) => void;
-  applyMarqueeSelection: (selections: DomEditSelection[], additive: boolean) => void;
+  applyMarqueeSelection: (
+    selections: DomEditSelection[], additive: boolean, options?: { announce?: boolean },
+  ) => void;
   onSelectionNotFound: () => void;
 }
 
@@ -117,7 +119,7 @@ export function useTimelineSelectionPreviewSync({
         clearing: previousSelectedKey.length > 0 && currentIds.length > 0,
       });
       if (previousSelectedKey.length > 0 && currentIds.length > 0) {
-        applyDomSelection(null, { revealPanel: false });
+        applyDomSelection(null, { revealPanel: false, announce: false });
       }
       return;
     }
@@ -168,11 +170,11 @@ export function useTimelineSelectionPreviewSync({
         resolved: selections.length,
       });
       if (selections.length === 0) {
-        applyDomSelection(null, { revealPanel: false });
+        applyDomSelection(null, { revealPanel: false, announce: false });
       } else if (selections.length === 1) {
-        applyDomSelection(selections[0]);
+        applyDomSelection(selections[0], { announce: false });
       } else {
-        applyMarqueeSelection(selections, false);
+        applyMarqueeSelection(selections, false, { announce: false });
       }
     };
 

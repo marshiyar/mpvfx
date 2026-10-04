@@ -15,6 +15,10 @@ editor-reliability-plugin/
 .codex/
 *.codex/
 /scripts/*
+!/scripts/build/
+/scripts/build/*
+!/scripts/build/build-native-export-frame-runtime.mjs
+!/scripts/build/build-crosspost-resources.mjs
 .claude/
 .chatgpt/
 .cursor/
@@ -144,3 +148,9 @@ studio/fixtures/storyboard-sample/
 */dist/*
 */node_modules/*
 studio/desktop-dist/
+
+# Cross-posting credentials and OAuth tokens
+**/client_secrets.json
+**/facebook_credentials.json
+Crosspost/token.json
+Crosspost/.venv/

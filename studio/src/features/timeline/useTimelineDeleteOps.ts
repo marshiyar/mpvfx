@@ -87,7 +87,7 @@ export function useTimelineDeleteOps({
   // fallow-ignore-next-line complexity
   const handleTimelineElementsDelete = useCallback(
     // fallow-ignore-next-line complexity
-    async (selection: TimelineElement[]) => {
+    async (selection: TimelineElement[], options?: { suppressSuccessToast?: boolean }) => {
       if (isRecordingRef?.current) {
         showToast("Cannot edit timeline while recording", "error");
         return;
@@ -176,12 +176,14 @@ export function useTimelineDeleteOps({
               domEditSaveTimestampRef.current = Date.now();
               forceReloadSdkSession?.();
               reloadPreview();
-              showToast(
-                `Deleted ${label}. Use Undo to restore ${
-                  editableSelection.length === 1 ? "it" : "them"
-                }.`,
-                "info",
-              );
+              if (!options?.suppressSuccessToast) {
+                showToast(
+                  `Deleted ${label}. Use Undo to restore ${
+                    editableSelection.length === 1 ? "it" : "them"
+                  }.`,
+                  "info",
+                );
+              }
             });
             editQueueRef.current = operation.catch(() => undefined);
             await operation;
@@ -274,10 +276,12 @@ export function useTimelineDeleteOps({
         usePlayerStore.getState().setSelectedElementIds(new Set());
         forceReloadSdkSession?.();
         reloadPreview();
-        showToast(
-          `Deleted ${label}. Use Undo to restore ${sameFile.length === 1 ? "it" : "them"}.`,
-          "info",
-        );
+        if (!options?.suppressSuccessToast) {
+          showToast(
+            `Deleted ${label}. Use Undo to restore ${sameFile.length === 1 ? "it" : "them"}.`,
+            "info",
+          );
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to delete timeline clip";
         showToast(message);

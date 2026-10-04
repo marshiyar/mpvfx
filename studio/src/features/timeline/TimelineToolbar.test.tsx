@@ -19,6 +19,8 @@ afterEach(() => {
     zoomMode: "fit",
     manualZoomPercent: 100,
     timelineFitPps: 100,
+    elements: [],
+    selectedElementId: null,
   });
 });
 
@@ -71,6 +73,39 @@ describe("TimelineToolbar — adaptive thumbnails", () => {
     const { host, root } = renderToolbar();
     expect(host.querySelector('button[aria-label^="Show thumbnails"]')).toBeNull();
     expect(host.querySelector('button[aria-label^="Hide thumbnails"]')).toBeNull();
+    act(() => root.unmount());
+  });
+});
+
+describe("TimelineToolbar — remove silence", () => {
+  it("runs for the selected video and disables while processing", () => {
+    const clip = {
+      id: "video-1",
+      domId: "video-1",
+      tag: "video",
+      src: "assets/clip.mp4",
+      start: 0,
+      duration: 4,
+      track: 0,
+    };
+    usePlayerStore.setState({ elements: [clip], selectedElementId: "video-1" });
+    const onRemoveSilence = vi.fn();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+
+    act(() => root.render(<TimelineToolbar onRemoveSilence={onRemoveSilence} />));
+    const button = host.querySelector<HTMLButtonElement>('button[aria-label="Remove silence"]');
+    expect(button?.disabled).toBe(false);
+    act(() => button?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(onRemoveSilence).toHaveBeenCalledWith(clip);
+
+    act(() =>
+      root.render(
+        <TimelineToolbar onRemoveSilence={onRemoveSilence} isRemovingSilence />,
+      ),
+    );
+    expect(button?.disabled).toBe(true);
     act(() => root.unmount());
   });
 });

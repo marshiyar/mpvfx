@@ -188,6 +188,18 @@ export function DomEditCropHandles({
         transform: frame.angleDeg !== 0 ? `rotate(${frame.angleDeg}deg)` : undefined,
       }}
     >
+      <div
+        aria-hidden="true"
+        data-dom-edit-crop-outline="true"
+        className="pointer-events-none absolute border border-studio-accent"
+        style={{
+          left: cropRect.left,
+          top: cropRect.top,
+          width: cropRect.width,
+          height: cropRect.height,
+          boxSizing: "border-box",
+        }}
+      />
       {EDGES.map((edge) => {
         const vertical = edge === "left" || edge === "right";
         const boundary =
@@ -201,27 +213,27 @@ export function DomEditCropHandles({
         const lineStyle: React.CSSProperties = vertical
           ? {
               left: boundary,
-              top: -CROP_LINE_EXTENSION,
+              top: cropRect.top - CROP_LINE_EXTENSION,
               width: 1,
-              height: frame.height + CROP_LINE_EXTENSION * 2,
+              height: cropRect.height + CROP_LINE_EXTENSION * 2,
             }
           : {
-              left: -CROP_LINE_EXTENSION,
+              left: cropRect.left - CROP_LINE_EXTENSION,
               top: boundary,
-              width: frame.width + CROP_LINE_EXTENSION * 2,
+              width: cropRect.width + CROP_LINE_EXTENSION * 2,
               height: 1,
             };
         const hitStyle: React.CSSProperties = vertical
           ? {
               left: boundary - EDGE_HIT_THICKNESS / 2,
-              top: -CROP_LINE_EXTENSION,
+              top: cropRect.top - CROP_LINE_EXTENSION,
               width: EDGE_HIT_THICKNESS,
-              height: frame.height + CROP_LINE_EXTENSION * 2,
+              height: cropRect.height + CROP_LINE_EXTENSION * 2,
             }
           : {
-              left: -CROP_LINE_EXTENSION,
+              left: cropRect.left - CROP_LINE_EXTENSION,
               top: boundary - EDGE_HIT_THICKNESS / 2,
-              width: frame.width + CROP_LINE_EXTENSION * 2,
+              width: cropRect.width + CROP_LINE_EXTENSION * 2,
               height: EDGE_HIT_THICKNESS,
             };
         return (
@@ -249,7 +261,13 @@ export function DomEditCropHandles({
               onPointerUp={finishCropGesture}
               onPointerCancel={cancelCropGesture}
               onLostPointerCapture={cancelCropGesture}
-            />
+            >
+              <span
+                aria-hidden="true"
+                data-dom-edit-crop-knob={edge}
+                className="pointer-events-none absolute left-1/2 top-1/2 h-[10px] w-[10px] -translate-x-1/2 -translate-y-1/2 border border-studio-accent bg-white"
+              />
+            </button>
           </div>
         );
       })}

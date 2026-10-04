@@ -20,6 +20,10 @@ import {
 import { synchronizeIncomingNativeDocument } from "../project/nativeDocumentRefSync";
 import type { CommitNativeTimelineFileTransaction } from "../project/nativeTimelineTransactionCommit";
 import { readNativePropertyBaselines } from "../../../shared/project/nativePropertyBaseline";
+import {
+  captureNativeGestureCommitCandidate,
+  retainCommittedNativeGestureDraft,
+} from "../project/nativeGestureDraft";
 
 export type ProjectAnimatedPropertyCommitRoute = "native" | "legacy";
 export type ProjectAnimatedPropertyCommitIntent = "edit" | "keyframe";
@@ -155,6 +159,7 @@ export function useProjectAnimatedPropertyCommit(
       // Capture authoring identity before persistence waits behind another edit.
       const authoringDependencies = dependenciesRef.current;
       const sourceStyles = { ...commitOptions.sourceStyles };
+      const gestureDraft = captureNativeGestureCommitCandidate(selection.element);
       const sourceFile = selection.sourceFile;
       const sourceTarget = { id: selection.id, hfId: selection.hfId,
         selector: selection.selector, selectorIndex: selection.selectorIndex };
@@ -254,6 +259,9 @@ export function useProjectAnimatedPropertyCommit(
           );
         }
         latestDocumentRef.current = committed.document;
+        if (dependencies.onNativeDocumentCommitted) {
+          retainCommittedNativeGestureDraft(gestureDraft, committed.document.id, committed.document.revision);
+        }
         dependencies.onNativeDocumentCommitted?.(committed.document);
         return "native";
       });
@@ -274,6 +282,7 @@ export function useProjectAnimatedPropertyCommit(
       const authoringDependencies = dependenciesRef.current;
       const playheadSeconds = authoringDependencies.getPlayheadSeconds();
       const autoKeyframeEnabled = authoringDependencies.getAutoKeyframeEnabled?.() ?? false;
+      const gestureDrafts = entries.map(({ selection }) => captureNativeGestureCommitCandidate(selection.element));
       const requests = entries.map(({ selection, properties }) => ({
         selectedElement: selectionReference(selection),
         playheadSeconds,
@@ -322,6 +331,11 @@ export function useProjectAnimatedPropertyCommit(
           );
         }
         latestDocumentRef.current = committed.document;
+        if (dependencies.onNativeDocumentCommitted) {
+          for (const gestureDraft of gestureDrafts) {
+            retainCommittedNativeGestureDraft(gestureDraft, committed.document.id, committed.document.revision);
+          }
+        }
         dependencies.onNativeDocumentCommitted?.(committed.document);
       });
       queueRef.current = run.then(() => undefined, () => undefined);

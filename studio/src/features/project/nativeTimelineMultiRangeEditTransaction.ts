@@ -1,4 +1,5 @@
 import { discoverNativeTimelineSources } from "./nativeTimelineSources";
+import { stabilizeNativeBindingSource } from "./nativeBindingSource";
 import type { RecordEditInput } from "../history/studioFileHistory";
 import { serializeStudioFileMutations } from "../history/studioFileMutationCoordinator";
 import {
@@ -137,7 +138,10 @@ export async function commitNativeTimelineMultiRangeEdit(
         compatibilityBefore[sourceFile] = content;
       }
 
-      const compatibilityAfter: Record<string, string> = { ...compatibilityBefore };
+      const compatibilityAfter: Record<string, string> = {};
+      for (const sourceFile of plan.sourceFiles) {
+        compatibilityAfter[sourceFile] = stabilizeNativeBindingSource(current, sourceFile, compatibilityBefore[sourceFile]!);
+      }
       const orderedEdits = [...plan.edits].sort((left, right) =>
         plannedEditKey(left).localeCompare(plannedEditKey(right)),
       );

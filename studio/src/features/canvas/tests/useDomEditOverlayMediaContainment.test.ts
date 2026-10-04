@@ -9,6 +9,8 @@ import type {
 } from "../domEditOverlayGestures";
 import { createManualOffsetDragMember, type ManualOffsetDragMember } from "../manualOffsetDrag";
 import { readStudioBoxSize } from "../manualEdits";
+import { applyNativeGestureDraft } from "../../project/nativeGestureDraft";
+import { STUDIO_MANUAL_EDIT_GESTURE_ATTR } from "../manualEditsTypes";
 
 function ref<T>(current: T) {
   return { current };
@@ -112,6 +114,47 @@ function moveHarness(element: HTMLElement) {
 }
 
 describe("rotation gesture termination", () => {
+  it("moves the hidden source so an asymmetric crop rotates around its visible center", async () => {
+    const element = document.createElement("div");
+    const { handlers, gesture, opts, setOverlayRect } = moveHarness(element);
+    enableDragCommit(gesture, element);
+    Object.assign(gesture, {
+      kind: "rotate", mode: "rotation", actualRotation: 0,
+      centerX: 0, centerY: 0, startX: 100, startY: 0,
+      rotationVisibleOffset: { x: 10, y: 0 },
+    });
+    handlers.onPointerMove(pointer(0, 100));
+    expect(setOverlayRect).toHaveBeenLastCalledWith(expect.objectContaining({
+      left: 860, top: 240, angle: 90,
+    }));
+    handlers.onPointerUp(pointer(0, 100));
+    expect(opts.onRotationCommitRef.current).toHaveBeenCalledWith(
+      gesture.selection, { angle: 90 }, { x: 10, y: -10 },
+    );
+    await Promise.resolve();
+  });
+
+  it("keeps a native CSS rotation draft through a stale frame repaint", () => {
+    const element = document.createElement("div");
+    element.setAttribute("data-studio-native-owned", "transform.rotation");
+    element.setAttribute(STUDIO_MANUAL_EDIT_GESTURE_ATTR, "rotate-test");
+    const { handlers, gesture, setOverlayRect } = moveHarness(element);
+    Object.assign(gesture, {
+      kind: "rotate", mode: "rotation", actualRotation: 0,
+      centerX: 0, centerY: 0, startX: 100, startY: 0,
+    });
+
+    handlers.onPointerMove(pointer(0, 100));
+    expect(setOverlayRect).toHaveBeenLastCalledWith(expect.objectContaining({
+      left: 850, top: 250, width: 100, height: 100, angle: 90,
+    }));
+    const draft = element.style.rotate;
+    expect(draft).toContain("90deg");
+    element.style.rotate = "0deg";
+    applyNativeGestureDraft(element);
+    expect(element.style.rotate).toBe(draft);
+  });
+
   it("cancels a move through its durable member baseline after the DOM baseline was consumed", () => {
     const element = document.createElement("div");
     const { handlers, gesture, opts } = moveHarness(element);
@@ -190,7 +233,7 @@ function enableDragCommit(gesture: GestureState, element: HTMLElement) {
   } satisfies ManualOffsetDragMember;
 }
 
-describe("media gesture canvas containment", () => {
+describe("media gestures beyond the canvas", () => {
   it("snaps to the canvas even when no other visible object exists", () => {
     const { handlers, gesture } = moveHarness(document.createElement("div"));
     gesture.snapContext!.snapEnabled = true;
@@ -198,32 +241,30 @@ describe("media gesture canvas containment", () => {
     expect(gesture.lastSnappedDx).toBe(50);
   });
 
-  it("prevents a video from crossing the canvas edge even when snapping is off and Alt is held", () => {
+  it("allows a video to cross the canvas edge when snapping is off and Alt is held", () => {
     const { handlers, gesture, setOverlayRect } = moveHarness(
       document.createElement("video"),
     );
 
     handlers.onPointerMove(pointer(300, 0));
 
-    expect(gesture.lastSnappedDx).toBe(50);
+    expect(gesture.lastSnappedDx).toBe(300);
     expect(setOverlayRect).toHaveBeenLastCalledWith(
-      expect.objectContaining({ left: 900, top: 250 }),
+      expect.objectContaining({ left: 1150, top: 250 }),
     );
   });
 
-  it("treats the cropped visible edge as the media boundary", () => {
+  it("allows a cropped video beyond the canvas without clamping its source or visible edge", () => {
     const video = document.createElement("video");
     video.style.clipPath = "inset(0px 50px 0px 0px)";
     const { handlers, gesture, setOverlayRect } = moveHarness(video);
 
-    // The 100px source box ends at x=950, but its crop ends at x=900. It may
-    // therefore move 100px before the visible media—not the hidden source—hits
-    // the 1000px canvas edge.
+    // Cropping changes the visible geometry, not the allowed drag distance.
     handlers.onPointerMove(pointer(300, 0));
 
-    expect(gesture.lastSnappedDx).toBe(100);
+    expect(gesture.lastSnappedDx).toBe(300);
     expect(setOverlayRect).toHaveBeenLastCalledWith(
-      expect.objectContaining({ left: 950, top: 250 }),
+      expect.objectContaining({ left: 1150, top: 250 }),
     );
   });
 
@@ -234,13 +275,13 @@ describe("media gesture canvas containment", () => {
 
     handlers.onPointerMove(pointer(300, 0));
 
-    // The source box moves to x=900, while its visible crop begins at x=950.
+    // The source box moves to x=1150, while its visible crop begins at x=1200.
     // React positions the handles from that visible x; the imperative fast
     // path must paint the border at the same x in the very same frame.
     expect(setOverlayRect).toHaveBeenLastCalledWith(
-      expect.objectContaining({ left: 900, top: 250 }),
+      expect.objectContaining({ left: 1150, top: 250 }),
     );
-    expect(box.style.left).toBe("950px");
+    expect(box.style.left).toBe("1200px");
     expect(box.style.top).toBe("250px");
   });
 
@@ -268,15 +309,15 @@ describe("media gesture canvas containment", () => {
     enableDragCommit(gesture, video);
 
     handlers.onPointerMove(pointer(300, 0));
-    expect(box.style.left).toBe("950px");
+    expect(box.style.left).toBe("1200px");
 
     handlers.onPointerUp(pointer(300, 0));
     await Promise.resolve();
 
-    // Release must not repaint the full source x=900 over the visible crop
-    // x=950 while the persisted edit settles.
-    expect(box.style.left).toBe("950px");
+    // Release must keep the visible crop at x=1200 while the persisted edit settles.
+    expect(box.style.left).toBe("1200px");
     expect(box.style.top).toBe("250px");
+    expect(gesture.lastSnappedDx).toBe(300);
   });
 
   it("does not expand cropped chrome to the source size when resize is cancelled", () => {
@@ -318,7 +359,7 @@ describe("media gesture canvas containment", () => {
     expect(box.style.top).toBe("250px");
   });
 
-  it("does not impose the media-only canvas rule on an ordinary design layer", () => {
+  it("also allows an ordinary design layer beyond the canvas", () => {
     const { handlers, gesture, setOverlayRect } = moveHarness(
       document.createElement("div"),
     );
@@ -331,7 +372,7 @@ describe("media gesture canvas containment", () => {
     );
   });
 
-  it("caps a video resize at the canvas boundary before the draft is committed", () => {
+  it("allows a video resize beyond the canvas before the draft is committed", () => {
     const video = document.createElement("video");
     const { handlers, gesture } = moveHarness(video);
     Object.assign(gesture, {
@@ -349,9 +390,9 @@ describe("media gesture canvas containment", () => {
       actualHeight: 100,
     });
 
-    // Raw radial scale is 16x (800 / 50), but the 600px-tall canvas is the cap.
+    // A 16x radial scale (800 / 50) is allowed beyond the 600px-tall canvas.
     handlers.onPointerMove(pointer(1300, 300));
 
-    expect(readStudioBoxSize(video)).toEqual({ width: 600, height: 600 });
+    expect(readStudioBoxSize(video)).toEqual({ width: 1600, height: 1600 });
   });
 });

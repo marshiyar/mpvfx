@@ -1,4 +1,5 @@
 import { discoverNativeTimelineSources } from "./nativeTimelineSources";
+import { stabilizeNativeBindingSource } from "./nativeBindingSource";
 import type { RecordEditInput } from "../history/studioFileHistory";
 import { serializeStudioFileMutations } from "../history/studioFileMutationCoordinator";
 import {
@@ -6,6 +7,7 @@ import {
   parseNativeProjectDocument,
   serializeNativeProjectDocument,
   type NativeProjectDocument,
+  type NativeClipDomBinding,
 } from "../../../shared/project/nativeProjectDocument";
 import { NativeProjectRevisionConflictError } from "./nativeProjectPersistence";
 import {
@@ -33,6 +35,7 @@ export interface CommitNativeTimelineRangeEditInput {
   readonly patchCompatibilityContent: (
     content: string,
     timing: NativeTimelineCompatibilityRange,
+    binding: Readonly<NativeClipDomBinding>,
   ) => string;
   readonly onCommitted?: (document: NativeProjectDocument) => void;
   readonly signal?: AbortSignal;
@@ -119,9 +122,14 @@ export async function commitNativeTimelineRangeEdit(
         return { committed: false, reason: "missing-compatibility-file" };
         }
         compatibilityBefore = sourceContent;
+        const binding = current.sequence.tracks.find(track => track.id === plan.address.trackId)
+          ?.clips.find(clip => clip.id === plan.address.clipId)?.binding;
+        if (!binding) throw new NativeTimelineRangeCompatibilityError(`Native clip ${plan.address.clipId} has no source binding`);
+        const stableSource = stabilizeNativeBindingSource(current, sourceFile, compatibilityBefore);
         compatibilityAfter = input.patchCompatibilityContent(
-        compatibilityBefore,
+        stableSource,
         plan.compatibility,
+        binding,
         );
         if (compatibilityAfter === compatibilityBefore) {
         throw new NativeTimelineRangeCompatibilityError(

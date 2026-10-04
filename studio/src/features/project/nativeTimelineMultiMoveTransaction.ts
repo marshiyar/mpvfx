@@ -1,4 +1,5 @@
 import { discoverNativeTimelineSources } from "./nativeTimelineSources";
+import { stabilizeNativeBindingSource } from "./nativeBindingSource";
 import type { RecordEditInput } from "../history/studioFileHistory";
 import { serializeStudioFileMutations } from "../history/studioFileMutationCoordinator";
 import {
@@ -133,7 +134,10 @@ export async function commitNativeTimelineMultiMove(
         compatibilityBefore[sourceFile] = content;
       }
 
-      const compatibilityAfter: Record<string, string> = { ...compatibilityBefore };
+      const compatibilityAfter: Record<string, string> = {};
+      for (const sourceFile of plan.sourceFiles) {
+        compatibilityAfter[sourceFile] = stabilizeNativeBindingSource(current, sourceFile, compatibilityBefore[sourceFile]!);
+      }
       const orderedMoves = [...plan.moves].sort((left, right) =>
         plannedMoveKey(left).localeCompare(plannedMoveKey(right)),
       );

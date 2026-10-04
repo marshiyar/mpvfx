@@ -28,6 +28,9 @@ export interface DraggedClipState {
    * back to `previewTrack` (pre-existing behaviour).
    */
   desiredTrack?: number;
+  /** Validated row-index shift for a selected formation; zero also marks an
+   * active group whose vertical move was refused as a whole. */
+  groupRowDelta?: number;
   /**
    * When non-null, the drop inserts a NEW track at this visual row boundary
    * (0 = above the top lane, trackOrder.length = below the bottom) instead of

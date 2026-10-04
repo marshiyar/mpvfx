@@ -243,6 +243,13 @@ describe("resolveZoneDropPlacement", () => {
 });
 
 describe("resolveCollisionFreeTrack", () => {
+  it("keeps the requested sparse track for the first asset", () => {
+    expect(resolveCollisionFreeTrack({
+      elements: [], trackOrder: [], desiredTrack: 7,
+      start: 0, duration: 2, isAudio: false,
+    })).toBe(7);
+  });
+
   it("gives a new visual asset a fresh track when all existing visual tracks overlap", () => {
     expect(
       resolveCollisionFreeTrack({

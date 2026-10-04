@@ -305,7 +305,7 @@ function StudioProjectApp({ projectId, resolving, waitingForRuntime }: ReturnTyp
   const domEditDeleteBridge: DomEditDelete = (s, o) => handleDomEditElementDeleteRef.current(s, o);
   const resetKeyframesRef = useRef<() => Promise<boolean>>(async () => false);
   const deleteSelectedKeyframesRef = useRef<() => Promise<boolean>>(async () => false);
-  const { handleCopy, handlePaste, handleCut } = useClipboard({
+  const { handleCopy, handlePaste, handleCut, handleDuplicate } = useClipboard({
     nativeProjectEditing,
     projectId,
     activeCompPath,
@@ -339,6 +339,7 @@ function StudioProjectApp({ projectId, resolving, waitingForRuntime }: ReturnTyp
     handleCopy,
     handlePaste,
     handleCut,
+    handleDuplicate,
     onResetKeyframes: () => resetKeyframesRef.current(),
     onDeleteSelectedKeyframes: () => deleteSelectedKeyframesRef.current(),
     onAfterUndoRedo: () => {
@@ -513,9 +514,16 @@ function StudioProjectApp({ projectId, resolving, waitingForRuntime }: ReturnTyp
       <TimelineToolbar
         domEditSession={domEditSession}
         onSplitElement={timelineEditing.handleTimelineElementSplit}
+        onRemoveSilence={timelineEditing.handleRemoveSilence}
+        isRemovingSilence={timelineEditing.isRemovingSilence}
       />
     ),
-    [domEditSession, timelineEditing.handleTimelineElementSplit],
+    [
+      domEditSession,
+      timelineEditing.handleTimelineElementSplit,
+      timelineEditing.handleRemoveSilence,
+      timelineEditing.isRemovingSilence,
+    ],
   );
   if (resolving || waitingForRuntime || !projectId)
     return <StudioSplash waiting={waitingForRuntime} />;
@@ -538,6 +546,7 @@ function StudioProjectApp({ projectId, resolving, waitingForRuntime }: ReturnTyp
                   )}
                   <ExternalFileConflictBanner coordinator={externalFileChanges} />
                   <EditorShell
+                    handleNativeAudioAction={timelineEditing.handleNativeAudioAction}
                     left={
                       <StudioLeftSidebar
                         leftSidebarRef={leftSidebarRef}

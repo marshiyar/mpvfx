@@ -21,9 +21,11 @@ interface HarnessProps {
   ) => Promise<DomEditSelection | null>;
   applyDomSelection: (
     selection: DomEditSelection | null,
-    options?: { revealPanel?: boolean; additive?: boolean; preserveGroup?: boolean },
+    options?: { revealPanel?: boolean; additive?: boolean; preserveGroup?: boolean; announce?: boolean },
   ) => void;
-  applyMarqueeSelection: (selections: DomEditSelection[], additive: boolean) => void;
+  applyMarqueeSelection: (
+    selections: DomEditSelection[], additive: boolean, options?: { announce?: boolean },
+  ) => void;
   onSelectionNotFound: () => void;
 }
 
@@ -100,7 +102,9 @@ describe("useTimelineSelectionPreviewSync", () => {
       onSelectionNotFound: vi.fn(),
     });
 
-    expect(applyMarqueeSelection).toHaveBeenCalledWith([secondSelection, firstSelection], false);
+    expect(applyMarqueeSelection).toHaveBeenCalledWith(
+      [secondSelection, firstSelection], false, { announce: false },
+    );
     expect(applyDomSelection).not.toHaveBeenCalled();
     harness.cleanup();
   });
@@ -138,7 +142,9 @@ describe("useTimelineSelectionPreviewSync", () => {
       onSelectionNotFound: vi.fn(),
     });
 
-    expect(applyDomSelection).toHaveBeenCalledWith(null, { revealPanel: false });
+    expect(applyDomSelection).toHaveBeenCalledWith(null, {
+      revealPanel: false, announce: false,
+    });
     expect(applyMarqueeSelection).not.toHaveBeenCalled();
     harness.cleanup();
   });
@@ -229,7 +235,28 @@ describe("useTimelineSelectionPreviewSync", () => {
       onSelectionNotFound,
     });
 
-    expect(applyDomSelection).toHaveBeenCalledWith(secondSelection);
+    expect(applyDomSelection).toHaveBeenCalledWith(secondSelection, { announce: false });
+    harness.cleanup();
+  });
+
+  it("does not echo an unresolved timeline clip back as a clear", async () => {
+    const applyDomSelection = vi.fn();
+    const harness = renderHarness();
+    await harness.rerender({
+      selectedElementId: "clip-late",
+      selectedElementIds: new Set(["clip-late"]),
+      timelineElements: [], // timeline store updated before derived preview elements
+      domEditSelection: null,
+      domEditGroupSelections: [],
+      buildDomSelectionForTimelineElement: vi.fn(async () => null),
+      applyDomSelection,
+      applyMarqueeSelection: vi.fn(),
+      onSelectionNotFound: vi.fn(),
+    });
+    expect(applyDomSelection).toHaveBeenCalledWith(null, {
+      revealPanel: false,
+      announce: false,
+    });
     harness.cleanup();
   });
 });

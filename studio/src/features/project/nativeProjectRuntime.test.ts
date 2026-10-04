@@ -98,6 +98,9 @@ describe("installNativeProjectRuntime", () => {
   });
 
   it("projects optional clip playback rate into preview transport metadata without rounding it", () => {
+    const element = document.createElement("video");
+    element.setAttribute("data-studio-clip-id", "clip:camera");
+    document.body.append(element);
     const native = project();
     const clip = native.sequence.tracks[0]!.clips[0]! as typeof native.sequence.tracks[0]["clips"][number] & {
       playbackRate?: { numerator: number; denominator: number };

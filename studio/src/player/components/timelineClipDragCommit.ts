@@ -17,6 +17,7 @@ import {
 import { runLaneZGesture } from "../../features/timeline/zLaneGesture";
 import { refreshAfterDurableLaneMove } from "./timelineLaneMoveRefresh";
 import { authoredTrackForLane, sameSourceFile } from "./timelineAuthoredTrack";
+import { resolveRigidGroupMove } from "./timelineRigidGroupMove";
 
 type StartTrack = Pick<TimelineElement, "start" | "track">;
 export interface TimelineMoveEdit {
@@ -253,6 +254,65 @@ export function commitDraggedClipMove(drag: DraggedClipState, deps: DragCommitDe
   const aimTrack = drag.desiredTrack ?? drag.previewTrack;
   const isVertical = isInsert || aimTrack !== drag.element.track;
   const multi = resolveMultiSelection(drag, deps);
+
+  // A preview-marked formation owns its whole row change. Revalidate against
+  // the current elements at release: a late collision or locked member must
+  // never degrade into moving only the grabbed clip. One batch is one undo.
+  if (multi && drag.groupRowDelta !== undefined) {
+    const group = resolveRigidGroupMove({
+      elements, selectedKeys: deps.selectedKeys ?? new Set(), dragged: drag.element,
+      desiredTrack: drag.previewTrack, trackOrder: deps.trackOrder,
+      deltaSeconds: drag.previewStart - drag.element.start,
+    });
+    if (!group?.valid || group.rowDelta !== drag.groupRowDelta) return;
+    if (!deps.onMoveElements) {
+      console.warn("[Timeline] Group row move requires atomic batch persistence");
+      return;
+    }
+    const edits: TimelineMoveEdit[] = elements
+      .filter((element) => group.keys.has(keyOf(element)))
+      .map((element) => {
+        const row = deps.trackOrder.indexOf(element.track) + group.rowDelta;
+        const targetTrack = deps.trackOrder[row]!;
+        const start = multi.movedStart(element);
+        return {
+          element,
+          updates: { start, track: targetTrack },
+          ...(group.rowDelta === 0 ? {} : {
+            persistTrack: authoredTrackForLane(targetTrack, elements, element),
+            displayTrack: targetTrack,
+          }),
+        };
+      })
+      .filter((edit) => edit.updates.start !== edit.element.start || edit.updates.track !== edit.element.track);
+    if (edits.length === 0) return;
+    if (group.rowDelta === 0) {
+      void persistMoveEdits(edits, deps);
+      return;
+    }
+    const coalesceKey = `clip-lane-move:${laneChangeGestureSeq++}`;
+    const candidate = elements.map((element) => {
+      const edit = edits.find((change) => keyOf(change.element) === keyOf(element));
+      return edit ? { ...element, ...edit.updates } : element;
+    });
+    if (!deps.readZIndex || !deps.onStackingPatches) {
+      void refreshAfterDurableLaneMove(
+        persistMoveEdits(edits, deps, coalesceKey, "lane-reorder"), deps,
+      );
+      return;
+    }
+    void refreshAfterDurableLaneMove(
+      runLaneZGesture({
+        commitLane: () => persistMoveEdits(edits, deps, coalesceKey, "lane-reorder"),
+        commitZ: () => syncStackingForEdit(
+          candidate, dragKey, drag.element.track, drag.previewTrack,
+          group.keys, deps, coalesceKey,
+        ),
+      }),
+      deps,
+    ).catch(() => undefined);
+    return;
+  }
 
   // ── Pure time-move (dragged clip keeps its lane, no insert) ─────────────────
   if (!isInsert && !laneChanged) {

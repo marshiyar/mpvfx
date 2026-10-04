@@ -376,7 +376,7 @@ export function useTimelineGroupEditing({
               coalesceMs,
               patchCompatibilityContent: (original, edit) => {
                 const change = nativeChangeByClipId.get(edit.address.clipId);
-                const target = change ? buildPatchTarget(change.element) : null;
+                const target = buildPatchTarget(edit.binding);
                 if (!change || !target) return original;
                 return buildTimelineMoveTimingPatch(
                   original,
@@ -623,7 +623,7 @@ export function useTimelineGroupEditing({
               coalesceMs,
               patchCompatibilityContent: (original, edit) => {
                 const change = nativeChangeByClipId.get(edit.address.clipId);
-                const target = change ? buildPatchTarget(change.element) : null;
+                const target = buildPatchTarget(edit.binding);
                 if (!change || !target) return original;
                 return buildTimelineResizeTimingPatch(
                   original,

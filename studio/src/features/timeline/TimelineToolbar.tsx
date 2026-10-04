@@ -3,6 +3,7 @@ import {
   Magnet,
   MagnifyingGlassMinus,
   MagnifyingGlassPlus,
+  Waveform,
 } from "@phosphor-icons/react";
 import {
   useEnableKeyframes,
@@ -48,6 +49,8 @@ interface DomEditSessionSlice extends EnableKeyframesSession {
 interface TimelineToolbarProps {
   domEditSession?: DomEditSessionSlice;
   onSplitElement?: (element: TimelineElement, splitTime: number) => void;
+  onRemoveSilence?: (element: TimelineElement) => void | Promise<void>;
+  isRemovingSilence?: boolean;
 }
 
 interface KeyframeToggleState {
@@ -122,6 +125,8 @@ function useKeyframeToggle(session?: DomEditSessionSlice) {
 export function TimelineToolbar({
   domEditSession,
   onSplitElement,
+  onRemoveSilence,
+  isRemovingSilence = false,
 }: TimelineToolbarProps) {
   const activeTool = usePlayerStore((s) => s.activeTool);
   const setActiveTool = usePlayerStore((s) => s.setActiveTool);
@@ -444,6 +449,46 @@ export function TimelineToolbar({
                       {/* Left bracket of right half: [ */}
                       <path d="M11 3 L9 3 L9 13 L11 13" />
                     </svg>
+                  </button>
+                </Tooltip>
+              );
+            })()}
+          {onRemoveSilence &&
+            (() => {
+              const selected = selectedElementId
+                ? elements.find((element) => (element.key ?? element.id) === selectedElementId)
+                : null;
+              const canRemove =
+                !isRemovingSilence &&
+                selected?.tag.toLowerCase() === "video" &&
+                Boolean(selected.src) &&
+                canSplitElement(selected);
+              return (
+                <Tooltip
+                  label={
+                    isRemovingSilence
+                      ? "Removing silence…"
+                      : canRemove
+                        ? "Remove silence from selected video"
+                        : "Select an editable video clip"
+                  }
+                >
+                  <button
+                    type="button"
+                    disabled={!canRemove}
+                    aria-label="Remove silence"
+                    aria-busy={isRemovingSilence}
+                    onClick={() => {
+                      if (canRemove && selected) void onRemoveSilence(selected);
+                    }}
+                    className={canRemove ? flatIdle : flatDisabled}
+                  >
+                    <Waveform
+                      size={16}
+                      weight="bold"
+                      aria-hidden="true"
+                      className={isRemovingSilence ? "animate-pulse" : undefined}
+                    />
                   </button>
                 </Tooltip>
               );

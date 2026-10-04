@@ -11,8 +11,10 @@ import { VisibilityButton, PlainTrackHeader } from "./TimelineTrackPlainHeader";
 import type { TimelineEditCallbacks } from "./timelineCallbacks";
 import { useTimelineEditContextOptional } from "../../features/timeline/TimelineEditContext";
 import { useDomEditActionsContextOptional } from "../../features/canvas/DomEditContext";
+import { resolveNativeClipSelection } from "../../../shared/project/nativePropertyEditPlan";
 import { mintGroupId } from "../../features/inspector/useFxCarveGrouping";
 import { runtimeAudioId } from "../lib/timelineElementHelpers";
+import { findTimelineElementInIframe } from "../../features/timeline/timelineEditingHelpers";
 import { TimelineFxButton } from "./TimelineFxButton";
 import {
   getTimelinePropertyLanes,
@@ -252,12 +254,12 @@ export function TimelineTrackHeader({
   const { onGroupClips, onSetElementAttributeLive, onSetElementAttributeQuiet } =
     useTimelineEditContextOptional();
   const domEditActions = useDomEditActionsContextOptional();
+  const nativeProjectDocument = domEditActions?.nativeDocument ?? null;
   const singleAudioClip =
     isAudioTrack && clipCount === 1 && trackElements.length > 0 ? trackElements[0] : null;
   const isTrackGrouped = trackElements.some((el) => el.audioGroup);
-  // A video track carries sound the render mixes but preview never routes
-  // through Web Audio, which is why §1.4 keeps groups audio-only. It still
-  // needs to be TOLD that, so it earns the button and a refusal.
+  // The pointer remains visible for video so an unavailable group has a reason.
+  // The native + HTML writer also validates every member against saved markup.
   const isVideoWithAudioTrack =
     !isAudioTrack && trackElements.some((el) => el.tag.toLowerCase() === "video");
   const writeClipFxChain = (clip: TimelineElement, next: HfAudioFxChain, live: boolean) => {
@@ -281,6 +283,27 @@ export function TimelineTrackHeader({
     ? groupableClipIds
     : null;
   const canGroupWholeTrack = (allGroupableClipIds?.length ?? 0) >= 2;
+  const allVideoMembersAudible = trackElements.every((element) => {
+    const tag = element.tag.toLowerCase();
+    if (tag === "audio") return true;
+    if (tag !== "video") return false;
+    return findTimelineElementInIframe(
+      domEditActions?.previewIframeRef.current ?? null,
+      element,
+    )?.getAttribute("data-has-audio") === "true";
+  });
+  const allMembersNative = Boolean(nativeProjectDocument) && trackElements.every(element =>
+    resolveNativeClipSelection(nativeProjectDocument!, {
+      id: element.id, hfId: element.hfId, sourceFile: element.sourceFile,
+      selector: element.selector, selectorIndex: element.selectorIndex,
+    }).ok);
+  const videoGroupRefusal = !canGroupWholeTrack
+    ? "Every clip on this track needs a DOM id before its audio can be grouped."
+    : !allVideoMembersAudible
+      ? "Every video clip on this track needs a confirmed audio stream."
+      : !allMembersNative
+        ? "Save this track in a native project before grouping video audio."
+        : undefined;
   const groupUngroupedClips = (label: string) => {
     const doc = domEditActions?.previewIframeRef.current?.contentDocument;
     if (!doc || !onGroupClips) return;
@@ -384,13 +407,10 @@ export function TimelineTrackHeader({
                         variant="group-pointer"
                         clipCount={trackElements.length}
                         defaultLabel={trackLabel}
-                        // Groups are audio-only in v1 (§1.4). A video track showing no
-                        // button at all is the silent limit §5 forbids, so it gets the
-                        // button and a reason instead.
                         refusal={
                           isAudioTrack
                             ? undefined
-                            : "Video audio can't be grouped yet — only audio clips can join a group."
+                            : videoGroupRefusal
                         }
                         onGroupClips={groupUngroupedClips}
                       />

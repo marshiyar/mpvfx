@@ -1,4 +1,5 @@
 import { join, resolve } from "node:path";
+import { existsSync, mkdirSync } from "node:fs";
 import { app, BrowserWindow, dialog, protocol, session } from "electron";
 import { createDesktopAppController, shouldQuitWhenAllWindowsClosed } from "./appLifecycle";
 import { resolveInstalledMediaBinaryPaths } from "./installedMediaBinaries";
@@ -15,8 +16,21 @@ protocol.registerSchemesAsPrivileged([{
   privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true },
 }]);
 
-app.setName("MpVFX");
-app.setAppUserModelId("com.mpvfx.editor");
+const integrationBundle = app.isPackaged && existsSync(join(process.resourcesPath, "mpvfx-integration-profile"));
+app.setName(integrationBundle ? "MpVFX Integration Preview" : "MpVFX");
+app.setAppUserModelId(integrationBundle ? "com.mpvfx.editor.integration-preview" : "com.mpvfx.editor");
+// Tests and portable launches must isolate Chromium storage as well as project
+// files. Otherwise a disposable project root can restore the user's recent
+// library from the default session's localStorage.
+if (process.env.MPVFX_USER_DATA_DIR) {
+  const isolatedDataPath = resolve(process.env.MPVFX_USER_DATA_DIR);
+  mkdirSync(isolatedDataPath, { recursive: true });
+  app.setPath("userData", isolatedDataPath);
+} else if (integrationBundle) {
+  const isolatedDataPath = join(app.getPath("appData"), "MpVFX Integration Preview");
+  mkdirSync(isolatedDataPath, { recursive: true });
+  app.setPath("userData", isolatedDataPath);
+}
 
 let mainWindow: BrowserWindow | null = null;
 let quittingAfterCleanup = false;
@@ -42,7 +56,9 @@ function createEditorWindow(): BrowserWindow {
   ));
   mainWindow = editorWindow;
   editorWindow.setMenu(null);
-  editorWindow.once("ready-to-show", () => editorWindow.show());
+  if (process.env.MPVFX_HIDDEN_TEST_WINDOW !== "1") {
+    editorWindow.once("ready-to-show", () => editorWindow.show());
+  }
   let closeApproved = false;
   let closeInProgress = false;
   editorWindow.on("close", event => {
@@ -101,6 +117,7 @@ async function startDesktopApplication(): Promise<void> {
     startRuntime: () =>
       startEditorRuntime({
         staticDir: join(appPath, ".build", "dist"),
+        crosspostDir: app.isPackaged ? join(process.resourcesPath, "Crosspost") : join(appPath, "../Crosspost"),
         userDataPath,
         libraryModulePath: app.isPackaged ? join(process.resourcesPath, "mpvfx_library.node") : join(appPath, ".build/native/library/mpvfx_library.node"),
         projectsDir: paths.projects,

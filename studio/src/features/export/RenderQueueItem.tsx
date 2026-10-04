@@ -47,6 +47,8 @@ export const RenderQueueItem = memo(function RenderQueueItem({
   const [hovered, setHovered] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
 
   // Direct file URL — serves from disk, survives server restarts
   const fileSrc = `/api/projects/${projectId}/renders/file/${job.filename}`;
@@ -230,6 +232,18 @@ export const RenderQueueItem = memo(function RenderQueueItem({
             </>
           ) : (
             <>
+              {isComplete && window.mpvfx?.openCrosspost && (
+                <Button size="sm" variant="ghost" disabled={publishing} onClick={async (event) => {
+                  event.stopPropagation();
+                  setPublishing(true);
+                  setPublishError(null);
+                  try { await window.mpvfx.openCrosspost!(projectId, job.filename); }
+                  catch (error) { setPublishError(error instanceof Error ? error.message : "Could not open publisher"); }
+                  finally { setPublishing(false); }
+                }}>
+                  {publishing ? "Opening…" : "Publish…"}
+                </Button>
+              )}
               <button
                 onClick={isComplete ? handleDownload : undefined}
                 className={`p-1.5 min-w-6 min-h-6 rounded transition-colors outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-studio-accent ${
@@ -281,6 +295,7 @@ export const RenderQueueItem = memo(function RenderQueueItem({
           )}
         </div>
       </div>
+      {publishError && <p role="alert" className="mt-2 text-xs text-red-400">{publishError}</p>}
     </div>
   );
 });

@@ -14,6 +14,7 @@ import type { RationalFrameRate } from "../../../shared/project/nativeKeyframeTy
 import { encodeMediaPath } from "../../../shared/media/mediaUrl";
 import { classifyMediaImportPath } from "../../../shared/media/mediaImportPolicy";
 import { roundToCenti } from "../../lib/rounding";
+import { generateId } from "../../lib/generateId";
 import { patchRootCompositionDuration, readRootCompositionDuration } from "./rootDuration";
 import { applyPatchByTarget, type PatchTarget } from "../legacy/sourcePatcher";
 
@@ -471,10 +472,15 @@ export function buildTimelineAssetId(assetPath: string, existingIds: Iterable<st
     .toLowerCase();
   const baseId = normalized || "asset";
   const ids = new Set(existingIds);
-  if (!ids.has(baseId)) return baseId;
-  let suffix = 2;
-  while (ids.has(`${baseId}_${suffix}`)) suffix += 1;
-  return `${baseId}_${suffix}`;
+  // A removed clip can still have GSAP/CSS selectors in the compatibility
+  // source. Reusing its former DOM ID would attach those edits to a fresh clip.
+  // Clip duplication and Undo restore their own saved markup instead of calling
+  // this new-insertion path, so they retain the original identity and edits.
+  let id: string;
+  do {
+    id = `${baseId}-${generateId()}`;
+  } while (ids.has(id));
+  return id;
 }
 
 export function resolveTimelineAssetSrc(targetPath: string, assetPath: string): string {

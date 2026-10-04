@@ -31,6 +31,7 @@ function callbacks() {
     handleCopy: vi.fn(() => false),
     handlePaste: vi.fn(async () => {}),
     handleCut: vi.fn(async () => false),
+    handleDuplicate: vi.fn(() => true),
     onResetKeyframes: vi.fn(() => true),
     onDeleteSelectedKeyframes: vi.fn(async () => true),
     showToast: vi.fn(),
@@ -300,5 +301,70 @@ describe("dispatchModifierKey — Cmd+C/Cmd+V arbitration", () => {
     dispatchModifierKey(e, "v", cb);
     expect(cb.handlePaste).not.toHaveBeenCalled();
     expect(e.defaultPrevented).toBe(false);
+  });
+});
+
+describe("Cmd/Ctrl+A in the editor", () => {
+  it("selects timeline clips instead of highlighting the page", () => {
+    const timeline = document.createElement("div");
+    timeline.setAttribute("aria-label", "Timeline");
+    const lane = document.createElement("div");
+    timeline.append(lane);
+    document.body.append(timeline);
+    usePlayerStore.setState({ elements: [bgmElement, { ...bgmElement, id: "second", key: "second" }] });
+    const event = chord("a");
+    lane.dispatchEvent(event);
+    expect(dispatchModifierKey(event, "a", callbacks())).toBe(true);
+    expect(event.defaultPrevented).toBe(true);
+    expect(usePlayerStore.getState().selectedElementIds).toEqual(new Set(["bgm", "second"]));
+    expect(usePlayerStore.getState().selectedElementId).toBe("bgm");
+    timeline.remove();
+  });
+
+  it("leaves form text selection and inline editing to the browser", () => {
+    for (const target of [document.createElement("input"), document.createElement("textarea")]) {
+      document.body.append(target);
+      const event = chord("a");
+      target.dispatchEvent(event);
+      expect(dispatchModifierKey(event, "a", callbacks())).toBe(false);
+      expect(event.defaultPrevented).toBe(false);
+      target.remove();
+    }
+  });
+
+  it("prevents whole-app selection from noneditable chrome", () => {
+    const label = document.createElement("span");
+    document.body.append(label);
+    const event = new KeyboardEvent("keydown", { key: "a", ctrlKey: true, bubbles: true, cancelable: true });
+    label.dispatchEvent(event);
+    expect(dispatchModifierKey(event, "a", callbacks())).toBe(true);
+    expect(event.defaultPrevented).toBe(true);
+    label.remove();
+  });
+});
+
+describe("Cmd/Ctrl+D duplication", () => {
+  it("routes the modifier shortcut to duplicate instead of browser behavior", () => {
+    const cb = callbacks();
+    const event = chord("d");
+    expect(dispatchModifierKey(event, "d", cb)).toBe(true);
+    expect(event.defaultPrevented).toBe(true);
+    expect(cb.handleDuplicate).toHaveBeenCalledOnce();
+    expect(cb.handleCopy).not.toHaveBeenCalled();
+    expect(cb.handlePaste).not.toHaveBeenCalled();
+  });
+
+  it("leaves text fields free to type and edit", () => {
+    for (const tag of ["input", "textarea"]) {
+      const field = document.createElement(tag);
+      document.body.append(field);
+      const event = chord("d");
+      field.dispatchEvent(event);
+      const cb = callbacks();
+      expect(dispatchModifierKey(event, "d", cb)).toBe(false);
+      expect(event.defaultPrevented).toBe(false);
+      expect(cb.handleDuplicate).not.toHaveBeenCalled();
+      field.remove();
+    }
   });
 });

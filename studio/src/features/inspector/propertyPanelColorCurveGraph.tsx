@@ -15,7 +15,12 @@ import { clampNumber } from "../../lib/studioHelpers";
 const GRAPH_SIZE = 160;
 const GRAPH_PADDING = 8;
 const SAMPLE_COUNT = 128;
-const INPUT_EPSILON = 0.002;
+// Keep editable nodes far enough apart to pick individually at the graph's
+// actual drawing size. Existing project points are left intact until edited.
+const POINT_PICK_PX = 12;
+const POINT_INPUT_PICK_PX = 8;
+const POINT_INPUT_GAP_PX = 6;
+const GRAPH_INNER_SIZE = GRAPH_SIZE - GRAPH_PADDING * 2;
 
 type RgbTab = {
   kind: "rgb";
@@ -142,10 +147,11 @@ function nearestInputPointIndex(
   points: readonly (HfColorCurvePoint | HfHueCurvePoint)[],
   input: number,
   tab: CurveTab,
+  radiusPx = POINT_INPUT_PICK_PX,
 ): number {
   const inputSpan = tab.kind === "rgb" ? 1 : 360;
   let closest = -1;
-  let distance = 12 / (GRAPH_SIZE - GRAPH_PADDING * 2);
+  let distance = radiusPx / GRAPH_INNER_SIZE;
   points.forEach((point, index) => {
     const nextDistance =
       (tab.kind === "hue" ? circularHueDistance(point[0], input) : Math.abs(point[0] - input)) /
@@ -166,7 +172,7 @@ function nearestGraphPointIndex(
 ): number {
   const target = graphPoint(input, output, tab);
   let closest = -1;
-  let distance = 12;
+  let distance = POINT_PICK_PX;
   points.forEach((point, index) => {
     const candidate = graphPoint(point[0], point[1], tab);
     const xDistance =
@@ -188,6 +194,9 @@ function insertPoint(
   output: number,
   tab: CurveTab,
 ) {
+  if (!Number.isFinite(input) || !Number.isFinite(output)) return null;
+  const existing = nearestInputPointIndex(points, input, tab);
+  if (existing >= 0) return { points: [...points], selected: existing };
   if (points.length >= HF_COLOR_CURVE_MAX_POINTS) return null;
   if (tab.kind === "hue" && points.length < 3) {
     const result: HfHueCurvePoint[] = [
@@ -215,21 +224,15 @@ function safeRgbInput(
 ): number {
   if (index === 0) return 0;
   if (index === points.length - 1) return 1;
+  const previous = points[index - 1]?.[0] ?? 0;
+  const following = points[index + 1]?.[0] ?? 1;
+  // Older projects may already contain tightly packed nodes. Allow editing
+  // those without rewriting their neighbors or inverting the clamp interval.
+  const gap = Math.min(POINT_INPUT_GAP_PX / GRAPH_INNER_SIZE, (following - previous) / 3);
   return clampNumber(
     input,
-    (points[index - 1]?.[0] ?? 0) + INPUT_EPSILON,
-    (points[index + 1]?.[0] ?? 1) - INPUT_EPSILON,
-  );
-}
-
-function hueInputCollides(
-  points: readonly (HfColorCurvePoint | HfHueCurvePoint)[],
-  index: number,
-  input: number,
-): boolean {
-  return points.some(
-    (point, pointIndex) =>
-      pointIndex !== index && circularHueDistance(point[0], input) < INPUT_EPSILON * 360,
+    previous + gap,
+    following - gap,
   );
 }
 
@@ -238,16 +241,18 @@ function safeHueInput(
   index: number,
   input: number,
 ): number {
+  const current = points[index]?.[0] ?? 0;
+  const previousPoint = points[(index - 1 + points.length) % points.length]?.[0] ?? current;
+  const followingPoint = points[(index + 1) % points.length]?.[0] ?? current;
+  const previous = previousPoint >= current ? previousPoint - 360 : previousPoint;
+  const following = followingPoint <= current ? followingPoint + 360 : followingPoint;
+  const gap = Math.min((POINT_INPUT_GAP_PX / GRAPH_INNER_SIZE) * 360, (following - previous) / 3);
   const initial = clampNumber(input, 0, 359.999);
-  if (!hueInputCollides(points, index, initial)) return initial;
-  const spacing = INPUT_EPSILON * 360;
-  for (let step = 1; step <= points.length + 1; step += 1) {
-    const clockwise = (initial + spacing * step) % 360;
-    if (!hueInputCollides(points, index, clockwise)) return clockwise;
-    const counterClockwise = (initial - spacing * step + 360) % 360;
-    if (!hueInputCollides(points, index, counterClockwise)) return counterClockwise;
-  }
-  return initial;
+  // Choose the same turn of the circular hue axis as the dragged node. A
+  // point can pass through the red seam, but cannot leap over its neighbors.
+  const unwrapped = initial + Math.round((current - initial) / 360) * 360;
+  const safe = clampNumber(unwrapped, previous + gap, following - gap);
+  return ((safe % 360) + 360) % 360;
 }
 
 export function movePoint(
@@ -257,6 +262,9 @@ export function movePoint(
   output: number,
   tab: CurveTab,
 ) {
+  if (!Number.isFinite(input) || !Number.isFinite(output) || !points[index]) {
+    return { points: [...points], selected: index };
+  }
   const next = [...points];
   const safeInput =
     tab.kind === "rgb" ? safeRgbInput(next, index, input) : safeHueInput(next, index, input);
@@ -326,6 +334,11 @@ export function CurveGraph({
     index: number;
     points: readonly (HfColorCurvePoint | HfHueCurvePoint)[];
     rect: CurvePointerRect;
+    startX: number;
+    startY: number;
+    changed: boolean;
+    offsetX: number;
+    offsetY: number;
   } | null>(null);
   const samples = useMemo(() => samplesFor(points, tab), [points, tab]);
   const path = useMemo(() => curvePath(samples, tab), [samples, tab]);
@@ -367,13 +380,24 @@ export function CurveGraph({
   const previewFromPointer = (clientX: number, clientY: number) => {
     const active = pointerRef.current;
     if (!active) return;
-    const nextValue = valueFromPointer(clientX, clientY, active.rect, tab);
+    if (!active.changed && Math.hypot(clientX - active.startX, clientY - active.startY) < 2) return;
+    const nextValue = valueFromPointer(
+      clientX - active.offsetX,
+      clientY - active.offsetY,
+      active.rect,
+      tab,
+    );
     const moved = movePoint(active.points, active.index, nextValue.input, nextValue.output, tab);
     pointerRef.current = {
       pointerId: active.pointerId,
       index: moved.selected,
       points: moved.points,
       rect: active.rect,
+      startX: active.startX,
+      startY: active.startY,
+      changed: true,
+      offsetX: active.offsetX,
+      offsetY: active.offsetY,
     };
     onPreview(moved.points, moved.selected);
   };
@@ -458,21 +482,33 @@ export function CurveGraph({
           tab,
         );
         let index = nearestGraphPointIndex(points, value.input, value.output, tab);
+        if (index < 0) index = nearestInputPointIndex(points, value.input, tab);
         let nextPoints = points;
+        let insertedPoint = false;
         if (index < 0) {
           const inserted = insertPoint(points, value.input, value.output, tab);
           if (!inserted) return;
           nextPoints = inserted.points;
           index = inserted.selected;
+          insertedPoint = true;
         }
         event.currentTarget.setPointerCapture(event.pointerId);
-        pointerRef.current = { pointerId: event.pointerId, index, points: nextPoints, rect };
+        const grabbedPoint = nextPoints[index];
+        const drawn = grabbedPoint ? graphPoint(grabbedPoint[0], grabbedPoint[1], tab) : null;
+        const offsetX = insertedPoint || !drawn
+          ? 0
+          : event.clientX - (rect.left + (drawn.x / GRAPH_SIZE) * rect.width);
+        const offsetY = insertedPoint || !drawn
+          ? 0
+          : event.clientY - (rect.top + (drawn.y / GRAPH_SIZE) * rect.height);
+        pointerRef.current = {
+          pointerId: event.pointerId, index, points: nextPoints, rect,
+          startX: event.clientX, startY: event.clientY, changed: false,
+          offsetX, offsetY,
+        };
         onBegin();
         onSelect(index);
-        const moved = movePoint(nextPoints, index, value.input, value.output, tab);
-        pointerRef.current.index = moved.selected;
-        pointerRef.current.points = moved.points;
-        onPreview(moved.points, moved.selected);
+        if (insertedPoint) onPreview(nextPoints, index);
       }}
       onPointerMove={(event) => {
         if (disabled || pointerRef.current?.pointerId !== event.pointerId) return;
@@ -480,7 +516,7 @@ export function CurveGraph({
       }}
       onPointerUp={(event) => {
         if (pointerRef.current?.pointerId !== event.pointerId) return;
-        previewFromPointer(event.clientX, event.clientY);
+        if (pointerRef.current.changed) previewFromPointer(event.clientX, event.clientY);
         pointerRef.current = null;
         if (event.currentTarget.hasPointerCapture(event.pointerId)) {
           event.currentTarget.releasePointerCapture(event.pointerId);

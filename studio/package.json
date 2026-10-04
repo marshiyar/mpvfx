@@ -19,7 +19,7 @@
   "main": ".build/desktop-dist/main.js",
   "scripts": {
     "dev": "npm run desktop:dev",
-    "build": "npm run typecheck && npm run build:engine && npm run build:library && npm run build:frame-runtime && npm run build:renderer && npm run desktop:compile",
+    "build": "npm run typecheck && npm run build:engine && npm run build:library && npm run build:frame-runtime && npm run build:crosspost && npm run build:renderer && npm run desktop:compile",
     "build:engine": "node native/vkf/build.mjs",
     "build:frame-runtime": "node ../scripts/build/build-native-export-frame-runtime.mjs",
     "desktop:compile": "tsup --config .configurations/tsup.desktop.config.ts",
@@ -31,7 +31,7 @@
     "desktop:make:mac:x64": "node ../scripts/verification_checks/check-desktop-packaging-node.mjs && npm run desktop:build && electron-forge make --platform=darwin --arch=x64",
     "desktop:make:windows": "node ../scripts/verification_checks/check-desktop-packaging-node.mjs && npm run desktop:build && electron-forge make --platform=win32 --arch=x64",
     "desktop:make:linux": "node ../scripts/verification_checks/check-desktop-packaging-node.mjs && npm run desktop:build && electron-forge make --platform=linux --arch=x64",
-    "postinstall": "node ../scripts/third_party/install-redistributable-ffmpeg.mjs && node ../scripts/applier/apply-exact-keyframe-writer-patch.mjs && node ../scripts/applier/apply-export-capture-geometry-patch.mjs && node ../scripts/applier/apply-readonly-preview-patch.mjs",
+    "postinstall": "node ../scripts/third_party/install-redistributable-ffmpeg.mjs && node ../scripts/applier/apply-exact-keyframe-writer-patch.mjs && node ../scripts/applier/apply-export-capture-geometry-patch.mjs && node ../scripts/applier/apply-readonly-preview-patch.mjs && node ../scripts/applier/apply-video-audio-group-preview-patch.mjs",
     "typecheck": "npm run typecheck:shared && tsc --project .configurations/tsconfig.json --noEmit && tsc --project .configurations/tsconfig.desktop.json --noEmit",
     "knip": "knip",
     "knip:production": "knip --production",
@@ -49,7 +49,8 @@
     "typecheck:shared": "tsc --project .configurations/tsconfig.shared.json --noEmit",
     "check": "npm run check:architecture && npm run typecheck && npm test && npm run desktop:build",
     "build:renderer": "vite build --config .configurations/vite.config.ts",
-    "build:library": "node native/library/build.mjs"
+    "build:library": "node native/library/build.mjs",
+    "build:crosspost": "node ../scripts/build/build-crosspost-resources.mjs"
   },
   "dependencies": {
     "@ffprobe-installer/ffprobe": "^2.1.2",
@@ -61,6 +62,7 @@
     "@hyperframes/sdk": "0.8.20",
     "@hyperframes/studio-server": "0.8.20",
     "@phosphor-icons/react": "^2.1.10",
+    "@ricky0123/vad-web": "^0.0.31",
     "@tanstack/react-virtual": "^3.14.6",
     "acorn": "^8.18.0",
     "bpm-detective": "^2.0.5",

@@ -1,10 +1,12 @@
 import { sourceFrameValue } from "../../shared/project/nativeSourceTime";
 import { execFile, spawn } from "node:child_process";
-import { lstat, realpath, stat } from "node:fs/promises";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { lstat, mkdtemp, realpath, rm, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { isAbsolute, join, dirname, extname, relative, resolve, sep } from "node:path";
 import { parseNativeProjectDocument, type NativeProjectDocument, type NativeProjectClip } from "../../shared/project/nativeProjectDocument";
 import { exportQualityCrf, isValidExportOutputDimensions, type ExportDimensions, type ExportFormat, type ExportQuality } from "../../shared/export/exportPolicy";
 import { findBundledFfBinary, type BundledFfBinaryFinder } from "./binaries";
+import { publishFileExclusive } from "./publishFile";
 
 export interface NativeTimelineRenderInput {
   project: NativeProjectDocument;
@@ -82,7 +84,7 @@ function tempoFilters(rate: number): string[] {
 }
 
 /** Build a frame/audio graph from timeline data. No DOM, HTML, GSAP, or browser calls. */
-function timelineArgs(input: NativeTimelineRenderInput, media: Map<string, MediaInfo>): { args: string[]; duration: number } {
+function timelineArgs(input: NativeTimelineRenderInput, media: Map<string, MediaInfo>, includeAudio = true): { args: string[]; duration: number } {
   const { project } = input;
   const fps = project.frameRate.numerator / project.frameRate.denominator;
   const outputFps = input.outputFps ?? fps;
@@ -90,6 +92,7 @@ function timelineArgs(input: NativeTimelineRenderInput, media: Map<string, Media
   const clips = project.sequence.tracks.flatMap((track, index) => track.clips.map(clip => ({
     clip, layer: number(clip, "layout.zIndex", track.lane?.authoredTrack ?? index),
   }))).sort((a, b) => a.layer - b.layer || a.clip.startFrame - b.clip.startFrame || a.clip.id.localeCompare(b.clip.id));
+  const detachedVideoIds = new Set(clips.map(({ clip }) => clip.audioDetachedFrom).filter((id): id is string => !!id));
   const duration = Math.max(1, project.sequence.durationFrames ?? 0, ...clips.map(({ clip }) => clip.startFrame + clip.durationFrames)) / fps;
   const args = ["-hide_banner", "-loglevel", "error", "-nostdin", "-n", "-filter_complex_threads", "1"];
   const background = project.canvas.background.slice(1);
@@ -145,7 +148,7 @@ function timelineArgs(input: NativeTimelineRenderInput, media: Map<string, Media
         picture = `layer${index}`;
       }
     }
-    if (info.audio && !clip.muted && asset.kind !== "image") {
+    if (includeAudio && info.audio && !clip.muted && !detachedVideoIds.has(clip.id) && asset.kind !== "image") {
       const volume = Math.max(0, number(clip, "audio.volume", 1));
       const chain = ["asetpts=PTS-STARTPTS", ...tempoFilters(rate), `atrim=duration=${length}`,
         "aresample=48000", "aformat=sample_fmts=fltp:channel_layouts=stereo", `volume=${volume}`,
@@ -165,6 +168,96 @@ function timelineArgs(input: NativeTimelineRenderInput, media: Map<string, Media
   else args.push("-c:v", "prores_ks", "-profile:v", "4", "-pix_fmt", "yuva444p10le");
   args.push("-t", String(duration), "-r", String(outputFps), "-fps_mode", "cfr", "-progress", "pipe:2", input.outputPath);
   return { args, duration };
+}
+
+/** Run an auxiliary media operation with bounded diagnostics and cancellation. */
+async function runMediaTool(binary: string, args: string[], signal: AbortSignal | undefined, label: string): Promise<void> {
+  signal?.throwIfAborted();
+  await new Promise<void>((resolveRun, reject) => {
+    const child = spawn(binary, args, { shell: false, stdio: ["ignore", "ignore", "pipe"] });
+    let stderr = "";
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const abort = () => {
+      child.kill("SIGTERM");
+      timer = setTimeout(() => child.kill("SIGKILL"), 3000);
+      timer.unref();
+    };
+    const cleanup = () => { signal?.removeEventListener("abort", abort); if (timer) clearTimeout(timer); };
+    child.stderr.on("data", (chunk: Buffer) => { stderr = (stderr + chunk.toString("utf8")).slice(-4000); });
+    child.once("error", error => { cleanup(); reject(error); });
+    child.once("close", code => {
+      cleanup();
+      if (signal?.aborted) reject(signal.reason ?? new DOMException("Export cancelled", "AbortError"));
+      else if (code !== 0) reject(new Error(`${label} failed: ${stderr.trim()}`));
+      else resolveRun();
+    });
+    if (signal?.aborted) abort();
+    else signal?.addEventListener("abort", abort, { once: true });
+  });
+}
+
+/**
+ * Extract safe PCM stems before handing audio to the shared Web Audio mixer.
+ * The mixer therefore never opens an authored container or URL itself. Each
+ * stem already has its exact native source trim and rational playback rate;
+ * the mixer only positions it on the composition clock and applies the bus.
+ */
+async function mixNativeAudioGroups(
+  input: NativeTimelineRenderInput,
+  media: Map<string, MediaInfo>,
+  directory: string,
+  ffmpeg: string,
+  duration: number,
+): Promise<string | null> {
+  const { project } = input;
+  const fps = project.frameRate.numerator / project.frameRate.denominator;
+  const groups = new Map((project.sequence.audioGroups ?? []).map(group => [group.id, group]));
+  const detachedVideoIds = new Set(project.sequence.tracks.flatMap(track => track.clips.map(clip => clip.audioDetachedFrom)).filter((id): id is string => !!id));
+  const { processCompositionAudio } = await import("@hyperframes/engine");
+  const elements: import("@hyperframes/engine").AudioElement[] = [];
+  let index = 0;
+  for (const track of project.sequence.tracks) for (const clip of track.clips) {
+    const asset = project.assets.find(candidate => candidate.id === clip.assetId)!;
+    const info = media.get(asset.id)!;
+    if (clip.audioGroupId && !info.audio) {
+      throw new Error(`Clip ${clip.id} cannot join an audio group: its media has no audio stream`);
+    }
+    if (!info.audio || clip.muted || detachedVideoIds.has(clip.id) || asset.kind === "image") continue;
+    const group = clip.audioGroupId ? groups.get(clip.audioGroupId) : undefined;
+    if (group?.muted) continue;
+    const start = clip.startFrame / fps;
+    const length = clip.durationFrames / fps;
+    const sourceStart = sourceFrameValue(clip) / fps;
+    const rate = (clip.playbackRate?.numerator ?? 1) / (clip.playbackRate?.denominator ?? 1);
+    // Never interpolate a user-controlled ID into a temporary filename.
+    const safeId = `native-${createHash("sha256").update(clip.id).digest("hex").slice(0, 20)}`;
+    const filename = `stem-${index++}.wav`;
+    await runMediaTool(ffmpeg, [
+      "-hide_banner", "-loglevel", "error", "-nostdin", "-n", "-protocol_whitelist", "file,pipe",
+      "-ss", String(sourceStart), "-t", String(length * rate), "-i", info.path,
+      "-vn", "-af", ["asetpts=PTS-STARTPTS", ...tempoFilters(rate), `atrim=duration=${length}`,
+        "aresample=48000", "aformat=sample_fmts=fltp:channel_layouts=stereo"].join(","),
+      "-c:a", "pcm_f32le", join(directory, filename),
+    ], input.signal, `Audio extraction for clip ${clip.id}`);
+    elements.push({
+      id: safeId, src: filename, start, end: start + length, mediaStart: 0,
+      playbackRate: 1, layer: 0, volume: Math.max(0, number(clip, "audio.volume", 1)),
+      ...(clip.audioFxChain ? { fxChain: clip.audioFxChain } : {}),
+      ...(clip.audioAutomation ? { automation: clip.audioAutomation } : {}),
+      ...(group ? {
+        groupId: group.id,
+        groupVolume: group.volume ?? 1,
+        ...(group.fxChain ? { groupFxChain: group.fxChain } : {}),
+        ...(group.automation ? { groupAutomation: group.automation } : {}),
+      } : {}),
+      type: "audio",
+    });
+  }
+  if (!elements.length) return null;
+  const output = join(directory, "audio.m4a");
+  const result = await processCompositionAudio(elements, directory, join(directory, "mix-work"), output, duration, input.signal);
+  if (!result.success || result.error) throw new Error(`Native audio group render failed: ${result.error ?? "unknown mixer failure"}`);
+  return output;
 }
 
 export async function renderNativeTimeline(
@@ -190,9 +283,21 @@ export async function renderNativeTimeline(
   for (const asset of project.assets) if (usedAssets.has(asset.id)) {
     media.set(asset.id, await probeMedia(root, asset.source!, ffprobe, input.signal));
   }
-  const { args, duration } = timelineArgs({ ...input, project }, media);
-  input.signal?.throwIfAborted();
-  await new Promise<void>((resolveRender, reject) => {
+  const grouped = project.sequence.tracks.some(track => track.clips.some(clip =>
+    clip.audioGroupId || clip.audioFxChain || clip.audioAutomation));
+  // Ordinary projects retain their established one-pass FFmpeg path. Only a
+  // project with saved native bus membership pays for the shared FX submix.
+  const directory = grouped ? await mkdtemp(join(dirname(input.outputPath), ".mpvfx-group-render-")) : null;
+  try {
+    const visualPath = directory ? join(directory, `picture${extname(input.outputPath)}`) : input.outputPath;
+    const renderInput = { ...input, project, outputPath: visualPath };
+    const { args, duration } = timelineArgs(renderInput, media, !grouped);
+    const mixedAudio = directory
+      ? await mixNativeAudioGroups(renderInput, media, directory, ffmpeg, duration)
+      : null;
+    if (directory) input.onProgress?.(10);
+    input.signal?.throwIfAborted();
+    await new Promise<void>((resolveRender, reject) => {
     const child = spawn(ffmpeg, args, { shell: false, stdio: ["ignore", "ignore", "pipe"] });
     let stderr = "";
     let pending = "";
@@ -210,7 +315,10 @@ export async function renderNativeTimeline(
       pending = (lines.pop() ?? "").slice(-4000);
       for (const line of lines) if (line.startsWith("out_time_us=")) {
         const seconds = Number(line.slice(12)) / 1_000_000;
-        if (Number.isFinite(seconds)) input.onProgress?.(Math.max(0, Math.min(99.9, seconds / duration * 100)));
+        if (Number.isFinite(seconds)) {
+          const percent = Math.max(0, Math.min(99.9, seconds / duration * 100));
+          input.onProgress?.(directory ? 10 + percent * 0.8 : percent);
+        }
       }
     });
     child.once("error", error => { cleanup(); reject(error); });
@@ -218,9 +326,29 @@ export async function renderNativeTimeline(
       cleanup();
       if (input.signal?.aborted) reject(input.signal.reason ?? new DOMException("Export cancelled", "AbortError"));
       else if (code !== 0) reject(new Error(`Native timeline render failed: ${stderr.trim()}`));
-      else { input.onProgress?.(100); resolveRender(); }
+      else { if (!directory) input.onProgress?.(100); resolveRender(); }
     });
     input.signal?.addEventListener("abort", abort, { once: true });
     if (input.signal?.aborted) abort();
-  });
+    });
+    if (directory) {
+      let published = visualPath;
+      if (mixedAudio) {
+        published = join(directory, `muxed${extname(input.outputPath)}`);
+        await runMediaTool(ffmpeg, [
+          "-hide_banner", "-loglevel", "error", "-nostdin", "-n",
+          "-protocol_whitelist", "file,pipe", "-i", visualPath,
+          "-protocol_whitelist", "file,pipe", "-i", mixedAudio,
+          "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "copy",
+          "-t", String(duration), ...(input.format === "mp4" ? ["-movflags", "+faststart"] : []),
+          published,
+        ], input.signal, "Native audio group mux");
+      }
+      input.signal?.throwIfAborted();
+      await publishFileExclusive(published, input.outputPath);
+      input.onProgress?.(100);
+    }
+  } finally {
+    if (directory) await rm(directory, { recursive: true, force: true });
+  }
 }

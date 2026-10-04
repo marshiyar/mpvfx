@@ -21,7 +21,8 @@ for (const kind of ["video", "audio", "image"] as const) {
             }] }] },
         });
         const before = JSON.stringify(document);
-        const files = new Map([[PATH, before], ["scene.html", "before"]]);
+        const mediaTag = kind === "image" ? "img" : kind;
+        const files = new Map([[PATH, before], ["scene.html", `<main><${mediaTag} id="media" data-start="0" data-duration="2"></${mediaTag}></main>`]]);
         const recordEdit = vi.fn(async () => {});
         const read = vi.fn(async (path: string) => files.get(path));
         const write = vi.fn(async (path: string, content: string, expected?: string) => {
@@ -36,7 +37,7 @@ for (const kind of ["video", "audio", "image"] as const) {
         else if (operation === "move") result = await commitNativeTimelineMove({ ...base, element, requestedStartSeconds: 1, requestedTrack: 0, patchCompatibilityContent: patch });
         else if (operation === "multi-trim") result = await commitNativeTimelineMultiRangeEdit({ ...base, changes: [range], patchCompatibilityContent: patch });
         else if (operation === "multi-move") result = await commitNativeTimelineMultiMove({ ...base, changes: [{ element, requestedStartSeconds: 1 }], patchCompatibilityContent: patch });
-        else if (operation === "split") result = await commitNativeTimelineSplits({ ...base, splits: [{ element, requestedSplitSeconds: 1 }], patchCompatibilityContent: () => ({ content: patch(), rightBinding: { sourceFile: "scene.html", domId: "right" } }) });
+        else if (operation === "split") result = await commitNativeTimelineSplits({ ...base, splits: [{ element, requestedSplitSeconds: 1 }], patchCompatibilityContent: () => ({ content: `<main><${mediaTag} id="media" data-start="0" data-duration="1"></${mediaTag}><${mediaTag} id="right" data-start="1" data-duration="1"></${mediaTag}></main>${patch()}`, rightBinding: { sourceFile: "scene.html", domId: "right" } }) });
         else result = await commitNativeTimelineDelete({ ...base, targets: [element], removeCompatibilityTarget: patch });
         expect(result.committed).toBe(true);
         if (!result.committed) return;

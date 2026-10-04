@@ -9,6 +9,10 @@ import {
   installNativeProjectRuntime,
   type NativeProjectRuntimeClock,
 } from "./nativeProjectRuntime";
+import {
+  discardCommittedNativeGestureDrafts,
+  releaseCommittedNativeGestureDrafts,
+} from "./nativeGestureDraft";
 
 export type NativeProjectSessionStatus =
   "idle" | "loading" | "absent" | "ready" | "error";
@@ -73,6 +77,9 @@ export function useNativeProjectSession(
     const abort = new AbortController();
     const projectChanged = lastRequestedProjectId.current !== options.projectId;
     lastRequestedProjectId.current = options.projectId;
+    if (projectChanged && options.iframe?.contentDocument) {
+      discardCommittedNativeGestureDrafts(options.iframe.contentDocument);
+    }
     if (!options.projectId) {
       setState(idleState);
       return () => abort.abort();
@@ -153,6 +160,12 @@ export function useNativeProjectSession(
       } else if (options.getPlayheadSeconds) {
         runtime.player.seek(options.getPlayheadSeconds());
       }
+      // The save promise can resolve before this async sidecar reload installs.
+      // Retire the committed picture only once the replacement has successfully
+      // painted. Reapply synchronously after retiring it, before the browser can
+      // show another frame or a newer gesture loses its own draft.
+      releaseCommittedNativeGestureDrafts(iframeDocument, nativeDocument.id, nativeDocument.revision);
+      runtime.player.seek(runtime.player.getTime());
       options.onNativeDuration?.(
         (runtime.durationFrames * nativeDocument.frameRate.denominator) /
           nativeDocument.frameRate.numerator,

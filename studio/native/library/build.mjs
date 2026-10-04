@@ -18,7 +18,7 @@ for (const args of [
           `-DCMAKE_OSX_ARCHITECTURES=${process.arch === "arm64" ? "arm64" : "x86_64"}`,
         ]
       : []),
-    `-DNODE_API_INCLUDE_DIR=${resolve(dirname(process.execPath), "../include/node")}`,
+    `-DNODE_API_INCLUDE_DIR=${resolve(process.env.NODE_API_INCLUDE_DIR ?? resolve(dirname(process.execPath), "../include/node"))}`,
   ],
   ["--build", output, "--config", "Release"],
 ]) {

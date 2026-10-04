@@ -186,7 +186,16 @@ export const LeftSidebar = memo(
           <div className="flex min-h-0 flex-1">{takeoverContent}</div>
         ) : (
           <>
-            {libraryNavigation}
+            {libraryNavigation && (
+              <div
+                role="region"
+                aria-label="Libraries and shared media"
+                tabIndex={0}
+                className="max-h-[45%] min-h-0 shrink-0 overflow-y-auto overscroll-contain focus-visible:outline focus-visible:outline-2 focus-visible:outline-studio-accent"
+              >
+                {libraryNavigation}
+              </div>
+            )}
             {/* Media-first editor navigation. */}
             {(availableTabs.length > 1 || onToggleCollapse || onImportFiles) && (
             <div className="border-b border-neutral-800/50 px-3 py-3 flex-shrink-0">

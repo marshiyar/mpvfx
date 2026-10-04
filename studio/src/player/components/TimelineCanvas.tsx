@@ -77,6 +77,7 @@ export const TimelineCanvas = memo(function TimelineCanvas(props: TimelineCanvas
           draggedKey: draggedElementIdentity,
           draggedOriginStart: draggedElement.start,
           draggedPreviewStart: draggedClip.previewStart,
+          groupRowDelta: draggedClip.groupRowDelta,
           selectedKeys: selectedElementIds,
         }
       : null;

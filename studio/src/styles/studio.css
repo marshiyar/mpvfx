@@ -25,6 +25,18 @@ body {
   overflow: hidden;
 }
 
+/* Chrome labels and thumbnails should not behave like selectable web-page text.
+ * Inputs and inline canvas text remain editable and selectable. */
+.studio-editor-chrome {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.studio-editor-chrome :is(input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="searchbox"], [role="combobox"], .cm-editor) {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 .hf-color-grading-number::-webkit-outer-spin-button,
 .hf-color-grading-number::-webkit-inner-spin-button {
   margin: 0;
@@ -185,8 +197,18 @@ body {
 }
 
 .timeline-clip.is-selected {
-  outline: 1.5px solid rgba(255, 255, 255, 0.85);
-  outline-offset: -1.5px;
+  outline: 2px solid rgba(255, 255, 255, 0.98);
+  outline-offset: -2px;
+}
+
+.timeline-clip.is-selected[data-active] {
+  outline: 2px solid #60a5fa;
+  outline-offset: -2px;
+}
+
+.timeline-clip:focus-visible {
+  outline: 2px solid #fbbf24;
+  outline-offset: -2px;
 }
 
 .timeline-clip.is-dragging {
@@ -195,10 +217,14 @@ body {
   background-color: rgba(38, 42, 52, 0.96);
 }
 
-/* Keep the white selection outline while dragging. */
+/* Keep a clear selected edge while dragging. */
 .timeline-clip.is-selected.is-dragging {
-  outline: 1.5px solid rgba(255, 255, 255, 0.85);
-  outline-offset: -1.5px;
+  outline: 2px solid rgba(255, 255, 255, 0.98);
+  outline-offset: -2px;
+}
+
+.timeline-clip.is-selected.is-dragging[data-active] {
+  outline-color: #60a5fa;
 }
 
 .timeline-clip__label {

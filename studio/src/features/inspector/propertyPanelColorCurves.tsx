@@ -72,6 +72,12 @@ export function ColorCurves({
     setSelectedIndex(nextSelectedIndex);
     transaction.preview(withPoints(draft, tab, nextPoints));
   };
+  const beginPreview = () => {
+    transaction.begin();
+    // Even a pointer press that makes no curve change owns the live preview
+    // until release. An older save may finish during that gesture.
+    onPreview(draft);
+  };
   const resetActive = () => {
     transaction.cancel();
     const next = withPoints(draft, tab, tab.kind === "rgb" ? RGB_IDENTITY : []);
@@ -142,7 +148,7 @@ export function ColorCurves({
         points={points}
         selectedIndex={selectedIndex}
         disabled={disabled}
-        onBegin={transaction.begin}
+        onBegin={beginPreview}
         onPreview={previewPoints}
         onSelect={setSelectedIndex}
         onDelete={deleteSelected}
@@ -162,7 +168,7 @@ export function ColorCurves({
               labelClassName="min-w-0 flex-1"
               labelTextClassName="block text-[8px] uppercase text-panel-text-5"
               inputClassName="block w-full"
-              onBegin={transaction.begin}
+              onBegin={beginPreview}
               onPreview={(next) => updateSelected("input", next)}
               onSettle={transaction.settle}
               onCancel={transaction.cancel}
@@ -177,7 +183,7 @@ export function ColorCurves({
               labelClassName="min-w-0 flex-1"
               labelTextClassName="block text-[8px] uppercase text-panel-text-5"
               inputClassName="block w-full"
-              onBegin={transaction.begin}
+              onBegin={beginPreview}
               onPreview={(next) => updateSelected("output", next)}
               onSettle={transaction.settle}
               onCancel={transaction.cancel}
