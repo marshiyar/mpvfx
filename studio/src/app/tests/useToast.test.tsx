@@ -88,3 +88,25 @@ it("schedules expiry only for displayed info notices", () => {
     vi.useRealTimers();
   }
 });
+
+it("groups repeated native clip patch failures and retains every distinct diagnostic", () => {
+  let state!: ReturnType<typeof useToast>;
+  function Harness() { state = useToast(); return null; }
+  const root = createRoot(document.createElement("div"));
+  const first = "Compatibility source index.html did not accept the patch for native clip native-split:one";
+  const second = "Compatibility source index.html did not accept the patch for native clip native-split:two";
+  try {
+    act(() => root.render(<Harness />));
+    act(() => {
+      state.showToast(first, "error");
+      state.showToast(second, "error");
+      state.showToast(second, "error");
+      state.showToast("Compatibility source scene.html did not accept the patch for native clip other", "error");
+    });
+    expect(state.toasts).toHaveLength(2);
+    expect(state.toasts[0]).toMatchObject({ occurrences: 3, details: [first, second] });
+    expect(state.toasts[1]?.occurrences).toBe(1);
+  } finally {
+    act(() => root.unmount());
+  }
+});

@@ -1,9 +1,13 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useMountEffect } from "./useMountEffect";
 import type { AppToast } from "../lib/studioHelpers";
+import { toastGroupKey } from "./toastPresentation";
 
 interface ToastItem extends AppToast {
   id: number;
+  groupKey: string;
+  occurrences: number;
+  details: string[];
   /** True while the exit animation plays, just before removal. */
   leaving?: boolean;
 }
@@ -53,11 +57,20 @@ export function useToast() {
     (message: string, tone: AppToast["tone"] = "error") => {
       const id = nextToastId++;
       setToasts((prev) => {
-        if (prev.some((toast) =>
-          !toast.leaving && toast.tone === tone && toast.message === message)) return prev;
+        const groupKey = toastGroupKey(message, tone);
+        const existing = prev.find((toast) =>
+          !toast.leaving && toast.tone === tone && toast.groupKey === groupKey);
+        if (existing) {
+          if (tone !== "error") return prev;
+          return prev.map((toast) => toast.id === existing.id ? {
+            ...toast,
+            occurrences: toast.occurrences + 1,
+            details: toast.details.includes(message) ? toast.details : [...toast.details, message],
+          } : toast);
+        }
         if (tone !== "error" && prev.length >= MAX_TOASTS &&
           prev.every((toast) => toast.tone === "error")) return prev;
-        const next = [...prev, { id, message, tone }];
+        const next = [...prev, { id, message, tone, groupKey, occurrences: 1, details: [message] }];
         // Keep actionable errors visible before transient info notices.
         while (next.length > MAX_TOASTS) {
           const oldestInfo = next.findIndex((toast) => toast.tone !== "error");
