@@ -2,7 +2,8 @@ import { isAudioTimelineElement } from "../../features/timeline/timelineInspecto
 import type { TimelineElement } from "../store/playerStore";
 import { AUTOMATION_LANE_H } from "./automationLaneHeight";
 import type { ZoomMode } from "../store/playerStore";
-import type { TimelineTimeRange } from "../lib/timelineClipIndex";
+export { getTimelineBeatEntries } from "./timelineBeatEntries";
+export type { TimelineBeatEntry } from "./timelineBeatEntries";
 
 /* ── Layout constants ──────────────────────────────────────────────── */
 export const GUTTER = 32;
@@ -14,47 +15,6 @@ export const LANE_H = 28;
 export const RULER_H = 24;
 export const CLIP_Y = 3;
 export const CLIP_HANDLE_W = 18;
-export interface TimelineBeatEntry {
-  readonly index: number;
-  readonly time: number;
-  readonly strength: number | undefined;
-}
-
-function findFirstTimeAtOrAfter(times: readonly number[], target: number): number {
-  let low = 0;
-  let high = times.length;
-  while (low < high) {
-    const mid = Math.floor((low + high) / 2);
-    if ((times[mid] ?? Number.POSITIVE_INFINITY) < target) low = mid + 1;
-    else high = mid;
-  }
-  return low;
-}
-
-/** Slice sorted beat data without allocating entries outside the render window. */
-export function getTimelineBeatEntries(
-  beatTimes: readonly number[] | undefined,
-  beatStrengths: readonly number[] | undefined,
-  range: TimelineTimeRange | undefined,
-  pinnedIndexes: ReadonlySet<number> = new Set(),
-): readonly TimelineBeatEntry[] {
-  if (!beatTimes?.length) return [];
-  const start = range?.start ?? Number.NEGATIVE_INFINITY;
-  const end = range?.end ?? Number.POSITIVE_INFINITY;
-  const selected = new Set<number>();
-  for (let index = findFirstTimeAtOrAfter(beatTimes, start); index < beatTimes.length; index++) {
-    const time = beatTimes[index];
-    if (time === undefined || time >= end) break;
-    selected.add(index);
-  }
-  for (const index of pinnedIndexes) {
-    if (index >= 0 && index < beatTimes.length) selected.add(index);
-  }
-  return [...selected]
-    .sort((left, right) => left - right)
-    .map((index) => ({ index, time: beatTimes[index]!, strength: beatStrengths?.[index] }));
-}
-
 /** Audio and pictures share a track, with separate bars so neither hides the other. */
 export function timelineMediaRowCount(elements: readonly TimelineElement[]): number {
   return elements.some(isAudioTimelineElement) && elements.some(element => !isAudioTimelineElement(element)) ? 2 : 1;
@@ -79,11 +39,11 @@ export const INSERT_BOUNDARY_BAND = CLIP_Y / TRACK_H;
  *
  * - TRACKS_TOP_PAD: compact space between the (sticky) ruler and the first
  *   track, keeping the ruler readable without leaving a large dead band.
- * - TRACKS_BOTTOM_PAD: empty space below the last track (~1.5 track heights),
- *   enough to comfortably drag a clip into the void to create a new bottom lane.
+ * - TRACKS_BOTTOM_PAD: a small drop target below the last row. Keeping this
+ *   compact avoids a large blank band when the timeline reaches its scroll end.
  */
 export const TRACKS_TOP_PAD = 16;
-export const TRACKS_BOTTOM_PAD = Math.round(TRACK_H * 1.5);
+export const TRACKS_BOTTOM_PAD = 12;
 /**
  * Breathing room LEFT of t=0 (CapCut-style), inside the scroll content — the
  * horizontal sibling of TRACKS_TOP_PAD: empty lane surface between the sticky

@@ -144,10 +144,10 @@ describe("collapsed timeline row geometry characterization", () => {
   });
 
   it.each([
-    [0, 112],
-    [1, 160],
-    [3, 256],
-    [5, 352],
+    [0, 52],
+    [1, 100],
+    [3, 196],
+    [5, 292],
   ])("keeps the %i-track canvas height at %i", (trackCount, expectedHeight) => {
     expect(getTimelineCanvasHeight(baseRows(trackCount))).toBe(expectedHeight);
   });
@@ -206,11 +206,12 @@ describe("track-area breathing pad y-math", () => {
     });
 
     it("leaves room below the last lane for a drag-into-void new track", () => {
-      // The gap below the final lane must be at least a full track height so a
-      // clip can be dropped there to create a new bottom track.
+      // Keep a reachable drop target without a conspicuous empty track-height band.
       const oneLane = getTimelineCanvasHeight(baseRows(1));
       const lastLaneBottom = getTimelineRowTop(0) + TRACK_H;
-      expect(oneLane - lastLaneBottom).toBeGreaterThanOrEqual(TRACK_H);
+      expect(oneLane - lastLaneBottom).toBe(TRACKS_BOTTOM_PAD);
+      expect(TRACKS_BOTTOM_PAD).toBeGreaterThanOrEqual(8);
+      expect(TRACKS_BOTTOM_PAD).toBeLessThan(TRACK_H);
     });
   });
 
