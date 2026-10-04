@@ -138,6 +138,9 @@ export async function pasteNativeClipboard(input: {
       track.clips.push(clip);
       node.setAttribute("data-start", String(clip.startFrame * secondsPerFrame));
       node.setAttribute("data-duration", String(clip.durationFrames * secondsPerFrame));
+      // Preview may have stamped the old absolute end on the copied node.
+      // The new start/duration are authoritative; the compiler derives end.
+      node.removeAttribute("data-end");
       node.setAttribute("data-track-index", String(track.lane!.authoredTrack));
       endFrame = Math.max(endFrame, clip.startFrame + clip.durationFrames);
     }

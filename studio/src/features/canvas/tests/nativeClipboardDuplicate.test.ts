@@ -30,7 +30,7 @@ it("copies clip-local effects and keyframes into a distinct undoable native clip
       }],
     }] },
   });
-  const clipHtml = '<video id="camera" data-hf-id="hf-camera" data-studio-clip-id="clip:original" class="clip" src="media/camera.mov" data-start="0" data-duration="4"></video>';
+  const clipHtml = '<video id="camera" data-hf-id="hf-camera" data-studio-clip-id="clip:original" class="clip" src="media/camera.mov" data-start="0" data-duration="4" data-end="4"></video>';
   const source = `<main data-composition-id="main" data-duration="4">${clipHtml}</main>`;
   const files = new Map([[NATIVE_PROJECT_DOCUMENT_PATH, serializeNativeProjectDocument(original)], ["index.html", source]]);
   const snapshot = captureNativeClipboard(clipHtml, original, "workspace:one");
@@ -64,6 +64,13 @@ it("copies clip-local effects and keyframes into a distinct undoable native clip
   expect(duplicated.parameterTracks[0]?.id).not.toBe("track:rotation");
   expect(duplicated.parameterTracks[0]?.keyframes[0]?.id).not.toBe("key:rotation");
   expect(duplicated.parameterTracks[0]?.keyframes[0]?.value).toBe(30);
+  const savedHtml = files.get("index.html")!;
+  expect(savedHtml).toContain('id="camera"');
+  expect(savedHtml).toContain('data-end="4"');
+  const duplicatedTag = savedHtml.match(/<video[^>]*data-studio-clip-id="native-clip:[^>]*>/)?.[0];
+  expect(duplicatedTag).toBeDefined();
+  expect(duplicatedTag).toContain('data-start="4"');
+  expect(duplicatedTag).not.toContain('data-end=');
   expect(recordEdit).toHaveBeenCalledWith(expect.objectContaining({
     files: expect.objectContaining({
       [NATIVE_PROJECT_DOCUMENT_PATH]: expect.objectContaining({ before: serializeNativeProjectDocument(original) }),
