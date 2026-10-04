@@ -14,6 +14,7 @@ import {
 import { dirname, isAbsolute, join, posix, relative, resolve } from "node:path";
 import { parseHTMLContent } from "@hyperframes/core/compiler";
 import { bakeTrackSamples, vkfEngine } from "../../shared/engine/vkfEngine";
+import { sourceFrameValue } from "../../shared/project/nativeSourceTime";
 
 import {
   NATIVE_PROJECT_DOCUMENT_PATH,
@@ -111,7 +112,7 @@ export function applyNativeProjectExportAudioMutes(
     const bindingTarget = nativeBindingTarget(document, clip);
     if (!bindingTarget) throw new Error(`Native export cannot resolve clip ${clip.id} in ${normalizedFile}`);
     bindingTarget.setAttribute("data-studio-clip-id", clip.id);
-    if (!clip.muted || (asset.kind !== "audio" && asset.kind !== "video")) continue;
+    if (asset.kind !== "audio" && asset.kind !== "video") continue;
     const nestedMedia = bindingTarget
       ? Array.from(bindingTarget.querySelectorAll(asset.kind))
       : [];
@@ -125,9 +126,46 @@ export function applyNativeProjectExportAudioMutes(
         `Native export cannot resolve muted ${asset.kind} clip ${JSON.stringify(clip.id)} in ${JSON.stringify(normalizedFile)}`,
       );
     }
-    if (asset.kind === "audio") media.setAttribute("data-hidden", "");
-    else media.setAttribute("data-has-audio", "false");
-    media.setAttribute("data-studio-native-export-muted", "");
+    if (clip.muted) {
+      if (asset.kind === "audio") media.setAttribute("data-hidden", "");
+      else media.setAttribute("data-has-audio", "false");
+      media.setAttribute("data-studio-native-export-muted", "");
+      continue;
+    }
+    if (asset.kind !== "video" || !clip.audioGroupId || media.getAttribute("data-has-audio") !== "true") continue;
+    const group = project.sequence.audioGroups?.find(candidate => candidate.id === clip.audioGroupId);
+    const groupElements = [...document.querySelectorAll("hf-audio-group")]
+      .filter(candidate => candidate.id === clip.audioGroupId);
+    if (!group || groupElements.length !== 1) {
+      throw new Error(`Native export cannot resolve audio group ${JSON.stringify(clip.audioGroupId)}`);
+    }
+    // Producer applies bus processing to <audio> members only. Keep the video
+    // for picture, and route its sound through one export-only audio lane.
+    media.setAttribute("data-has-audio", "false");
+    if (group.muted) continue;
+    const id = `__studio_export_audio_${Buffer.from(clip.id).toString("hex")}`;
+    if (document.getElementById(id)) throw new Error(`Native export audio id is occupied: ${id}`);
+    const audio = document.createElement("audio");
+    audio.id = id;
+    const source = media.getAttribute("src");
+    if (source) audio.setAttribute("src", source);
+    else for (const child of media.querySelectorAll("source")) audio.appendChild(child.cloneNode(true));
+    const secondsPerFrame = project.frameRate.denominator / project.frameRate.numerator;
+    const start = clip.startFrame * secondsPerFrame;
+    audio.setAttribute("data-start", String(start));
+    audio.setAttribute("data-end", String((clip.startFrame + clip.durationFrames) * secondsPerFrame));
+    audio.setAttribute("data-media-start", String(sourceFrameValue(clip) * secondsPerFrame));
+    audio.setAttribute("data-playback-rate", String(clip.playbackRate
+      ? clip.playbackRate.numerator / clip.playbackRate.denominator : 1));
+    audio.setAttribute("data-audio-group", group.id);
+    audio.setAttribute("data-volume", String(clip.staticParameters?.["audio.volume"] ?? 1));
+    if (clip.audioFxChain) audio.setAttribute("data-fx-chain", clip.audioFxChain);
+    if (clip.audioAutomation) audio.setAttribute("data-automation", clip.audioAutomation);
+    const groupElement = groupElements[0]!;
+    groupElement.setAttribute("data-volume", String(group.volume ?? 1));
+    if (group.fxChain) groupElement.setAttribute("data-fx-chain", group.fxChain);
+    if (group.automation) groupElement.setAttribute("data-automation", group.automation);
+    media.after(audio);
   }
   return document.toString();
 }
