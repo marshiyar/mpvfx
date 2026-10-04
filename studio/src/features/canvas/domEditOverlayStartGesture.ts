@@ -42,6 +42,7 @@ import {
   resetDragMoveLog,
 } from "../../lib/dragDebug";
 import { readElementCropInsets } from "./domEditOverlayCrop";
+import { captureNativeGestureDraft } from "../project/nativeGestureDraft";
 
 export function startGroupDrag(
   e: React.PointerEvent<HTMLElement>,
@@ -121,6 +122,9 @@ export function startGroupDrag(
     members,
     snapContext,
   };
+  // A previous save may still be installing when this token takes over. Seed
+  // every new native draft before the next frame can repaint the old revision.
+  for (const member of members) captureNativeGestureDraft(member.element);
   return true;
 }
 
@@ -377,6 +381,9 @@ export function startGesture(
     resizeFixedCenterStart,
     resizeCrop,
   };
+  // The first pointer move may arrive after a native/GSAP frame. Capture the
+  // visible starting pose under this token now, including a prior unsaved resize.
+  captureNativeGestureDraft(sel.element);
   if (kind === "resize") {
     resetResizeMoveLog();
     logResize("start", {

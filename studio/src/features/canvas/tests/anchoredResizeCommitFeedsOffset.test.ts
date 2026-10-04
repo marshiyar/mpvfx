@@ -2,6 +2,8 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DomEditSaveQueueOpenError } from "../../history/domEditSaveQueue";
+import { applyNativeFrameToDocument } from "../../project/nativeFrameApplication";
+import { createNativeParameterTrack } from "../../../../shared/project/nativeKeyframeTypes";
 import type { DomEditSelection } from "../domEditing";
 import type {
   GestureState,
@@ -212,6 +214,66 @@ afterEach(() => {
 });
 
 describe("anchored corner resize — the release commit feeds the center-pin offset", () => {
+  it("keeps a new drag pose when the previous native position revision repaints", () => {
+    const { handlers, selection } = buildHarness();
+    const element = selection.element;
+    element.setAttribute("data-studio-clip-id", "clip:drag");
+    element.setAttribute("data-studio-native-owned", "transform.position");
+    element.style.transform = "translate3d(113px, 70px, 0px)";
+    expect(handlers.startGesture("drag", evt(100, 50))).toBe(true);
+    const visible = element.style.transform;
+    expect(visible).toContain("113px");
+
+    const position = createNativeParameterTrack({
+      id: "position", parameterId: "transform.position", valueType: "vec2",
+      frameRate: { numerator: 30, denominator: 1 },
+      keyframes: [
+        { id: "start", frame: 0, value: { x: 0, y: 0 }, outgoing: { type: "linear" } },
+        { id: "end", frame: 30, value: { x: 30, y: 20 }, outgoing: { type: "linear" } },
+      ],
+    });
+    for (const frame of [0, 15, 0]) {
+      applyNativeFrameToDocument(document, [{
+        clipId: "clip:drag", startFrame: 0, durationFrames: 31,
+        staticParameters: {}, parameterTracks: [position],
+      }], frame);
+      expect(element.style.transform).toBe(visible);
+    }
+  });
+
+  it("seeds a new native gesture before a stale frame can restore the previous size", () => {
+    const { handlers, selection } = buildHarness(undefined, { croppedVideo: true });
+    const element = selection.element;
+    element.setAttribute("data-studio-clip-id", "clip:a");
+    element.setAttribute("data-studio-native-owned", "layout.width layout.height");
+    element.style.width = "300px";
+    element.style.height = "150px";
+    const crop = element.style.clipPath;
+
+    expect(handlers.startGesture("resize", evt(200, 50), { resizeHandle: "se" })).toBe(true);
+    // The prior resize has released, but its async save has not installed yet.
+    // The old animated evaluator still paints 200x100 or 220x110 on seeks.
+    const tracks = (["layout.width", "layout.height"] as const).map((parameterId, axis) =>
+      createNativeParameterTrack({
+        id: parameterId, parameterId, valueType: "number",
+        frameRate: { numerator: 30, denominator: 1 },
+        keyframes: [
+          { id: `${parameterId}:start`, frame: 0, value: axis ? 100 : 200, outgoing: { type: "linear" } },
+          { id: `${parameterId}:end`, frame: 30, value: axis ? 120 : 240, outgoing: { type: "linear" } },
+        ],
+      }));
+    const oldClip = [{
+      clipId: "clip:a", startFrame: 0, durationFrames: 31,
+      staticParameters: {}, parameterTracks: tracks,
+    }];
+    for (const frame of [0, 15, 0]) {
+      applyNativeFrameToDocument(document, oldClip, frame);
+      expect([element.style.width, element.style.height, element.style.clipPath]).toEqual([
+        "300px", "150px", crop,
+      ]);
+    }
+  });
+
   it("resizes an asymmetric crop as one visible box without exposing the hidden source border", () => {
     const painted: OverlayRectLike[] = [];
     const { handlers, box, commits, selection } = buildHarness(undefined, {
