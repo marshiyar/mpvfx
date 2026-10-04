@@ -76,6 +76,7 @@ describe("TimelineEmptyState", () => {
     const iconChildren = [...(icon?.children ?? [])];
     expect(prompt).toBeDefined();
     expect(iconChildren).toHaveLength(4);
+    expect(prompt?.parentElement?.className).toContain("pointer-events-none");
 
     for (const hovering of [true, false, true]) {
       render(hovering);

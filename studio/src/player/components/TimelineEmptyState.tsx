@@ -48,12 +48,12 @@ export function TimelineEmptyState({
       {/* Empty drop zone */}
       <div className="flex-1 flex items-center justify-center">
         <div
-          className={`flex items-center gap-3 px-6 py-3 border border-dashed rounded-lg transition-colors duration-150 ${
+          className={`pointer-events-none flex items-center gap-3 px-6 py-3 border border-dashed rounded-lg transition-colors duration-150 ${
             isDragOver ? "border-studio-accent/60 bg-studio-accent/[0.06]" : "border-neutral-700/50"
           }`}
         >
-          {/* Keep the target subtree mounted while a native drag crosses it.
-              Replacing the icon paths on dragover can cancel the browser's drop. */}
+          {/* The outer drop zone owns drag events. Keep this decorative subtree
+              mounted and out of hit testing so a drag over its text still drops. */}
           <svg
             width="18"
             height="18"
