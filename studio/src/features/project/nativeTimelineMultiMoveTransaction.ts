@@ -1,3 +1,5 @@
+import { parseHTML } from "linkedom";
+import { resolveNativeDomBinding } from "../../../shared/project/nativeDomBinding";
 import { discoverNativeTimelineSources } from "./nativeTimelineSources";
 import { stabilizeNativeBindingSource } from "./nativeBindingSource";
 import type { RecordEditInput } from "../history/studioFileHistory";
@@ -83,6 +85,23 @@ const throwIfAborted = (signal?: AbortSignal): void => {
 const plannedMoveKey = (move: NativeTimelineMultiMovePlannedMove): string =>
   JSON.stringify([move.sourceFile, move.address.sequenceId, move.address.trackId, move.address.clipId]);
 
+/** A string-identical patch is valid only for an already-satisfied move. */
+function isVerifiedNoop(
+  current: NativeProjectDocument,
+  move: NativeTimelineMultiMovePlannedMove,
+  source: string,
+): boolean {
+  if (!move.binding || move.destination.trackId !== move.address.trackId) return false;
+  const track = current.sequence.tracks.find(candidate => candidate.id === move.address.trackId);
+  const clip = track?.clips.find(candidate => candidate.id === move.address.clipId);
+  if (!clip || clip.startFrame !== move.startFrame) return false;
+  const { document } = parseHTML(source);
+  const node = resolveNativeDomBinding(
+    selector => [...document.querySelectorAll(selector)], move.binding,
+  );
+  return node?.getAttribute("data-start") === String(move.compatibilityStartSeconds);
+}
+
 /**
  * Persist a native group move and every transitional compatibility source as
  * one CAS-protected editor transaction. Publication follows durable writes and
@@ -156,6 +175,7 @@ export async function commitNativeTimelineMultiMove(
           move.sourceFile,
         );
         if (afterPatch === beforePatch) {
+          if (isVerifiedNoop(current, move, beforePatch)) continue;
           throw new NativeTimelineMultiMoveCompatibilityError(
             `Compatibility source ${move.sourceFile} did not accept the patch for native clip ${move.address.clipId}`,
           );
