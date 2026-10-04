@@ -472,6 +472,7 @@ export const Timeline = memo(function Timeline({
           syncScrollViewport(e.currentTarget, true);
         }}
         {...timelineFocus.timelineFocusProps}
+        onDragEnter={assetDrop.handleAssetDragOver}
         onDragOver={assetDrop.handleAssetDragOver}
         onDragLeave={assetDrop.handleAssetDragLeave}
         onDrop={assetDrop.handleAssetDrop}
