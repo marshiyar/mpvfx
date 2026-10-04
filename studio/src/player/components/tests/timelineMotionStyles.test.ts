@@ -78,7 +78,10 @@ describe("timeline motion styles", () => {
     expect(selectedTimelineClipRule).toContain(
       "outline: 2px solid rgba(255, 255, 255, 0.98)",
     );
+    expect(selectedTimelineClipRule).toContain("outline-offset: 2px");
     expect(expectRule(studioCss, ".timeline-clip.is-selected[data-active]")).toContain("outline: 2px solid #60a5fa");
+    expect(expectRule(studioCss, ".timeline-clip.is-selected[data-active]")).toContain("outline-offset: 2px");
+    expect(expectRule(studioCss, ".timeline-clip.is-selected.is-dragging")).toContain("outline-offset: 2px");
     expect(expectRule(studioCss, ".timeline-clip:focus-visible")).toContain("outline: 2px solid #fbbf24");
     expect(studioCss).not.toContain(".timeline-clip[data-active] {");
     expect(studioCss).not.toContain(".timeline-clip[data-active].is-hovered");
