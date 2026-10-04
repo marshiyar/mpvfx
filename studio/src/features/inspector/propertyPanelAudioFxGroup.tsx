@@ -54,6 +54,7 @@ import {
   resolveAudioGroups,
 } from "@hyperframes/core/audio-groups";
 import { useFxLevelling } from "./useFxLevelling.js";
+import { AudioGroupVolume } from "./propertyPanelAudioGroupVolume.js";
 
 function auditionSpan(startRaw: string | undefined, durationRaw: string | undefined) {
   const start = Number.parseFloat(startRaw ?? "");
@@ -310,6 +311,14 @@ export function AudioFxGroup({
     );
 
   return (
+    <>
+    {element.tagName?.toLowerCase() === HF_AUDIO_GROUP_TAG && (
+      <AudioGroupVolume
+        element={element}
+        onSetAttributeQuiet={onSetAttributeQuietRaw}
+        onSetAttributeLive={onSetAttributeLive}
+      />
+    )}
     <FxSection
       // A lane's reveal request, but only when it names THIS element: the rack
       // shows one element, and a request aimed at another must not reopen
@@ -388,5 +397,6 @@ export function AudioFxGroup({
       carvedAgainstBy={carvedAgainstBy}
       analysing={analysing}
     />
+    </>
   );
 }

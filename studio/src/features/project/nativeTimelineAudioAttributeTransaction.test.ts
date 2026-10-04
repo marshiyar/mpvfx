@@ -40,6 +40,16 @@ function fixture() {
 }
 
 describe("native audio attribute transaction", () => {
+  it("accepts the bus fader's rounded +12 dB endpoint", async () => {
+    const { options } = fixture();
+    const committed = await commitNativeTimelineAudioAttribute({
+      ...options, expectedRevision: 0,
+      target: { kind: "group", id: "bus", sourceFile: "index.html" },
+      attr: "data-volume", value: "3.981072", label: "Set bus gain",
+    });
+    expect(committed.sequence.audioGroups?.[0]?.volume).toBeCloseTo(10 ** (12 / 20), 8);
+  });
+
   it("rejects an invalid gain without a partial save or history entry", async () => {
     const { files, history, options } = fixture();
     const before = new Map(files);

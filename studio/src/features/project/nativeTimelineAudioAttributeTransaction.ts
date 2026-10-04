@@ -30,10 +30,12 @@ export interface NativeAudioAttributeInput {
 function gain(value: string | null): number {
   if (value === null || value === "") return 1;
   const result = Number(value);
-  if (!Number.isFinite(result) || result < 0 || result > 10 ** (12 / 20)) {
+  const max = 10 ** (12 / 20);
+  // The fader writes six decimal places, so the +12 dB endpoint rounds up.
+  if (!Number.isFinite(result) || result < 0 || result > max + 0.0000005) {
     throw new Error("Audio gain is outside the supported range");
   }
-  return result;
+  return Math.min(result, max);
 }
 
 /** Keep the saved native audio model and the authored preview attributes in one undo entry. */
