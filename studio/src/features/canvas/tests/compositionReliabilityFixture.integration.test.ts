@@ -1,19 +1,23 @@
 // @vitest-environment jsdom
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { patchElementInHtml } from "@hyperframes/studio-server/source-mutation";
 import { describe, expect, it } from "vitest";
 import { buildDomEditStylePatchOperation } from "../domEditing";
 
-const fixtureDir = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "../../../../tests/e2e/fixtures/composition-reliability",
-);
-
-function fixture(path: string): string {
-  return readFileSync(join(fixtureDir, path), "utf8");
-}
+// The former e2e project was removed in 07dd728. Keep the source-mutation
+// coverage with only the authored markup that these assertions exercise.
+const indexSource = `<main>
+  <div data-hf-id="title-host-a" data-composition-src="compositions/title-card.html" data-start="0" data-duration="4" data-track-index="0"></div>
+  <div data-hf-id="title-host-b" data-composition-src="compositions/title-card.html" data-start="4" data-duration="4" data-track-index="0"></div>
+  <div data-hf-id="nested-host" data-composition-src="compositions/nested-shell.html" data-start="2" data-duration="6" data-track-index="1"></div>
+  <div data-hf-id="collision-a" data-start="1" data-duration="2" data-track-index="2"></div>
+  <div data-hf-id="collision-b" data-start="3" data-duration="4" data-track-index="2"></div>
+  <div data-hf-id="layer-overlap" data-start="3" data-duration="4" data-track-index="3"></div>
+</main>`;
+const titleSource = `<template><style>.hl-mask { overflow: hidden; background: transparent; }</style>
+  <div class="hl-mask" data-hf-id="title-mask"><h1 class="hl-text" data-hf-id="title-text">Reliable compositions</h1></div>
+</template>`;
+const nestedSource = `<template><div data-hf-id="nested-title-host" data-composition-src="title-card.html"></div></template>`;
+const compositionSources: Record<string, string> = { "title-card.html": titleSource };
 
 function parse(html: string): Document {
   return new DOMParser().parseFromString(html, "text/html");
@@ -27,11 +31,7 @@ function inTemplate(document: Document, selector: string): Element | null {
   return null;
 }
 
-describe("composition reliability acceptance fixture", () => {
-  const indexSource = fixture("index.html");
-  const titleSource = fixture("compositions/title-card.html");
-  const nestedSource = fixture("compositions/nested-shell.html");
-
+describe("composition source mutation", () => {
   it("owns repeated root hosts, a nested host, transparent headline topology, and collisions", () => {
     const index = parse(indexSource);
     const repeated = Array.from(
@@ -48,7 +48,7 @@ describe("composition reliability acceptance fixture", () => {
     expect(nestedHost).toBeTruthy();
     const nestedDependency = nestedHost?.getAttribute("data-composition-src");
     expect(
-      nestedDependency ? existsSync(resolve(fixtureDir, "compositions", nestedDependency)) : false,
+      nestedDependency ? nestedDependency in compositionSources : false,
     ).toBe(true);
 
     const title = parse(titleSource);
