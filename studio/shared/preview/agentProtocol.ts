@@ -25,6 +25,9 @@ export type PreviewGsapTween = {
   duration: number;
   timelineTime: number | null;
   properties: Partial<Record<PreviewGsapChannel, number>>;
+  /** GSAP's bounded construction evidence for reverse and explicit-start tweens. */
+  method?: "from" | "fromTo";
+  fromProperties?: Partial<Record<PreviewGsapChannel, number>>;
   keyframes?: PreviewGsapKeyframe[];
   motionPath?: { points: Array<{ x: number; y: number }>; curviness: number; autoRotate: boolean | number; isCubic: boolean };
   /** False when the runtime tween contains data this bounded format omitted. */
@@ -154,7 +157,7 @@ export function isPreviewGsapObservation(value: unknown): value is PreviewGsapOb
   return value.tweens.every(tween => {
     if (!record(tween) || !boundedKeys(tween,
       ["timelineId", "tweenIndex", "targetIndex", "start", "duration", "timelineTime", "properties", "complete"],
-      ["animationId", "keyframes", "motionPath"])
+      ["animationId", "keyframes", "motionPath", "method", "fromProperties"])
       || !boundedString(tween.timelineId, 128)
       || (tween.animationId !== undefined && !boundedString(tween.animationId, 128))
       || !Number.isSafeInteger(tween.tweenIndex) || (tween.tweenIndex as number) < 0 || (tween.tweenIndex as number) > 1000
@@ -162,7 +165,10 @@ export function isPreviewGsapObservation(value: unknown): value is PreviewGsapOb
       || !finite(tween.start) || Math.abs(tween.start) > 86400
       || !finite(tween.duration) || tween.duration < 0 || tween.duration > 86400
       || (tween.timelineTime !== null && (!finite(tween.timelineTime) || Math.abs(tween.timelineTime) > 86400))
-      || !channelNumbers(tween.properties) || typeof tween.complete !== "boolean") return false;
+      || !channelNumbers(tween.properties) || typeof tween.complete !== "boolean"
+      || (tween.method !== undefined && tween.method !== "from" && tween.method !== "fromTo")
+      || (tween.fromProperties !== undefined &&
+        (tween.method !== "fromTo" || !channelNumbers(tween.fromProperties)))) return false;
     if (tween.keyframes !== undefined && (!Array.isArray(tween.keyframes) || tween.keyframes.length > 64 ||
       !tween.keyframes.every(frame => record(frame) && boundedKeys(frame, ["percentage", "properties"], ["ease"])
         && finite(frame.percentage) && frame.percentage >= 0 && frame.percentage <= 100

@@ -1,21 +1,26 @@
 import { parseHTML } from "linkedom";
 import { parseGsapScriptAcorn } from "@hyperframes/core/gsap-parser-acorn";
 import { addAnimationToScript, addKeyframeToScript, removeAnimationFromScript,
-  removeKeyframeFromScript, updateAnimationInScript, updateKeyframeInScript } from "@hyperframes/core/gsap-writer-acorn";
-import type { PreviewElementState, PreviewGsapChannel, PreviewGsapKeyframe,
+  removeKeyframeFromScript, updateAnimationInScript, updateKeyframeInScript,
+  updateMotionPathPointInScript } from "@hyperframes/core/gsap-writer-acorn";
+import type { PreviewElementState, PreviewGsapChannel, PreviewGsapKeyframe, PreviewGsapTween,
   PreviewGsapObservation } from "../../../../shared/preview/agentProtocol";
 import { PREVIEW_GSAP_CHANNELS } from "../../../../shared/preview/agentProtocol";
 import { serializeStudioFileMutation } from "../../history/studioFileMutationCoordinator";
 import { commitNativeTimelineFileSnapshots, type CommitNativeTimelineFileTransaction } from "../../project/nativeTimelineTransactionCommit";
 import type { RecordEditInput } from "../../history/studioFileHistory";
 
-const editableChannels = new Set<PreviewGsapChannel>(["x", "y", "rotation", "scale", "scaleX", "scaleY", "opacity"]);
+const editableChannels = new Set<PreviewGsapChannel>(PREVIEW_GSAP_CHANNELS);
 const observedChannels = new Set<PreviewGsapChannel>(PREVIEW_GSAP_CHANNELS);
 
 export interface RemoteGsapTarget {
   id: string;
   label: string;
+  method?: "to" | "from" | "fromTo" | "set";
   properties: Partial<Record<PreviewGsapChannel, number>>;
+  fromProperties?: Partial<Record<PreviewGsapChannel, number>>;
+  ease?: string;
+  motionPath?: PreviewGsapTween["motionPath"];
   start?: number;
   duration?: number;
   keyframes?: PreviewGsapKeyframe[];
@@ -113,10 +118,23 @@ function targetsFromSource(source: string, state: PreviewElementState,
     const parsed = parseGsapScriptAcorn(text);
     for (const animation of parsed.animations) {
       if (animation.hasUnresolvedSelector || animation.hasUnresolvedKeyframes ||
-          (animation.method !== "to" && animation.method !== "set") ||
+          !["to", "from", "fromTo", "set"].includes(animation.method) ||
           !onlySourceTarget(document as unknown as Document, animation.targetSelector, element)) continue;
       const keyframes = animation.keyframes ? numericKeyframes(animation) : undefined;
       if (animation.keyframes && !keyframes) continue;
+      let motionPath: PreviewGsapTween["motionPath"] | undefined;
+      if (animation.arcPath?.enabled) {
+        const points = keyframes?.map(frame => ({ x: frame.properties.x, y: frame.properties.y })) ?? [];
+        const segments = animation.arcPath.segments;
+        const firstCurviness = segments[0]?.curviness;
+        if (points.length < 2 || points.length > 64 || segments.length !== points.length - 1 ||
+            points.some(point => !Number.isFinite(point.x) || !Number.isFinite(point.y)) ||
+            !Number.isFinite(firstCurviness) || segments.some(segment =>
+              segment.curviness !== firstCurviness || segment.cp1 || segment.cp2)) continue;
+        motionPath = { points: points as Array<{ x: number; y: number }>,
+          curviness: firstCurviness!, autoRotate: animation.arcPath.autoRotate ?? false,
+          isCubic: false };
+      }
       const properties: RemoteGsapTarget["properties"] = {};
       for (const [key, value] of Object.entries(animation.properties)) {
         if (editableChannels.has(key as PreviewGsapChannel) && observedChannels.has(key as PreviewGsapChannel)
@@ -124,10 +142,23 @@ function targetsFromSource(source: string, state: PreviewElementState,
           properties[key as PreviewGsapChannel] = value;
         }
       }
-      if (keyframes) Object.assign(properties, keyframes.at(-1)?.properties);
-      if (Object.keys(properties).length === 0) continue;
+      if (keyframes && !motionPath) Object.assign(properties, keyframes.at(-1)?.properties);
+      if (Object.keys(properties).length === 0 && !motionPath) continue;
+      const fromProperties: RemoteGsapTarget["fromProperties"] = {};
+      for (const [key, value] of Object.entries(animation.fromProperties ?? {})) {
+        if (editableChannels.has(key as PreviewGsapChannel) &&
+            typeof value === "number" && Number.isFinite(value)) {
+          fromProperties[key as PreviewGsapChannel] = value;
+        }
+      }
+      if (animation.method === "fromTo" &&
+          Object.keys(fromProperties).length !== Object.keys(animation.fromProperties ?? {}).length) continue;
       candidates.push({ id: animation.id, label: `${animation.method} ${animation.targetSelector}`,
-        properties, script, ...(keyframes ? { keyframes } : {}),
+        method: animation.method, properties, script,
+        ...(keyframes && !motionPath ? { keyframes } : {}),
+        ...(motionPath ? { motionPath } : {}),
+        ...(animation.method === "fromTo" ? { fromProperties } : {}),
+        ...(animation.ease ? { ease: animation.ease } : {}),
         start: typeof animation.resolvedStart === "number" ? animation.resolvedStart :
           typeof animation.position === "number" ? animation.position : null,
         duration: typeof animation.duration === "number" ? animation.duration :
@@ -141,9 +172,23 @@ function targetsFromSource(source: string, state: PreviewElementState,
     left !== null && Math.abs(left - right) < 1e-6;
   const shapeMatches = (candidate: SourceTarget, tween: PreviewGsapObservation["tweens"][number]): boolean =>
     sameNumber(candidate.start, tween.start) && sameNumber(candidate.duration, tween.duration) &&
-    (candidate.keyframes
+    (candidate.method === "from" || candidate.method === "fromTo"
+      ? tween.method === candidate.method : tween.method === undefined) &&
+    (candidate.method !== "fromTo" ||
+      Object.keys(candidate.fromProperties ?? {}).length === Object.keys(tween.fromProperties ?? {}).length &&
+      Object.entries(candidate.fromProperties ?? {}).every(
+        ([key, value]) => tween.fromProperties?.[key as PreviewGsapChannel] === value)) &&
+    (candidate.motionPath
+      ? Boolean(tween.motionPath && !tween.keyframes &&
+        JSON.stringify(candidate.motionPath) === JSON.stringify(tween.motionPath) &&
+        Object.keys(candidate.properties).length === Object.keys(tween.properties).length &&
+        Object.entries(candidate.properties).every(([key, value]) =>
+          tween.properties[key as PreviewGsapChannel] === value))
+      : candidate.keyframes
       ? Boolean(tween.keyframes && sameKeyframes(candidate.keyframes, tween.keyframes))
-      : !tween.keyframes && Object.entries(candidate.properties)
+      : !tween.keyframes && !tween.motionPath &&
+        Object.keys(candidate.properties).length === Object.keys(tween.properties).length &&
+        Object.entries(candidate.properties)
         .every(([key, value]) => tween.properties[key as PreviewGsapChannel] === value));
   return candidates.filter(candidate => {
     const exactId = completeTweens.filter(tween => tween.animationId === candidate.id && shapeMatches(candidate, tween));
@@ -229,8 +274,15 @@ export async function commitRemoteGsapKeyframeEdit(
 
 type AnimationAction =
   | { action: "remove"; animationId: string }
-  | { action: "add"; method: "to" | "set"; property: PreviewGsapChannel;
-      value: number; position?: number; duration?: number };
+  | { action: "ease"; animationId: string; ease: string }
+  | { action: "motion-point"; animationId: string; index: number; x: number; y: number }
+  | { action: "add"; method: "to" | "from" | "fromTo" | "set"; property: PreviewGsapChannel;
+      value: number; fromValue?: number; ease?: string; position?: number; duration?: number };
+
+const EDITABLE_EASES = new Set(["none", "power1.in", "power1.out", "power1.inOut",
+  "power2.in", "power2.out", "power2.inOut", "power3.in", "power3.out", "power3.inOut",
+  "power4.in", "power4.out", "power4.inOut", "sine.in", "sine.out", "sine.inOut",
+  "expo.in", "expo.out", "expo.inOut", "circ.in", "circ.out", "circ.inOut"]);
 
 /** Add a first literal tween or remove one exactly matched authored tween. */
 export async function commitRemoteGsapAnimationAction(
@@ -240,12 +292,27 @@ export async function commitRemoteGsapAnimationAction(
   deps: RemoteGsapSourceDeps,
 ): Promise<boolean> {
   assertSameSelection(state, observation, deps.expectedSourceFile);
+  if (action.action === "ease" && !EDITABLE_EASES.has(action.ease)) {
+    throw new Error("The requested GSAP ease is unsupported");
+  }
+  if (action.action === "motion-point" && (!Number.isSafeInteger(action.index) ||
+      action.index < 0 || action.index >= 64 || !Number.isFinite(action.x) ||
+      !Number.isFinite(action.y) || Math.abs(action.x) > 1_000_000 ||
+      Math.abs(action.y) > 1_000_000)) {
+    throw new Error("The motion path point is unsupported");
+  }
   if (action.action === "add" &&
-      (!editableChannels.has(action.property) || !Number.isFinite(action.value) ||
+      (!["to", "from", "fromTo", "set"].includes(action.method) ||
+       !editableChannels.has(action.property) || !Number.isFinite(action.value) ||
        Math.abs(action.value) > 1_000_000 ||
-       action.property === "opacity" && (action.value < 0 || action.value > 1) ||
+       (action.property === "opacity" || action.property === "autoAlpha") && (action.value < 0 || action.value > 1) ||
+       (action.method === "fromTo" && (!Number.isFinite(action.fromValue) ||
+         Math.abs(action.fromValue ?? 0) > 1_000_000 ||
+         ((action.property === "opacity" || action.property === "autoAlpha") &&
+           ((action.fromValue ?? 0) < 0 || (action.fromValue ?? 0) > 1)))) ||
+       (action.ease !== undefined && (action.method === "set" || !EDITABLE_EASES.has(action.ease))) ||
        !Number.isFinite(action.position ?? 0) || (action.position ?? 0) < 0 ||
-       (action.method === "to" && (!Number.isFinite(action.duration) ||
+       (action.method !== "set" && (!Number.isFinite(action.duration) ||
          (action.duration ?? 0) <= 0 || (action.duration ?? 0) > 86400)))) {
     throw new Error("The new authored animation is unsupported");
   }
@@ -258,16 +325,32 @@ export async function commitRemoteGsapAnimationAction(
     let script: Element;
     let changed: string;
     let newId: string | null = null;
-    if (action.action === "remove") {
+    if (action.action !== "add") {
       const target = candidates.find(item => item.id === action.animationId);
       if (!target) throw new Error("The authored animation is no longer uniquely editable");
       script = [...document.querySelectorAll("script:not([src])")].find(item =>
         parseGsapScriptAcorn(item.textContent ?? "").animations.some(anim => anim.id === target.id))!;
       if (!script) throw new Error("The authored animation source is ambiguous");
-      changed = removeAnimationFromScript(script.textContent ?? "", target.id);
+      if (action.action === "ease" && (target.method === "set" || target.keyframes)) {
+        throw new Error("This animation's ease cannot be edited as a flat tween");
+      }
+      if (action.action === "motion-point" && !target.motionPath?.points[action.index]) {
+        throw new Error("The selected motion path point is no longer uniquely editable");
+      }
+      changed = action.action === "remove"
+        ? removeAnimationFromScript(script.textContent ?? "", target.id)
+        : action.action === "ease"
+          ? updateAnimationInScript(script.textContent ?? "", target.id, { ease: action.ease })
+          : updateMotionPathPointInScript(script.textContent ?? "", target.id, action.index,
+            { x: action.x, y: action.y });
       if (changed === script.textContent) return false;
-      if (parseGsapScriptAcorn(changed).animations.some(anim => anim.id === target.id)) {
-        throw new Error("The authored animation removal could not be verified");
+      const updated = parseGsapScriptAcorn(changed).animations.find(anim => anim.id === target.id);
+      const point = action.action === "motion-point"
+        ? updated?.keyframes?.keyframes[action.index]?.properties : null;
+      if (action.action === "remove" ? Boolean(updated)
+        : action.action === "ease" ? updated?.ease !== action.ease
+          : !updated?.arcPath?.enabled || point?.x !== action.x || point?.y !== action.y) {
+        throw new Error("The authored animation change could not be verified");
       }
     } else {
       if (!state.id || !state.selector?.startsWith("#") ||
@@ -296,14 +379,19 @@ export async function commitRemoteGsapAnimationAction(
       script = scripts[0]!;
       const inserted = addAnimationToScript(script.textContent ?? "", {
         targetSelector: state.selector, method: action.method,
-        position: action.position ?? 0, ...(action.method === "to" ? { duration: action.duration } : {}),
+        position: action.position ?? 0, ...(action.method !== "set" ? { duration: action.duration } : {}),
         properties: { [action.property]: action.value },
+        ...(action.method === "fromTo" ? { fromProperties: { [action.property]: action.fromValue! } } : {}),
+        ...(action.ease ? { ease: action.ease } : {}),
       });
       changed = inserted.script;
       newId = inserted.id;
       if (!newId || changed === script.textContent ||
           !parseGsapScriptAcorn(changed).animations.some(anim => anim.id === newId &&
-            anim.targetSelector === state.selector && anim.properties[action.property] === action.value)) {
+            anim.targetSelector === state.selector && anim.method === action.method &&
+            anim.properties[action.property] === action.value &&
+            (action.method !== "fromTo" || anim.fromProperties?.[action.property] === action.fromValue) &&
+            (!action.ease || anim.ease === action.ease))) {
         throw new Error("The new authored animation could not be verified");
       }
     }
@@ -311,7 +399,9 @@ export async function commitRemoteGsapAnimationAction(
     const after = document.toString();
     await commitNativeTimelineFileSnapshots({
       orderedPaths: [deps.expectedSourceFile], snapshots: { [deps.expectedSourceFile]: { before, after } },
-      history: { kind: "manual", label: action.action === "add" ? "Add GSAP animation" : "Remove GSAP animation" },
+      history: { kind: "manual", label: action.action === "add" ? "Add GSAP animation"
+        : action.action === "ease" ? "Edit GSAP ease"
+          : action.action === "motion-point" ? "Edit GSAP motion path" : "Remove GSAP animation" },
       commitFileTransaction: deps.commitFileTransaction, writeProjectFile: deps.writeProjectFile,
       recordEdit: deps.recordEdit,
       rollbackFailureMessage: "The legacy animation edit failed and rollback did not complete",
@@ -337,12 +427,13 @@ export async function loadRemoteGsapTargets(state: PreviewElementState,
 export async function commitRemoteGsapPropertyEdit(
   state: PreviewElementState,
   observation: PreviewGsapObservation,
-  edit: { animationId: string; property: PreviewGsapChannel; value: number },
+  edit: { animationId: string; property: PreviewGsapChannel; value: number; endpoint?: "from" | "to" },
   deps: RemoteGsapSourceDeps,
 ): Promise<boolean> {
   assertSameSelection(state, observation, deps.expectedSourceFile);
   if (!editableChannels.has(edit.property) || !Number.isFinite(edit.value) || Math.abs(edit.value) > 1_000_000 ||
-      (edit.property === "opacity" && (edit.value < 0 || edit.value > 1))) {
+      ((edit.property === "opacity" || edit.property === "autoAlpha") &&
+        (edit.value < 0 || edit.value > 1))) {
     throw new Error("The legacy animation value is unsupported");
   }
   return serializeStudioFileMutation(deps.writeProjectFile, deps.expectedSourceFile, async () => {
@@ -350,10 +441,11 @@ export async function commitRemoteGsapPropertyEdit(
     if (before == null) throw new Error("The active composition source is unavailable");
     const targets = targetsFromSource(before, state, observation);
     const target = targets.find(candidate => candidate.id === edit.animationId);
-    if (!target || !Object.hasOwn(target.properties, edit.property)) {
+    const from = edit.endpoint === "from";
+    if (!target || !Object.hasOwn(from ? target.fromProperties ?? {} : target.properties, edit.property)) {
       throw new Error("The selected authored animation is no longer uniquely editable");
     }
-    if (target.properties[edit.property] === edit.value) return false;
+    if ((from ? target.fromProperties : target.properties)?.[edit.property] === edit.value) return false;
     const { document } = parseHTML(before);
     const sourceNode = resolveSourceNode(document as unknown as Document, state);
     const scripts = [...document.querySelectorAll("script:not([src])")];
@@ -369,22 +461,22 @@ export async function commitRemoteGsapPropertyEdit(
     const originalScript = script.textContent ?? "";
     const parsed = parseGsapScriptAcorn(originalScript);
     const animation = parsed.animations.find(item => item.id === edit.animationId);
-    if (!animation || typeof animation.properties[edit.property] !== "number") {
+    if (!animation || typeof (from ? animation.fromProperties : animation.properties)?.[edit.property] !== "number") {
       throw new Error("The authored animation changed before saving");
     }
-    script.textContent = updateAnimationInScript(originalScript, edit.animationId, {
-      properties: { ...animation.properties, [edit.property]: edit.value },
-    });
+    script.textContent = updateAnimationInScript(originalScript, edit.animationId, from
+      ? { fromProperties: { ...animation.fromProperties, [edit.property]: edit.value } }
+      : { properties: { ...animation.properties, [edit.property]: edit.value } });
     const after = document.toString();
     const verified = parseGsapScriptAcorn(script.textContent).animations.find(item => item.id === edit.animationId);
-    if (!verified || verified.properties[edit.property] !== edit.value ||
+    if (!verified || (from ? verified.fromProperties : verified.properties)?.[edit.property] !== edit.value ||
         !resolveSourceNode(document as unknown as Document, state) || after === before) {
       throw new Error("The authored animation update could not be verified");
     }
     await commitNativeTimelineFileSnapshots({
       orderedPaths: [deps.expectedSourceFile],
       snapshots: { [deps.expectedSourceFile]: { before, after } },
-      history: { kind: "manual", label: `Edit GSAP ${edit.property}` },
+      history: { kind: "manual", label: `Edit GSAP ${from ? "from " : ""}${edit.property}` },
       commitFileTransaction: deps.commitFileTransaction,
       writeProjectFile: deps.writeProjectFile,
       recordEdit: deps.recordEdit,
