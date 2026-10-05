@@ -372,7 +372,7 @@ export function TimelineToolbar({
                 : null;
               const canRemove =
                 !isRemovingSilence &&
-                selected?.tag.toLowerCase() === "video" &&
+                (selected?.tag.toLowerCase() === "video" || selected?.tag.toLowerCase() === "audio") &&
                 Boolean(selected.src) &&
                 canSplitElement(selected);
               return (
@@ -381,8 +381,8 @@ export function TimelineToolbar({
                     isRemovingSilence
                       ? "Removing silence…"
                       : canRemove
-                        ? "Remove silence from selected video"
-                        : "Select an editable video clip"
+                        ? "Remove silence from selected audio or video"
+                        : "Select an editable audio or video clip"
                   }
                 >
                   <button

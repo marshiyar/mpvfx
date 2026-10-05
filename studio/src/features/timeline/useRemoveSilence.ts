@@ -68,7 +68,7 @@ export function sameSilenceSegment(
   original: TimelineElement,
 ): boolean {
   return (
-    element.tag.toLowerCase() === "video" &&
+    element.tag.toLowerCase() === original.tag.toLowerCase() &&
     element.track === original.track &&
     element.sourceFile === original.sourceFile &&
     element.src === original.src &&
@@ -127,14 +127,14 @@ function waitForTimeline<T>(
   });
 }
 
-async function analyzeVideoSilence(
+async function analyzeMediaSilence(
   src: string, projectId: string, sourceStart: number, sourceDuration: number, signal: AbortSignal,
 ): Promise<SilenceRange[]> {
   const url = new URL(resolveMediaPreviewUrl(src, projectId, window.location.href), window.location.href);
   const prefix = `/api/projects/${encodeURIComponent(projectId)}/preview/`;
   if (url.protocol !== window.location.protocol || url.host !== window.location.host ||
       !url.pathname.startsWith(prefix)) {
-    throw new Error("Silence removal requires an imported project video");
+    throw new Error("Silence removal requires imported project audio or video");
   }
   const source = decodeURIComponent(url.pathname.slice(prefix.length));
   const response = await desktopRequest(`/api/projects/${encodeURIComponent(projectId)}/media/silences`, {
@@ -145,7 +145,7 @@ async function analyzeVideoSilence(
   });
   const result = await response.json().catch(() => null) as { ranges?: SilenceRange[]; error?: string } | null;
   if (!response.ok || !Array.isArray(result?.ranges)) {
-    throw new Error(result?.error ?? `Could not analyze video audio (${response.status})`);
+    throw new Error(result?.error ?? `Could not analyze media audio (${response.status})`);
   }
   return result.ranges;
 }
@@ -221,16 +221,17 @@ export function useRemoveSilence({
           if (isRecordingRef?.current) throw new Error("Cannot edit timeline while recording");
         };
         const original = getElements().find((element) => sameClip(element, selectedElement));
-        if (!original || !original.src || original.tag.toLowerCase() !== "video") {
-          throw new Error("Select a video clip with a media source");
+        const tag = original?.tag.toLowerCase();
+        if (!original || !original.src || (tag !== "video" && tag !== "audio")) {
+          throw new Error("Select an audio or video clip with a media source");
         }
-        if (!canSplitElement(original)) throw new Error("This video clip cannot be edited");
+        if (!canSplitElement(original)) throw new Error("This media clip cannot be edited");
 
         const sourceStart = original.playbackStart ?? 0;
         const rate = original.playbackRate ?? 1;
         const analysisAbort = new AbortController();
         analysisAbortRef.current = analysisAbort;
-        const silenceRanges = await analyzeVideoSilence(
+        const silenceRanges = await analyzeMediaSilence(
           original.src, pid, sourceStart, original.duration * rate, analysisAbort.signal,
         );
         analysisAbortRef.current = null;

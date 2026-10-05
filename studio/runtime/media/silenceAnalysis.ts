@@ -4,6 +4,7 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 import { detectSilences, type SilenceRange, type SilenceRemovalOptions } from "../../shared/media/silenceDetection";
 import { findBundledFfBinary, type BundledFfBinaryFinder } from "./binaries";
 import { readProjectMediaMetadata } from "./metadata";
+import { classifyMediaImportPath } from "../../shared/media/mediaImportPolicy";
 
 export interface SilenceAnalysisRequest {
   source: string;
@@ -31,7 +32,7 @@ function decodeChunk(binary: string, path: string, start: number, duration: numb
 }
 
 /** Analyze only the selected source interval. Paths remain confined to the project. */
-export async function analyzeProjectVideoSilence(
+export async function analyzeProjectMediaSilence(
   projectRoot: string,
   request: SilenceAnalysisRequest,
   signal: AbortSignal,
@@ -47,17 +48,21 @@ export async function analyzeProjectVideoSilence(
   const root = await realpath(projectRoot);
   const source = await realpath(resolve(root, request.source));
   const offset = relative(root, source);
+  const videoSource = /\.(mp4|mov|m4v|webm|mkv|avi|mxf)$/i.test(source);
+  const audioSource = classifyMediaImportPath(source) === "audio";
   if (isAbsolute(offset) || offset === ".." || offset.startsWith(`..${sep}`) ||
-      !/\.(mp4|mov|m4v|webm|mkv|avi|mxf)$/i.test(source) || !(await stat(source)).isFile()) {
-    throw new Error("Video source must be a file inside this project");
+      (!videoSource && !audioSource) || !(await stat(source)).isFile()) {
+    throw new Error("Audio or video source must be a file inside this project");
   }
   const metadata = await readProjectMediaMetadata(root, offset, signal);
-  if (!metadata.hasVideo || !metadata.hasAudio) throw new Error("Selected video has no audio track");
+  if (!metadata.hasAudio || (videoSource && !metadata.hasVideo)) {
+    throw new Error("Selected media has no audio track");
+  }
   const ffmpeg = findBinary("ffmpeg", { configuredMustExist: true });
   if (!ffmpeg) throw new Error("MpVFX's bundled FFmpeg is unavailable");
 
   const duration = Math.min(request.sourceDuration, Math.max(0, metadata.duration - request.sourceStart));
-  if (duration <= 0) throw new Error("Selected clip is outside the video source");
+  if (duration <= 0) throw new Error("Selected clip is outside the media source");
   const ranges: SilenceRange[] = [];
   for (let offsetSeconds = 0; offsetSeconds < duration; offsetSeconds += CHUNK_SECONDS - OVERLAP_SECONDS) {
     signal.throwIfAborted();

@@ -11,4 +11,11 @@ describe("silence removal clip identity", () => {
     expect(sameSilenceSegment({ ...piece, playbackStart: 0 }, segment, original)).toBe(false);
     expect(sameSilenceSegment({ ...piece, playbackRate: 1 }, segment, original)).toBe(false);
   });
+  it("identifies an audio split piece without matching an overlapping video", () => {
+    const original = { tag: "audio", start: 0, duration: 4, track: 1, sourceFile: "index.html", src: "voice.wav", playbackStart: 0.5, playbackRate: 1.25 } as TimelineElement;
+    const segment = { start: 2, end: 3, remove: true };
+    const piece = { ...original, start: 2, duration: 1, playbackStart: 3 };
+    expect(sameSilenceSegment(piece, segment, original)).toBe(true);
+    expect(sameSilenceSegment({ ...piece, tag: "video" }, segment, original)).toBe(false);
+  });
 });

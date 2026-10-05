@@ -78,17 +78,17 @@ describe("TimelineToolbar — adaptive thumbnails", () => {
 });
 
 describe("TimelineToolbar — remove silence", () => {
-  it("runs for the selected video and disables while processing", () => {
+  it.each(["video", "audio"])("runs for selected %s and disables while processing", tag => {
     const clip = {
-      id: "video-1",
-      domId: "video-1",
-      tag: "video",
-      src: "assets/clip.mp4",
+      id: "media-1",
+      domId: "media-1",
+      tag,
+      src: `assets/clip.${tag === "audio" ? "wav" : "mp4"}`,
       start: 0,
       duration: 4,
       track: 0,
     };
-    usePlayerStore.setState({ elements: [clip], selectedElementId: "video-1" });
+    usePlayerStore.setState({ elements: [clip], selectedElementId: "media-1" });
     const onRemoveSilence = vi.fn();
     const host = document.createElement("div");
     document.body.append(host);

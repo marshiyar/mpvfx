@@ -1,6 +1,6 @@
 import { importLibraryUpload } from "./library/libraryUpload";
 import { readProjectMediaMetadata } from "./media/metadata";
-import { analyzeProjectVideoSilence } from "./media/silenceAnalysis";
+import { analyzeProjectMediaSilence } from "./media/silenceAnalysis";
 import type { LibraryService } from "./library/libraryService";
 import {
   lstatSync,
@@ -255,12 +255,12 @@ export function createStudioRuntime(options: StudioRuntimeOptions): StudioRuntim
       if (!project) return Response.json({ error: "Project not found" }, { status: 404 });
       try {
         const input = await request.json();
-        return Response.json({ ranges: await analyzeProjectVideoSilence(project.dir, input, request.signal) }, {
+        return Response.json({ ranges: await analyzeProjectMediaSilence(project.dir, input, request.signal) }, {
           headers: { "cache-control": "no-store" },
         });
       } catch (error) {
         if (request.signal.aborted) throw error;
-        return Response.json({ error: error instanceof Error ? error.message : "Could not analyze video audio" }, { status: 422 });
+        return Response.json({ error: error instanceof Error ? error.message : "Could not analyze media audio" }, { status: 422 });
       }
     }
     const metadataRoute = /^\/projects\/([^/]+)\/media\/streams$/.exec(url.pathname);
