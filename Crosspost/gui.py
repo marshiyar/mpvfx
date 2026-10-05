@@ -164,13 +164,13 @@ class VideoCrossPosterApp(ctk.CTk):
         )
         self.upload_btn.pack(padx=30, pady=(5, 15), fill="x")
 
-    def post_ui(self, text=None, text_color=None, progress=None, button=None):
-        self.ui_updates.put((text, text_color, progress, button))
+    def post_ui(self, text=None, text_color=None, progress=None, button=None, completed=None):
+        self.ui_updates.put((text, text_color, progress, button, completed))
 
     def drain_ui_updates(self):
         try:
             while True:
-                text, text_color, progress, button = self.ui_updates.get_nowait()
+                text, text_color, progress, button, completed = self.ui_updates.get_nowait()
                 if text is not None:
                     self.status_label.configure(text=text, text_color=text_color or "gray")
                 if progress is not None:
@@ -178,6 +178,12 @@ class VideoCrossPosterApp(ctk.CTk):
                 if button is not None:
                     self.upload_btn.configure(state=button)
                     self.upload_in_progress = button == "disabled"
+                if completed == "youtube":
+                    self.chk_youtube.deselect()
+                    self.chk_youtube.configure(state="disabled")
+                elif completed == "facebook":
+                    self.chk_facebook.deselect()
+                    self.chk_facebook.configure(state="disabled")
         except queue.Empty:
             pass
         self.after(50, self.drain_ui_updates)
@@ -271,6 +277,8 @@ class VideoCrossPosterApp(ctk.CTk):
                 )
                 yt_id = yt_res.get("id")
                 results.append(f"YT: {yt_id}")
+                # A later Facebook error must not make retry submit YouTube again.
+                self.post_ui(completed="youtube")
 
                 # Attach custom thumbnail image if one was provided
                 if thumb_path and os.path.exists(thumb_path):
@@ -304,6 +312,7 @@ class VideoCrossPosterApp(ctk.CTk):
                     progress_callback=update_fb_progress
                 )
                 results.append(f"FB: {fb_id}")
+                self.post_ui(completed="facebook")
 
             # Complete progress and display success message with returned Video IDs
             self.post_ui(progress=1.0)
@@ -340,6 +349,10 @@ if __name__ == "__main__":
         app.update_idletasks()
         if args.video and app.file_path_entry.get() != args.video:
             raise RuntimeError("Publisher did not preselect the exported file")
+        app.post_ui(completed="youtube")
+        app.drain_ui_updates()
+        if app.chk_youtube.get() or app.chk_youtube.cget("state") != "disabled":
+            raise RuntimeError("Publisher did not prevent a duplicate YouTube retry")
         if args.ready_file:
             with open(args.ready_file, "x", encoding="utf-8") as marker:
                 marker.write("ui-ready")

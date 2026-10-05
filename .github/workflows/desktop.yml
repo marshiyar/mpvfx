@@ -112,6 +112,9 @@ jobs:
       - name: Check Publisher imports and Tk
         run: python -c "import tkinter, customtkinter, requests, googleapiclient.discovery, google_auth_oauthlib.flow"
 
+      - name: Test Publisher retry behavior
+        run: python Crosspost/test_gui.py
+
       - name: Install Windows SQLite development library
         if: runner.os == 'Windows'
         shell: pwsh
