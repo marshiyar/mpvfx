@@ -208,10 +208,11 @@ export function countMatchedRemoteGsapTargets(source: string, state: PreviewElem
 
 type KeyframeEdit = {
   animationId: string;
-  action: "update" | "add" | "remove";
+  action: "update" | "add" | "remove" | "ease";
   percentage: number;
   property?: PreviewGsapChannel;
   value?: number;
+  ease?: string;
 };
 
 /** Keyframe edits are limited to literal percentage keys with matching live evidence. */
@@ -223,7 +224,8 @@ export async function commitRemoteGsapKeyframeEdit(
 ): Promise<boolean> {
   assertSameSelection(state, observation, deps.expectedSourceFile);
   if (!Number.isFinite(edit.percentage) || edit.percentage < 0 || edit.percentage > 100 ||
-      (edit.action !== "remove" && (!edit.property || !editableChannels.has(edit.property) ||
+      (edit.action === "ease" && (!edit.ease || !EDITABLE_EASES.has(edit.ease))) ||
+      (edit.action !== "remove" && edit.action !== "ease" && (!edit.property || !editableChannels.has(edit.property) ||
         typeof edit.value !== "number" || !Number.isFinite(edit.value) || Math.abs(edit.value) > 1_000_000 ||
         (edit.property === "opacity" && (edit.value < 0 || edit.value > 1))))) {
     throw new Error("The legacy keyframe value is unsupported");
@@ -237,7 +239,7 @@ export async function commitRemoteGsapKeyframeEdit(
     const exists = target.keyframes.find(frame => frame.percentage === edit.percentage);
     if (edit.action === "add" && exists || edit.action !== "add" && !exists ||
         edit.action === "remove" && target.keyframes.length <= 2 ||
-        edit.action !== "remove" && (!edit.property ||
+        edit.action !== "remove" && edit.action !== "ease" && (!edit.property ||
           !target.keyframes.every(frame => Object.hasOwn(frame.properties, edit.property!)))) {
       throw new Error("The keyframe edit would alter an unsupported authored curve");
     }
@@ -248,6 +250,9 @@ export async function commitRemoteGsapKeyframeEdit(
     } else if (edit.action === "add") {
       changed = addKeyframeToScript(original, edit.animationId, edit.percentage,
         { [edit.property!]: edit.value! });
+    } else if (edit.action === "ease") {
+      changed = updateKeyframeInScript(original, edit.animationId, edit.percentage,
+        {}, edit.ease);
     } else {
       changed = updateKeyframeInScript(original, edit.animationId, edit.percentage,
         { [edit.property!]: edit.value! });
@@ -257,7 +262,10 @@ export async function commitRemoteGsapKeyframeEdit(
     const parsed = parseGsapScriptAcorn(changed).animations.find(item => item.id === edit.animationId);
     const updated = parsed?.keyframes?.keyframes.find(frame => frame.percentage === edit.percentage);
     if (!parsed || (edit.action === "remove" ? Boolean(updated) :
-        !updated || updated.properties[edit.property!] !== edit.value)) {
+        edit.action === "ease" ? !updated || updated.ease !== edit.ease ||
+          Object.keys(updated.properties).length !== Object.keys(exists!.properties).length ||
+          Object.entries(exists!.properties).some(([key, value]) => updated.properties[key] !== value)
+        : !updated || updated.properties[edit.property!] !== edit.value)) {
       throw new Error("The authored keyframe update could not be verified");
     }
     const after = target.script.ownerDocument.toString();

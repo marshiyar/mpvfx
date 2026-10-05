@@ -15,6 +15,32 @@ const selection: PreviewElementState = {
 afterEach(() => document.body.replaceChildren());
 
 describe("remote inspector", () => {
+  it("sends only a selected authored keyframe ease through the bounded callback", async () => {
+    const loadGsap = vi.fn(async () => [{ id: "a1", label: "to #card", properties: { x: 40 },
+      keyframes: [{ percentage: 0, properties: { x: 0 } },
+        { percentage: 100, properties: { x: 40 } }] }]);
+    const commitGsapKeyframe = vi.fn(async () => true);
+    const root = mountReactHarness(<RemoteInspectorPanel selection={selection}
+      loadGsap={loadGsap} commitGsap={vi.fn(async () => true)}
+      commitGsapKeyframe={commitGsapKeyframe} />);
+    const section = document.querySelector<HTMLElement>('[aria-label="Authored animations"]')!;
+    const load = [...section.querySelectorAll("button")].find(button => button.textContent?.includes("Load"))!;
+    await act(async () => { load.click(); });
+    const position = document.querySelector<HTMLInputElement>('[aria-label="Keyframe position"]')!;
+    const ease = document.querySelector<HTMLSelectElement>('[aria-label="Keyframe easing"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(position, "100");
+      position.dispatchEvent(new Event("input", { bubbles: true }));
+      ease.value = "power2.in";
+      ease.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () => {
+      [...section.querySelectorAll("button")].find(button => button.textContent === "Save keyframe easing")!.click();
+    });
+    expect(commitGsapKeyframe).toHaveBeenCalledWith(selection,
+      { animationId: "a1", action: "ease", percentage: 100, ease: "power2.in" });
+    act(() => root.unmount());
+  });
   it("shows no destructive text editor without a proven leaf flag", () => {
     const root = mountReactHarness(<RemoteInspectorPanel selection={selection} commit={vi.fn(async () => true)} />);
     expect(document.querySelector('[aria-label="Text"]')).toBeNull();

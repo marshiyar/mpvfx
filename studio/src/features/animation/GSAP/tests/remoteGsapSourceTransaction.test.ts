@@ -138,6 +138,30 @@ describe("remote legacy GSAP source transaction", () => {
     expect(store.history).toHaveLength(3);
   });
 
+  it("saves one keyframe ease while retaining its values and an Undo snapshot", async () => {
+    const keyed = before.replace('tl.to("#one",{duration:2,x:40},0);',
+      'tl.to("#one",{duration:2,keyframes:{"0%":{x:0},"100%":{x:40}}},0);');
+    const keyedObservation = { ...observation, tweens: [{ ...observation.tweens[0]!,
+      properties: {}, keyframes: [
+        { percentage: 0, properties: { x: 0 } },
+        { percentage: 100, properties: { x: 40 } },
+      ] }] } satisfies PreviewGsapObservation;
+    const store = fixture(keyed);
+    expect(await commitRemoteGsapKeyframeEdit(state, keyedObservation,
+      { action: "ease", animationId, percentage: 100, ease: "power2.in" }, store.deps)).toBe(true);
+    const frames = parseGsapScriptAcorn(store.content.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? "")
+      .animations[0]?.keyframes?.keyframes;
+    expect(frames).toMatchObject([
+      { percentage: 0, properties: { x: 0 } },
+      { percentage: 100, properties: { x: 40 }, ease: "power2.in" },
+    ]);
+    expect(store.history[0]?.files[sourceFile]).toEqual({ before: keyed, after: store.content });
+    await expect(commitRemoteGsapKeyframeEdit(state, keyedObservation,
+      { action: "ease", animationId, percentage: 100, ease: "custom(bad)" }, store.deps))
+      .rejects.toThrow("unsupported");
+    expect(store.writes).toHaveLength(1);
+  });
+
   it("authors a first simple tween and removes only its matched source call", async () => {
     const empty = fixture(before.replace('tl.to("#one",{duration:2,x:40},0);', ""));
     const idle = { ...observation, tweens: [] };

@@ -16,8 +16,8 @@ interface RemoteInspectorPanelProps {
     animationId: string; property: PreviewGsapChannel; value: number; endpoint?: "from" | "to";
   }) => Promise<boolean>;
   commitGsapKeyframe?: (selection: PreviewElementState, edit: {
-    animationId: string; action: "update" | "add" | "remove"; percentage: number;
-    property?: PreviewGsapChannel; value?: number;
+    animationId: string; action: "update" | "add" | "remove" | "ease"; percentage: number;
+    property?: PreviewGsapChannel; value?: number; ease?: string;
   }) => Promise<boolean>;
   commitGsapAnimation?: (selection: PreviewElementState,
     action: Parameters<typeof commitRemoteGsapAnimationAction>[2]) => Promise<boolean>;
@@ -54,6 +54,7 @@ export function RemoteInspectorPanel({ selection, commit, loadGsap, commitGsap,
   const [motionPointY, setMotionPointY] = useState("");
   const [gsapKeyframePercentage, setGsapKeyframePercentage] = useState("");
   const [gsapKeyframeValue, setGsapKeyframeValue] = useState("");
+  const [gsapKeyframeEase, setGsapKeyframeEase] = useState("");
   const [gsapBusy, setGsapBusy] = useState(false);
   const [newGsapMethod, setNewGsapMethod] = useState<"to" | "from" | "fromTo" | "set">("to");
   const [newGsapProperty, setNewGsapProperty] = useState<PreviewGsapChannel>("x");
@@ -82,6 +83,7 @@ export function RemoteInspectorPanel({ selection, commit, loadGsap, commitGsap,
     setMotionPointY("");
     setGsapKeyframePercentage("");
     setGsapKeyframeValue("");
+    setGsapKeyframeEase("");
   }, [selection]);
   const selectGsapTarget = (id: string, targets = gsapTargets) => {
     const target = targets.find(item => item.id === id);
@@ -97,6 +99,7 @@ export function RemoteInspectorPanel({ selection, commit, loadGsap, commitGsap,
     setMotionPointX(String(target?.motionPath?.points[0]?.x ?? ""));
     setMotionPointY(String(target?.motionPath?.points[0]?.y ?? ""));
     setGsapKeyframeValue(property === undefined ? "" : String(firstFrame?.properties[property] ?? ""));
+    setGsapKeyframeEase(firstFrame?.ease ?? "");
   };
   const selectGsapProperty = (property: PreviewGsapChannel) => {
     const target = gsapTargets.find(item => item.id === gsapTargetId);
@@ -125,16 +128,19 @@ export function RemoteInspectorPanel({ selection, commit, loadGsap, commitGsap,
       ...(endpoint === "from" ? { endpoint } : {}) }); }
     finally { setGsapBusy(false); }
   };
-  const saveAuthoredKeyframe = async (action: "update" | "add" | "remove") => {
+  const saveAuthoredKeyframe = async (action: "update" | "add" | "remove" | "ease") => {
     if (!commitGsapKeyframe || !gsapTargetId || !gsapKeyframePercentage.trim()) return;
     const percentage = Number(gsapKeyframePercentage);
     const value = Number(gsapKeyframeValue);
     if (!Number.isFinite(percentage) || percentage < 0 || percentage > 100 ||
-        (action !== "remove" && (!gsapProperty || !gsapKeyframeValue.trim() || !Number.isFinite(value)))) return;
+        (action === "ease" && !GSAP_EASES.includes(gsapKeyframeEase)) ||
+        (action !== "remove" && action !== "ease" &&
+          (!gsapProperty || !gsapKeyframeValue.trim() || !Number.isFinite(value)))) return;
     setGsapBusy(true);
     try { await commitGsapKeyframe(selection, {
       animationId: gsapTargetId, action, percentage,
-      ...(action === "remove" ? {} : { property: gsapProperty as PreviewGsapChannel, value }),
+      ...(action === "ease" ? { ease: gsapKeyframeEase } :
+        action === "remove" ? {} : { property: gsapProperty as PreviewGsapChannel, value }),
     }); }
     finally { setGsapBusy(false); }
   };
@@ -362,6 +368,7 @@ export function RemoteInspectorPanel({ selection, commit, loadGsap, commitGsap,
                   const frame = gsapTargets.find(target => target.id === gsapTargetId)?.keyframes
                     ?.find(item => String(item.percentage) === percentage);
                   if (frame && gsapProperty) setGsapKeyframeValue(String(frame.properties[gsapProperty] ?? ""));
+                  setGsapKeyframeEase(frame?.ease ?? "");
                 }} className="mt-1 w-full rounded border border-neutral-700 bg-neutral-900 p-2" />
             </label>
             <label className="block text-xs">Keyframe value
@@ -369,13 +376,23 @@ export function RemoteInspectorPanel({ selection, commit, loadGsap, commitGsap,
                 onChange={event => setGsapKeyframeValue(event.target.value)}
                 className="mt-1 w-full rounded border border-neutral-700 bg-neutral-900 p-2" />
             </label>
+            <label className="block text-xs">Keyframe easing
+              <select aria-label="Keyframe easing" value={gsapKeyframeEase}
+                onChange={event => setGsapKeyframeEase(event.target.value)}
+                className="mt-1 w-full rounded border border-neutral-700 bg-neutral-900 p-2">
+                <option value="">Choose easing</option>
+                {GSAP_EASES.map(ease => <option key={ease} value={ease}>{ease}</option>)}
+              </select>
+            </label>
             <p className="text-xs text-neutral-500">Authored: {gsapTargets.find(target => target.id === gsapTargetId)
               ?.keyframes?.map(frame => `${frame.percentage}%`).join(", ")}</p>
             <div className="flex flex-wrap gap-2">
-              {(["update", "add", "remove"] as const).map(action => <button key={action} type="button"
-                disabled={gsapBusy} onClick={() => void saveAuthoredKeyframe(action)}
+              {(["update", "add", "remove", "ease"] as const).map(action => <button key={action} type="button"
+                disabled={gsapBusy || action === "ease" && !GSAP_EASES.includes(gsapKeyframeEase)}
+                onClick={() => void saveAuthoredKeyframe(action)}
                 className="rounded border border-neutral-700 px-2 py-1 text-xs disabled:opacity-50">
-                {action === "update" ? "Save keyframe" : action === "add" ? "Add keyframe" : "Remove keyframe"}
+                {action === "update" ? "Save keyframe" : action === "add" ? "Add keyframe" :
+                  action === "remove" ? "Remove keyframe" : "Save keyframe easing"}
               </button>)}
             </div>
           </div>}
