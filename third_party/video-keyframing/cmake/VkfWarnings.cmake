@@ -1,0 +1,13 @@
+add_library(vkf_warnings INTERFACE)
+if(MSVC)
+  target_compile_options(vkf_warnings INTERFACE /W4 /permissive-)
+  if(VKF_WARNINGS_AS_ERRORS)
+    target_compile_options(vkf_warnings INTERFACE /WX)
+  endif()
+else()
+  target_compile_options(vkf_warnings INTERFACE -Wall -Wextra -Wpedantic -Wshadow -Wnon-virtual-dtor
+                                                -Wold-style-cast -Wcast-align -Wnull-dereference)
+  if(VKF_WARNINGS_AS_ERRORS)
+    target_compile_options(vkf_warnings INTERFACE -Werror)
+  endif()
+endif()

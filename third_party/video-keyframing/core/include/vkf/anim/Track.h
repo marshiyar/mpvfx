@@ -1,0 +1,137 @@
+#pragma once
+
+#include <array>
+#include <cstdint>
+#include <span>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+#include "vkf/anim/CubicPath.h"
+#include "vkf/core/Math.h"
+
+// Parameter tracks with per-segment easing: the model editors such as mpvfx
+// store. A segment [k, k+1] is shaped entirely by key k's outgoing
+// interpolation (Hold, Linear, or a normalised cubic-bezier timing curve like
+// CSS `cubic-bezier(x1, y1, x2, y2)`); all components of a multi-component
+// value share that timing. Frames are integers in the track's own frame rate.
+namespace vkf::anim {
+
+enum class ValueType : std::uint8_t { Number = 1, Vec2 = 2, Rgba = 4 };
+
+constexpr int componentCount(ValueType t) { return static_cast<int>(t); }
+
+enum class Segment : std::uint8_t { Hold, Linear, CubicBezier };
+
+struct CubicTiming {
+    double x1 = 0.0, y1 = 0.0, x2 = 1.0, y2 = 1.0;
+};
+
+// Shape of a Vec2 track's path from this key to the next (motion paths).
+//  Line   - straight.
+//  Curve  - smooth path through the neighbouring keys (Catmull-Rom tangents)
+//           scaled by `curviness`: 0 is straight, 1 the standard smooth curve.
+//  Bezier - explicit absolute control points (After Effects style handles).
+// Timing is unchanged by the shape: every key is reached at its frame, and the
+// segment's easing controls speed along the path by arc length.
+enum class PathShape : std::uint8_t { Line, Curve, Bezier };
+
+struct PathSegment {
+    PathShape shape = PathShape::Line;
+    double curviness = 1.0;  // Curve
+    Vec2 cp1, cp2;           // Bezier
+};
+
+struct TrackKey {
+    std::int64_t frame = 0;
+    std::array<double, 4> value{};  // first componentCount(type) entries are used
+    Segment outgoing = Segment::Linear;
+    CubicTiming timing;             // used when outgoing == CubicBezier
+    PathSegment path;               // Vec2 tracks only; others must stay Line
+};
+
+// Why a track was rejected. Codes are stable identifiers shared with callers.
+enum class TrackError : std::uint8_t {
+    EmptyTrack,
+    InvalidKeyframeFrame,
+    DuplicateKeyframeFrame,
+    InvalidValue,
+    InvalidInterpolation,
+    InvalidPath,
+};
+
+const char* trackErrorCode(TrackError e);
+
+class TrackValidationError : public std::invalid_argument {
+public:
+    TrackValidationError(TrackError code, const std::string& message)
+        : std::invalid_argument(message), code_(code)
+    {
+    }
+    TrackError code() const { return code_; }
+
+private:
+    TrackError code_;
+};
+
+// A key produced by Track::slice. `sourceFrame` is the key's frame in the
+// original track; `generated` marks keys created at cut points or as frame
+// samples (callers give those new identities).
+struct SlicedKey {
+    TrackKey key;
+    std::int64_t sourceFrame = 0;
+    bool generated = false;
+};
+
+// Immutable, validated track. Keys are sorted by frame.
+class Track {
+public:
+    // Validates (non-empty, integer frames >= 0 and unique, finite values,
+    // RGBA components in [0, 1], cubic x1/x2 in [0, 1]) and sorts the keys.
+    // Throws TrackValidationError.
+    Track(ValueType type, std::vector<TrackKey> keys);
+
+    ValueType type() const { return type_; }
+    std::span<const TrackKey> keys() const { return keys_; }
+
+    // Value at `frame` (fractional frames allowed, for motion blur). Constant
+    // before the first and after the last key. Writes componentCount(type())
+    // values to `out`.
+    void evaluate(double frame, double* out) const;
+
+    // Direction of motion along a Vec2 path at `frame`, in radians measured
+    // from +x towards +y (clockwise on a y-down screen), for auto-rotate.
+    // Held and stationary stretches keep the direction of the nearest
+    // preceding motion (or, before any motion, the first one). NaN when the
+    // track never moves or is not Vec2.
+    double tangentAngle(double frame) const;
+
+    bool hasCurvedPath() const { return !paths_.empty(); }
+
+    // The track restricted to frames [fromFrame, untilFrameExclusive) and
+    // rebased so fromFrame becomes 0, for clip trims and splits. For every
+    // frame f in range, the sliced track evaluates exactly like this track at
+    // fromFrame + f: easing curves and motion paths are cut, not re-fitted.
+    // Where a cut easing curve cannot be expressed as one segment, the range
+    // is kept as per-frame samples with linear segments between them. Throws
+    // std::length_error if fallback would grow the output beyond 100000000 keys.
+    // Generated RGBA samples are clamped to [0, 1] so the keys remain valid.
+    std::vector<SlicedKey> slice(std::int64_t fromFrame, std::int64_t untilFrameExclusive) const;
+
+private:
+    // Index of the segment containing frame (key i .. i+1), or -1 / n-1 outside.
+    int segmentAt(double frame) const;
+    // Arc-length position within segment i at frame (eased; may overshoot).
+    double distanceInSegment(int i, double frame) const;
+    Vec2 keyPoint(std::size_t i) const { return {keys_[i].value[0], keys_[i].value[1]}; }
+
+    ValueType type_;
+    std::vector<TrackKey> keys_;
+    std::vector<CubicPath> paths_;  // per segment, only when some segment is curved
+};
+
+// Eased progress in [0, 1] (may overshoot for cubic y) for a linear progress
+// in [0, 1] under the given segment interpolation.
+double easeProgress(Segment segment, const CubicTiming& timing, double linear);
+
+}  // namespace vkf::anim
