@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PreviewAgentClient, clientPointToPreview, previewRectToClient } from "./previewAgentClient";
+import { PreviewAgentClient, clientPointToPreview, isPreviewElementState, previewRectToClient } from "./previewAgentClient";
 
 const clients: PreviewAgentClient[] = [];
 const frames: HTMLIFrameElement[] = [];
@@ -31,6 +31,18 @@ function setup() {
 }
 
 describe("PreviewAgentClient", () => {
+  it("accepts a bounded full color grade without widening ordinary metadata", () => {
+    const element = {
+      handle: "e1", tag: "img", id: "grade", className: "", text: "",
+      textEditable: false, rect: { x: 0, y: 0, width: 10, height: 10 }, visible: true, parent: null,
+      sourceFile: "index.html", compositionPath: "index.html",
+      dataAttributes: { "color-grading": "x".repeat(2048) }, inlineStyles: {}, computedStyles: {},
+    };
+    expect(isPreviewElementState(element)).toBe(true);
+    expect(isPreviewElementState({ ...element, dataAttributes: { title: "x".repeat(513) } })).toBe(false);
+    expect(isPreviewElementState({ ...element, dataAttributes: { "color-grading": "x".repeat(4097) } })).toBe(false);
+  });
+
   it("retries a warm-frame init until the runtime listener responds", () => {
     vi.useFakeTimers();
     const { client, post, ready } = setup();
@@ -123,19 +135,20 @@ describe("PreviewAgentClient", () => {
     const observed = vi.fn();
     client.onTransportKey(observed);
     const key = { channel: "mpvfx.preview-agent", version: 1, type: "transport-key",
-      token: init.token, phase: "down", key: "j", shiftKey: false };
+      token: init.token, phase: "down", key: "j", shiftKey: false, repeat: false };
     send(key);
     expect(observed).not.toHaveBeenCalled();
     ready();
     send(key, "mpvfx://editor");
     send(key, "mpvfx://616263.preview", window);
     send({ ...key, key: "Delete" });
+    send({ ...key, repeat: "yes" });
     expect(observed).not.toHaveBeenCalled();
     send(key);
-    send({ ...key, phase: "up" });
+    send({ ...key, phase: "up", repeat: true });
     expect(observed.mock.calls.map(([value]) => value)).toEqual([
-      { phase: "down", key: "j", shiftKey: false },
-      { phase: "up", key: "j", shiftKey: false },
+      { phase: "down", key: "j", shiftKey: false, repeat: false },
+      { phase: "up", key: "j", shiftKey: false, repeat: true },
     ]);
   });
 });

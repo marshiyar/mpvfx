@@ -68,6 +68,8 @@ export type PreviewAgentCommand =
   | { kind: "setStyle"; handle: PreviewElementHandle; property: string; value: string }
   | { kind: "setText"; handle: PreviewElementHandle; text: string }
   | { kind: "setAttribute"; handle: PreviewElementHandle; name: string; value: string }
+  | { kind: "previewAudioGroup"; groupId: string; attribute: "data-volume" | "data-hidden" | "data-fx-chain" | "data-automation" | "data-label"; value: string | null }
+  | { kind: "scrubAudio"; audioId: string; timeSeconds: number | null; volume: number }
   | { kind: "installNativeProject"; project: NativeProjectDocument; bakedTracks: PreviewBakedTrack[]; activeSourceFile: string; timeSeconds: number; playing: boolean };
 
 export type PreviewAgentInit = {
@@ -110,6 +112,7 @@ export type PreviewTransportKeyEvent = {
   phase: "down" | "up";
   key: PreviewTransportKey;
   shiftKey: boolean;
+  repeat: boolean;
 };
 
 const record = (value: unknown): value is Record<string, unknown> =>
@@ -126,12 +129,12 @@ const transportKeySet = new Set<string>(PREVIEW_TRANSPORT_KEYS);
 
 export function isPreviewTransportKeyEvent(value: unknown): value is PreviewTransportKeyEvent {
   return record(value) && exactKeys(value,
-    ["channel", "version", "type", "token", "phase", "key", "shiftKey"])
+    ["channel", "version", "type", "token", "phase", "key", "shiftKey", "repeat"])
     && value.channel === PREVIEW_AGENT_CHANNEL && value.version === PREVIEW_AGENT_VERSION
     && value.type === "transport-key" && boundedString(value.token, 128)
     && value.token.length >= 16 && (value.phase === "down" || value.phase === "up")
     && typeof value.key === "string" && transportKeySet.has(value.key)
-    && typeof value.shiftKey === "boolean";
+    && typeof value.shiftKey === "boolean" && typeof value.repeat === "boolean";
 }
 const channelNumbers = (value: unknown): boolean =>
   record(value) && Object.keys(value).length <= PREVIEW_GSAP_CHANNELS.length &&
@@ -215,6 +218,28 @@ export function isPreviewAgentRequest(value: unknown): value is PreviewAgentRequ
       && handle(command.handle) && boundedString(command.text, 4096);
     case "setAttribute": return exactKeys(command, ["kind", "handle", "name", "value"])
       && handle(command.handle) && boundedString(command.name, 64) && boundedString(command.value, 512);
+    case "previewAudioGroup": {
+      if (!exactKeys(command, ["kind", "groupId", "attribute", "value"])
+        || typeof command.groupId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(command.groupId)
+        || typeof command.attribute !== "string"
+        || !["data-volume", "data-hidden", "data-fx-chain", "data-automation", "data-label"].includes(command.attribute)
+        || (command.value !== null && !boundedString(command.value, 8192))) return false;
+      if (command.attribute === "data-hidden") return command.value === null || command.value === "";
+      if (command.attribute === "data-volume") {
+        if (command.value === null || command.value === "") return true;
+        if (typeof command.value !== "string" || !/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(command.value)) return false;
+        const gain = Number(command.value);
+        return Number.isFinite(gain) && gain >= 0 && gain <= 10 ** (12 / 20) + 0.0000005;
+      }
+      if (command.attribute === "data-label") return command.value === null ||
+        (typeof command.value === "string" && command.value.length <= 256 && !/[\u0000-\u001f]/.test(command.value));
+      return command.value === null || (typeof command.value === "string" && command.value.length <= 8192);
+    }
+    case "scrubAudio": return exactKeys(command, ["kind", "audioId", "timeSeconds", "volume"])
+      && boundedString(command.audioId, 256) && command.audioId.length > 0
+      && !/[\u0000-\u001f]/.test(command.audioId)
+      && (command.timeSeconds === null || (finite(command.timeSeconds) && command.timeSeconds >= 0 && command.timeSeconds <= 86400))
+      && finite(command.volume) && command.volume >= 0 && command.volume <= 1;
     case "installNativeProject": {
       if (!exactKeys(command, ["kind", "project", "bakedTracks", "activeSourceFile", "timeSeconds", "playing"])
         || !record(command.project) || !boundedString(command.activeSourceFile, 512)

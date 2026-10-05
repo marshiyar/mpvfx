@@ -48,7 +48,7 @@ describe("preview agent message boundary", () => {
     init();
     request(1, { kind: "snapshot", offset: 0, limit: 1 });
     const first = (reply().result as Record<string, unknown>[])[0];
-    expect(first).toMatchObject({ handle: "e1", selector: "#one", sourceFile: "scene.html", text: "Hello" });
+    expect(first).toMatchObject({ handle: "e1", selector: "#one", sourceFile: "index.html", text: "Hello" });
     request(2, { kind: "readElement", handle: "e1" });
     expect((reply().result as Record<string, unknown>).handle).toBe("e1");
     init();
@@ -64,6 +64,31 @@ describe("preview agent message boundary", () => {
     request(1, { kind: "snapshot", offset: 0, limit: 300 });
     const states = reply().result as unknown[];
     expect(states.map(state => isPreviewElementState(state))).toEqual([true, true]);
+  });
+
+  it("reports a composition host in its parent file and expanded children in its own file", () => {
+    document.body.innerHTML = '<main data-composition-id="main"><div id="scene" data-composition-file="compositions/scene.html"><div id="title-card">Title</div></div></main>';
+    init();
+    request(1, { kind: "snapshot", limit: 300 });
+    const states = reply().result as Array<{ id: string; sourceFile: string }>;
+    expect(states.find(state => state.id === "scene")?.sourceFile).toBe("index.html");
+    expect(states.find(state => state.id === "title-card")?.sourceFile).toBe("compositions/scene.html");
+  });
+
+  it("observes bounded authored appearance styles without exposing new write properties", () => {
+    const element = document.getElementById("one") as HTMLElement;
+    element.style.borderColor = "rgb(10, 20, 30)";
+    element.style.boxShadow = "0 1px 2px black";
+    element.style.objectFit = "cover";
+    element.style.textTransform = "uppercase";
+    init();
+    request(1, { kind: "snapshot", limit: 1 });
+    expect((reply().result as Array<Record<string, unknown>>)[0]).toMatchObject({ inlineStyles: {
+      "border-color": "rgb(10, 20, 30)", "box-shadow": "0 1px 2px black",
+      "object-fit": "cover", "text-transform": "uppercase",
+    } });
+    request(2, { kind: "setStyle", handle: "e1", property: "background-image", value: "url(https://example.test/x)" });
+    expect(reply()).toMatchObject({ ok: false, error: "unsupported-action" });
   });
 
   it("only accepts allowlisted edits on issued handles", () => {
@@ -83,6 +108,55 @@ describe("preview agent message boundary", () => {
     expect((document.getElementById("one") as HTMLElement).style.clipPath).toBe("inset(1px 2px 3px 4px)");
     request(8, { kind: "setStyle", handle: "e1", property: "clip-path", value: "path('M0 0')" });
     expect(reply()).toMatchObject({ ok: false, error: "unsupported-action" });
+  });
+
+  it("previews only bounded attributes on one exact audio bus", () => {
+    document.body.innerHTML = '<hf-audio-group id="voice"></hf-audio-group>';
+    init();
+    request(1, { kind: "previewAudioGroup", groupId: "voice", attribute: "data-volume", value: "0.5" });
+    expect(reply()).toMatchObject({ ok: true, result: null });
+    expect(document.getElementById("voice")?.getAttribute("data-volume")).toBe("0.5");
+    request(2, { kind: "previewAudioGroup", groupId: "voice", attribute: "data-hidden", value: "" });
+    expect(document.getElementById("voice")?.hasAttribute("data-hidden")).toBe(true);
+    request(3, { kind: "previewAudioGroup", groupId: "voice", attribute: "data-hidden", value: null });
+    expect(document.getElementById("voice")?.hasAttribute("data-hidden")).toBe(false);
+    request(4, { kind: "previewAudioGroup", groupId: "voice", attribute: "data-fx-chain",
+      value: '{"version":1,"nodes":[]}' });
+    expect(reply()).toMatchObject({ ok: true, result: null });
+    request(5, { kind: "previewAudioGroup", groupId: "voice", attribute: "data-fx-chain",
+      value: '{"version":1,"nodes":[{"type":"unknown"}]}' });
+    expect(reply()).toMatchObject({ ok: false, error: "unsupported-action" });
+    request(6, { kind: "previewAudioGroup", groupId: "voice", attribute: "data-volume", value: "100" });
+    expect(reply()).toMatchObject({ id: 5 });
+    request(7, { kind: "previewAudioGroup", groupId: "voice", attribute: "onclick", value: "alert(1)" });
+    expect(reply()).toMatchObject({ id: 5 });
+    document.body.innerHTML += '<hf-audio-group id="voice"></hf-audio-group>';
+    request(8, { kind: "previewAudioGroup", groupId: "voice", attribute: "data-volume", value: "0.2" });
+    expect(reply()).toMatchObject({ ok: false, error: "unsupported-action" });
+  });
+
+  it("scrubs only one exact audio element briefly and restores its media state", () => {
+    document.body.innerHTML = '<audio id="music"></audio>';
+    const audio = document.getElementById("music") as HTMLAudioElement;
+    audio.muted = true;
+    audio.volume = 0.8;
+    const play = vi.spyOn(audio, "play").mockResolvedValue(undefined);
+    const pause = vi.spyOn(audio, "pause").mockImplementation(() => undefined);
+    init();
+    request(1, { kind: "scrubAudio", audioId: "music", timeSeconds: 2, volume: 0.8 });
+    expect(reply()).toMatchObject({ ok: true, result: null });
+    expect(audio.currentTime).toBe(2);
+    expect(audio.muted).toBe(false);
+    expect(audio.volume).toBeCloseTo(0.2);
+    expect(play).toHaveBeenCalledOnce();
+    request(2, { kind: "scrubAudio", audioId: "music", timeSeconds: null, volume: 0 });
+    expect(pause).toHaveBeenCalledOnce();
+    expect(audio.muted).toBe(true);
+    expect(audio.volume).toBe(0.8);
+    request(3, { kind: "scrubAudio", audioId: "missing", timeSeconds: 1, volume: 1 });
+    expect(reply()).toMatchObject({ ok: false, error: "unsupported-action" });
+    request(4, { kind: "scrubAudio", audioId: "music", timeSeconds: -1, volume: 1 });
+    expect(reply()).toMatchObject({ id: 3 });
   });
 
   it("rejects stale request IDs, stale nodes, and unbounded payloads", () => {
@@ -158,7 +232,7 @@ describe("preview agent message boundary", () => {
       request(1, { kind: "snapshot", limit: 1 });
       request(2, { kind: "readGsap", handle: "e1", channels: ["x", "opacity"], compositionId: "main" });
       expect(reply()).toMatchObject({ ok: true, result: {
-        handle: "e1", id: "one", sourceFile: "scene.html", values: { x: 25, opacity: 0.5 },
+        handle: "e1", id: "one", sourceFile: "index.html", values: { x: 25, opacity: 0.5 },
         tweens: [{ timelineId: "main", animationId: "move", targetIndex: 0,
           properties: { x: 40, opacity: 0.5 }, complete: true }],
       } });
@@ -214,7 +288,9 @@ describe("preview agent message boundary", () => {
     expect(sent).not.toHaveBeenCalled();
     init();
     expect(press(document.body, "keydown", "j").defaultPrevented).toBe(true);
-    expect(reply()).toMatchObject({ type: "transport-key", phase: "down", key: "j", shiftKey: false, token });
+    expect(reply()).toMatchObject({ type: "transport-key", phase: "down", key: "j", shiftKey: false, repeat: false, token });
+    press(document.body, "keydown", "j", { repeat: true });
+    expect(reply()).toMatchObject({ type: "transport-key", phase: "down", key: "j", repeat: true });
     press(document.body, "keyup", "j");
     expect(reply()).toMatchObject({ type: "transport-key", phase: "up", key: "j" });
     const count = sent.mock.calls.length;

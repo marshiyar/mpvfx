@@ -79,8 +79,13 @@ export interface DomEditActionsValue extends Pick<
   | "commitNativeProject"
   | "commitRemoteInspectorEdit"
   | "commitRemoteStackingPatches"
+  | "commitRemoteNativeMedia"
+  | "commitRemoteLegacyGrade"
   | "loadRemoteGsapAnimations"
   | "commitRemoteGsapProperty"
+  | "commitRemoteGsapKeyframe"
+  | "commitRemoteGsapAnimation"
+  | "commitRemoteGsapCanvasGesture"
   | "nativeDocument"
   | "handleSetArcPath"
   | "handleUpdateArcSegment"
@@ -236,8 +241,13 @@ export function DomEditProvider({
     commitNativeProject,
     commitRemoteInspectorEdit,
     commitRemoteStackingPatches,
+    commitRemoteNativeMedia,
+    commitRemoteLegacyGrade,
     loadRemoteGsapAnimations,
     commitRemoteGsapProperty,
+    commitRemoteGsapKeyframe,
+    commitRemoteGsapAnimation,
+    commitRemoteGsapCanvasGesture,
     nativeDocument,
     handleSetArcPath,
     handleUpdateArcSegment,
@@ -337,8 +347,13 @@ export function DomEditProvider({
       commitNativeProject,
       commitRemoteInspectorEdit,
       commitRemoteStackingPatches,
+      commitRemoteNativeMedia,
+      commitRemoteLegacyGrade,
       loadRemoteGsapAnimations,
       commitRemoteGsapProperty,
+      commitRemoteGsapKeyframe,
+      commitRemoteGsapAnimation,
+      commitRemoteGsapCanvasGesture,
       nativeDocument,
       handleSetArcPath,
       handleUpdateArcSegment,
@@ -424,8 +439,13 @@ export function DomEditProvider({
       commitNativeProject,
       commitRemoteInspectorEdit,
       commitRemoteStackingPatches,
+      commitRemoteNativeMedia,
+      commitRemoteLegacyGrade,
       loadRemoteGsapAnimations,
       commitRemoteGsapProperty,
+      commitRemoteGsapKeyframe,
+      commitRemoteGsapAnimation,
+      commitRemoteGsapCanvasGesture,
       nativeDocument,
       handleSetArcPath,
       handleUpdateArcSegment,

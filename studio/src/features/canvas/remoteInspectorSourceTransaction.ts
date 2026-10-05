@@ -6,19 +6,40 @@ import {
 } from "../../../shared/project/nativeProjectDocument";
 import { resolveNativeDomBinding } from "../../../shared/project/nativeDomBinding";
 import { applyPatchByTarget, type PatchOperation } from "../legacy/sourcePatcher";
-import { serializeStudioFileMutations } from "../history/studioFileMutationCoordinator";
+import { serializeStudioFileMutation, serializeStudioFileMutations } from "../history/studioFileMutationCoordinator";
 import { commitNativeTimelineFileSnapshots, type CommitNativeTimelineFileTransaction } from "../project/nativeTimelineTransactionCommit";
 import type { RecordEditInput } from "../history/studioFileHistory";
 import { stabilizeNativeBindingSource } from "../project/nativeBindingSource";
 import { remoteNativeClipId } from "./remoteNativePreviewEdit";
 import { buildDomDesignResetOperations } from "./domDesignReset";
 import { parseInsetClipPathSides } from "../inspector/clipPathHelpers";
+import { validRemoteVisualStyle } from "../inspector/remoteVisualFields";
+import { HF_COLOR_GRADING_GRADE_PRESETS, normalizeHfColorGrading,
+  serializeHfColorGrading } from "@hyperframes/core/color-grading";
 
 export interface RemoteInspectorWriteDeps {
   readOptionalProjectFile: (path: string) => Promise<string | null | undefined>;
   writeProjectFile: (path: string, content: string, expectedContent?: string) => Promise<void>;
   recordEdit: (entry: RecordEditInput) => Promise<void>;
   commitFileTransaction?: CommitNativeTimelineFileTransaction;
+}
+
+function resolveLegacySourceNode(html: string, state: PreviewElementState): Element {
+  const id = state.id;
+  const hfId = state.dataAttributes["hf-id"] ?? "";
+  if (!id && !hfId) throw new Error("The selected source needs a stable element identity");
+  const { document } = parseHTML(html);
+  const nodes = [...document.querySelectorAll("*")];
+  const byId = id ? nodes.filter(node => node.id === id) : [];
+  const byHfId = hfId ? nodes.filter(node => node.getAttribute("data-hf-id") === hfId) : [];
+  if ((id && byId.length !== 1) || (hfId && byHfId.length !== 1)) {
+    throw new Error("The selected source element is not unique");
+  }
+  const node = (id ? byId[0] : byHfId[0])!;
+  if ((hfId && node !== byHfId[0]) || node.tagName.toLowerCase() !== state.tag) {
+    throw new Error("The selected preview identity does not match its source");
+  }
+  return node;
 }
 
 function supportedRemoteOperation(operation: PatchOperation): boolean {
@@ -32,6 +53,7 @@ function supportedRemoteOperation(operation: PatchOperation): boolean {
       (value === null || (value.length <= 512 && !/[\u0000-\u001f]/.test(value)));
   }
   if (operation.type !== "inline-style") return false;
+  if (validRemoteVisualStyle(operation.property, value)) return true;
   if (!["color", "background-color", "font-size", "font-weight", "text-align",
     "border-radius", "opacity", "clip-path", "z-index"].includes(operation.property)) return false;
   if (value === null) return true;
@@ -123,6 +145,93 @@ export async function commitRemoteInspectorSourcePatch(
       writeProjectFile: deps.writeProjectFile,
       recordEdit: deps.recordEdit,
       rollbackFailureMessage: "The inspector edit failed and rollback did not complete",
+    });
+    return true;
+  });
+}
+
+/** Legacy-only projects have no native clip; require a unique authored id/hfId instead. */
+export async function commitRemoteLegacyInspectorSourcePatch(
+  state: PreviewElementState,
+  operations: readonly PatchOperation[] | "reset-design",
+  label: string,
+  expectedSourceFile: string,
+  deps: RemoteInspectorWriteDeps,
+): Promise<boolean> {
+  if (!expectedSourceFile || state.sourceFile !== expectedSourceFile ||
+      state.compositionPath !== expectedSourceFile) {
+    throw new Error("The selected preview does not match the active composition");
+  }
+  if (operations !== "reset-design" && operations.length === 0) return false;
+  if (operations !== "reset-design" && !operations.every(supportedRemoteOperation)) {
+    throw new Error("The requested inspector edit is not supported for an isolated preview");
+  }
+  return serializeStudioFileMutation(deps.writeProjectFile, expectedSourceFile, async () => {
+    const before = await deps.readOptionalProjectFile(expectedSourceFile);
+    if (before == null) throw new Error("The active composition source is unavailable");
+    const sourceNode = resolveLegacySourceNode(before, state);
+    const edits = operations === "reset-design"
+      ? buildDomDesignResetOperations(sourceNode as HTMLElement) : operations;
+    if (edits.length === 0) return false;
+    if (edits.some(operation => operation.type === "text-content") &&
+        (!state.textEditable || sourceNode.children.length !== 0 ||
+          (sourceNode.textContent?.length ?? 0) > 256)) {
+      throw new Error("The saved source is not a plain-text leaf");
+    }
+    const target = { id: state.id || undefined, hfId: state.dataAttributes["hf-id"] || undefined };
+    let after = before;
+    for (const operation of edits) {
+      const patched = applyPatchByTarget(after, target, operation);
+      if (patched === after) throw new Error("The saved source did not accept the inspector edit");
+      after = patched;
+    }
+    resolveLegacySourceNode(after, state);
+    await commitNativeTimelineFileSnapshots({
+      orderedPaths: [expectedSourceFile],
+      snapshots: { [expectedSourceFile]: { before, after } },
+      history: { kind: "manual", label },
+      commitFileTransaction: deps.commitFileTransaction,
+      writeProjectFile: deps.writeProjectFile,
+      recordEdit: deps.recordEdit,
+      rollbackFailureMessage: "The inspector edit failed and rollback did not complete",
+    });
+    return true;
+  });
+}
+
+/** Legacy HTML-rendered projects can round-trip a known grading preset in authored markup. */
+export async function commitRemoteLegacyGradePreset(
+  state: PreviewElementState, presetId: string | null, expectedSourceFile: string,
+  deps: RemoteInspectorWriteDeps,
+): Promise<boolean> {
+  if (!expectedSourceFile || state.sourceFile !== expectedSourceFile ||
+      state.compositionPath !== expectedSourceFile) {
+    throw new Error("The selected preview does not match the active composition");
+  }
+  const preset = presetId === null ? null : HF_COLOR_GRADING_GRADE_PRESETS.find(item => item.id === presetId);
+  if (presetId !== null && !preset) throw new Error("The grading preset is unsupported");
+  const grading = preset ? normalizeHfColorGrading(preset.id) : null;
+  if (preset && !grading) throw new Error("The grading preset is unavailable");
+  const value = grading ? serializeHfColorGrading(grading) : null;
+  return serializeStudioFileMutation(deps.writeProjectFile, expectedSourceFile, async () => {
+    const before = await deps.readOptionalProjectFile(expectedSourceFile);
+    if (before == null) throw new Error("The active composition source is unavailable");
+    const sourceNode = resolveLegacySourceNode(before, state);
+    if (sourceNode.tagName.toLowerCase() !== "video" && sourceNode.tagName.toLowerCase() !== "img") {
+      throw new Error("Color grading needs a source-bound image or video");
+    }
+    const target = { id: state.id || undefined, hfId: state.dataAttributes["hf-id"] || undefined };
+    const after = applyPatchByTarget(before, target, {
+      type: "html-attribute", property: "data-color-grading", value,
+    });
+    if (after === before) return false;
+    resolveLegacySourceNode(after, state);
+    await commitNativeTimelineFileSnapshots({
+      orderedPaths: [expectedSourceFile], snapshots: { [expectedSourceFile]: { before, after } },
+      history: { kind: "manual", label: preset ? "Apply color grade" : "Remove color grade" },
+      commitFileTransaction: deps.commitFileTransaction, writeProjectFile: deps.writeProjectFile,
+      recordEdit: deps.recordEdit,
+      rollbackFailureMessage: "The color grade edit failed and rollback did not complete",
     });
     return true;
   });

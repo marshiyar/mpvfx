@@ -292,6 +292,7 @@ try {
   if (evidence.inspector.liveText !== "Edited preview") {
     throw new Error("Inspector saved source without updating the live preview");
   }
+  await page.screenshot({ path: join(root, "editor-inspector-selected-after-save.png") });
   await page.click('[data-testid="remote-inspector"] h2');
   await page.keyboard.down("Meta");
   await page.keyboard.press("z");
@@ -318,7 +319,7 @@ try {
   if (evidence.inspector.reopenedText !== "Edited preview") {
     throw new Error("Inspector edits did not survive project reopen");
   }
-  await page.screenshot({ path: join(root, "editor-inspector-after-save.png") });
+  await page.screenshot({ path: join(root, "editor-inspector-after-reopen.png") });
   await writeFile(join(root, "evidence.json"), JSON.stringify(evidence, null, 2));
   console.log(JSON.stringify(evidence));
 } finally {

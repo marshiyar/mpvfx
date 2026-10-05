@@ -15,7 +15,7 @@ import type { PlaybackAdapter, IframeWindow } from "../lib/playbackTypes";
 import { readTimelineDurationFromDocument } from "../lib/timelineDOM";
 import { buildMissingCompositionElements } from "../lib/timelineIframeHelpers";
 import { previewAgentForIframe } from "../../features/preview/previewAgentClient";
-import { hydrateIsolatedTimelineElements } from "../lib/isolatedTimelineHydration";
+import { hydrateIsolatedCompositionChildren, hydrateIsolatedTimelineElements, isolatedRootDuration } from "../lib/isolatedTimelineHydration";
 import {
   acceptedRuntimeMessageFps,
   acceptedRuntimeMessageFrameRate,
@@ -139,7 +139,12 @@ export function useTimelineSyncCallbacks({
       const visibleClips = clips.filter(clip =>
         !clip.parentCompositionId || !clipCompositionIds.has(clip.parentCompositionId));
       const base = buildTimelineElementsFromClips(visibleClips, null);
-      syncTimelineElements(hydrateIsolatedTimelineElements(base, states));
+      const nested = hydrateIsolatedCompositionChildren(clips, states);
+      usePlayerStore.getState().setClipParentMap(nested.parentMap);
+      usePlayerStore.getState().setDomClipChildren(nested.domChildren);
+      usePlayerStore.getState().setSubCompositionHostState(nested.hostState);
+      syncTimelineElements(hydrateIsolatedTimelineElements(base, states),
+        Math.max(usePlayerStore.getState().duration, isolatedRootDuration(states)));
     })().catch(() => { /* A navigation revokes the snapshot; the next ready event retries. */ });
   }, [iframeRef, syncTimelineElements]);
 

@@ -127,4 +127,96 @@ describe("remote inspector", () => {
     ], "Edit layer design");
     act(() => root.unmount());
   });
+
+  it("routes saved native media mute and gain through the dedicated transaction callback", async () => {
+    const commitMedia = vi.fn(async () => true);
+    const nativeMedia = {
+      clipId: "clip", assetKind: "video" as const, muted: false, gain: 1, playbackRate: 1,
+      sourceStartSeconds: 0, startSeconds: 0, durationSeconds: 5,
+      audioFxChain: null, audioAutomation: null,
+    };
+    const root = mountReactHarness(<RemoteInspectorPanel selection={selection}
+      commit={vi.fn(async () => true)} nativeMedia={nativeMedia} commitMedia={commitMedia} />);
+    const section = document.querySelector<HTMLElement>('[aria-label="Native media"]')!;
+    await act(async () => {
+      section.querySelector<HTMLInputElement>('[aria-label="Mute media"]')!.click();
+    });
+    expect(commitMedia).toHaveBeenCalledWith(selection, { kind: "muted", value: true });
+    const gain = section.querySelector<HTMLInputElement>('[aria-label="Audio gain"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(gain, "1.25");
+      gain.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      section.querySelector<HTMLButtonElement>('[aria-label="Save Audio gain"]')!.click();
+    });
+    expect(commitMedia).toHaveBeenLastCalledWith(selection, { kind: "gain", value: 1.25 });
+    act(() => root.unmount());
+  });
+
+  it("adds a bounded simple GSAP tween and removes a loaded source-bound tween", async () => {
+    const loadGsap = vi.fn(async () => [{ id: "tween-1", label: "to #card", properties: { x: 12 } }]);
+    const commitGsapAnimation = vi.fn(async () => true);
+    const root = mountReactHarness(<RemoteInspectorPanel selection={selection}
+      loadGsap={loadGsap} commitGsap={vi.fn(async () => true)}
+      commitGsapAnimation={commitGsapAnimation} />);
+    const section = document.querySelector<HTMLElement>('[aria-label="Authored animations"]')!;
+    const setInput = async (label: string, value: string) => {
+      const field = section.querySelector<HTMLInputElement>(`[aria-label="${label}"]`)!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(field, value);
+        field.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    };
+    await setInput("New animation value", "20");
+    await act(async () => {
+      [...section.querySelectorAll("button")].find(button => button.textContent === "Add animation")!.click();
+    });
+    expect(commitGsapAnimation).toHaveBeenCalledWith(selection, {
+      action: "add", method: "to", property: "x", value: 20, position: 0, duration: 1,
+    });
+    await act(async () => {
+      [...section.querySelectorAll("button")].find(button => button.textContent === "Remove animation")!.click();
+    });
+    expect(commitGsapAnimation).toHaveBeenLastCalledWith(selection,
+      { action: "remove", animationId: "tween-1" });
+    act(() => root.unmount());
+  });
+
+  it("submits only bounded visual fields through the source transaction", async () => {
+    const commit = vi.fn(async () => true);
+    const root = mountReactHarness(<RemoteInspectorPanel selection={selection} commit={commit} />);
+    const border = document.querySelector<HTMLInputElement>('[aria-label="Border color"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(border, "#abcdef");
+      border.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>('[aria-label="Visual style"] button')!.click();
+    });
+    expect(commit).toHaveBeenCalledWith(selection,
+      [{ type: "inline-style", property: "border-color", value: "#abcdef" }], "Edit visual style");
+    act(() => root.unmount());
+  });
+
+  it("offers legacy video grading presets only when the source-only callback is provided", async () => {
+    const video = { ...selection, tag: "video" };
+    const commitLegacyGrade = vi.fn(async () => true);
+    const root = mountReactHarness(<RemoteInspectorPanel selection={video}
+      commitLegacyGrade={commitLegacyGrade} />);
+    const preset = document.querySelector<HTMLSelectElement>('[aria-label="Grade preset"]')!;
+    expect(preset).not.toBeNull();
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(preset, "warm-daylight");
+      preset.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>('[aria-label="Legacy color grade"] button')!.click();
+    });
+    expect(commitLegacyGrade).toHaveBeenCalledWith(video, "warm-daylight");
+    act(() => root.unmount());
+    const nativeRoot = mountReactHarness(<RemoteInspectorPanel selection={video} />);
+    expect(document.querySelector('[aria-label="Grade preset"]')).toBeNull();
+    act(() => nativeRoot.unmount());
+  });
 });

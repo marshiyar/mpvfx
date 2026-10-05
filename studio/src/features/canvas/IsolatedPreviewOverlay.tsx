@@ -10,6 +10,8 @@ import { commitRemoteNativeGroupMove, commitRemoteNativeResize, commitRemoteNati
   resolveRemoteNativeClip } from "./remoteNativePreviewEdit";
 import { clientPointToPreview, previewAgentForIframe, previewRectToClient } from "../preview/previewAgentClient";
 import { IsolatedPreviewCropHandles } from "./IsolatedPreviewCropHandles";
+import { commitRemoteNativeCropRotation, planRemoteNativeCropRotation,
+  remoteVisibleCropRect } from "./remoteNativeCropRotation";
 
 interface Props {
   iframeRef: RefObject<HTMLIFrameElement | null>;
@@ -17,7 +19,7 @@ interface Props {
 }
 
 type Gesture = { mode: "move" | "resize" | "rotate"; pointerId: number;
-  startX: number; startY: number; x: number; y: number; angle: number };
+  startX: number; startY: number; x: number; y: number; angle: number; projectFrame?: number };
 type Marquee = { pointerId: number; startX: number; startY: number; x: number; y: number;
   extend: boolean };
 type PendingRevision = { revision: number; resize?: { handle: string; width: number; height: number } };
@@ -25,17 +27,27 @@ type PendingRevision = { revision: number; resize?: { handle: string; width: num
 function angleAt(x: number, y: number, center: { x: number; y: number }): number {
   return Math.atan2(y - center.y, x - center.x) * 180 / Math.PI;
 }
+const explicitPixels = (value: string | undefined): number | null => {
+  const match = /^-?(?:\d+\.?\d*|\.\d+)px$/.exec(value?.trim() ?? "");
+  const number = match ? Number(match[0].slice(0, -2)) : NaN;
+  return Number.isFinite(number) ? number : null;
+};
 
 /** Handle-based native canvas selection for an isolated preview frame. */
 export function IsolatedPreviewOverlay({ iframeRef, enabled }: Props) {
   const { activeCompPath } = useStudioShellContext();
-  const { commitNativeProject, commitRemoteInspectorEdit, nativeDocument } = useDomEditActionsContext();
+  const { commitNativeProject, commitRemoteInspectorEdit, commitRemoteGsapCanvasGesture,
+    nativeDocument } = useDomEditActionsContext();
+  const currentTime = usePlayerStore(state => state.currentTime);
+  const isPlaying = usePlayerStore(state => state.isPlaying);
   const [ready, setReady] = useState(false);
   const [selected, setSelected] = useState<PreviewElementState | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<PreviewElementState[]>([]);
   const [drag, setDrag] = useState<Gesture | null>(null);
   const [marquee, setMarquee] = useState<Marquee | null>(null);
   const [pendingRevision, setPendingRevision] = useState<PendingRevision | null>(null);
+  const [pendingLegacyGesture, setPendingLegacyGesture] = useState(false);
+  const [ancestorSafe, setAncestorSafe] = useState(false);
   const gestureRef = useRef<Gesture | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const requestSeq = useRef(0);
@@ -75,6 +87,7 @@ export function IsolatedPreviewOverlay({ iframeRef, enabled }: Props) {
       gestureRef.current = null;
       setDrag(null);
       setPendingRevision(null);
+      setPendingLegacyGesture(false);
       setReady(false);
     };
     const onAgentAttached = (event: Event) => {
@@ -108,7 +121,11 @@ export function IsolatedPreviewOverlay({ iframeRef, enabled }: Props) {
           (previous.rect.x !== state.rect.x || previous.rect.y !== state.rect.y ||
             previous.rect.width !== state.rect.width || previous.rect.height !== state.rect.height ||
             previous.computedStyles.width !== state.computedStyles.width ||
-            previous.computedStyles.height !== state.computedStyles.height)
+            previous.computedStyles.height !== state.computedStyles.height ||
+            previous.computedStyles["clip-path"] !== state.computedStyles["clip-path"] ||
+            previous.inlineStyles["clip-path"] !== state.inlineStyles["clip-path"] ||
+            previous.computedStyles.transform !== state.computedStyles.transform ||
+            previous.computedStyles["transform-origin"] !== state.computedStyles["transform-origin"])
           ? state : previous);
         setSelectedGroup(previous => {
           const index = previous.findIndex(item => item.handle === handle);
@@ -132,12 +149,41 @@ export function IsolatedPreviewOverlay({ iframeRef, enabled }: Props) {
         remoteNativeResizeReady(selected, pendingRevision.resize)))) setPendingRevision(null);
   }, [nativeDocument?.revision, pendingRevision, selected]);
 
+  useEffect(() => {
+    const frame = iframeRef.current;
+    const handle = selected?.handle;
+    setAncestorSafe(false);
+    if (!frame || !handle || !selected?.parent) {
+      if (handle) setAncestorSafe(true);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const client = previewAgentForIframe(frame);
+      if (!client?.isReady) return;
+      const seen = new Set<string>();
+      let parent: string | null = selected.parent;
+      while (parent) {
+        if (seen.size >= 16 || seen.has(parent)) return;
+        seen.add(parent);
+        const result = await client.request({ kind: "readElement", handle: parent });
+        if (!result || Array.isArray(result) ||
+          (result.computedStyles.transform && result.computedStyles.transform !== "none")) return;
+        parent = result.parent;
+      }
+      if (!cancelled && iframeRef.current === frame) setAncestorSafe(true);
+    })().catch(() => {});
+    return () => { cancelled = true; };
+  }, [iframeRef, selected?.handle, selected?.parent]);
+
   const frame = iframeRef.current;
   let isolated = false;
   try { isolated = Boolean(frame && !frame.contentDocument); } catch { isolated = true; }
   if (!enabled || !ready || !isolated || !frame) return null;
 
   const viewportBox = selected ? previewRectToClient(frame, selected.rect) : null;
+  const visiblePreviewBox = selected ? remoteVisibleCropRect(selected) : null;
+  const visibleViewportBox = visiblePreviewBox ? previewRectToClient(frame, visiblePreviewBox) : null;
   const overlayBox = overlayRef.current?.getBoundingClientRect();
   const selectionStyle = viewportBox && overlayBox ? {
     left: viewportBox.x - overlayBox.left + (drag?.mode === "move" ? drag.x : 0),
@@ -145,12 +191,49 @@ export function IsolatedPreviewOverlay({ iframeRef, enabled }: Props) {
     width: Math.max(1, viewportBox.width + (drag?.mode === "resize" ? drag.x : 0)),
     height: Math.max(1, viewportBox.height + (drag?.mode === "resize" ? drag.y : 0)),
   } : undefined;
+  const visibleOutline = visibleViewportBox && viewportBox ? {
+    left: visibleViewportBox.x - viewportBox.x,
+    top: visibleViewportBox.y - viewportBox.y,
+    width: visibleViewportBox.width,
+    height: visibleViewportBox.height,
+  } : null;
   const resizeBaseline = selected ? remoteNativeResizeBaseline(selected) : null;
   const nativeSelected = Boolean(selected && nativeDocument &&
     resolveRemoteNativeClip(nativeDocument, selected));
   const crop = selected?.computedStyles["clip-path"] ?? selected?.inlineStyles["clip-path"];
-  const canRotate = !crop || crop === "none";
-  const waitingForRevision = pendingRevision !== null;
+  const cropped = Boolean(crop && crop !== "none");
+  const legacySelected = Boolean(selected && !nativeSelected && selectedGroup.length <= 1);
+  const legacyMove = legacySelected && selected &&
+    explicitPixels(selected.inlineStyles.left) !== null &&
+    explicitPixels(selected.inlineStyles.top) !== null;
+  const legacyWidth = selected ? explicitPixels(selected.inlineStyles.width) : null;
+  const legacyHeight = selected ? explicitPixels(selected.inlineStyles.height) : null;
+  const legacyResize = legacyMove && legacyWidth !== null && legacyHeight !== null &&
+    legacyWidth > 0 && legacyHeight > 0 && !cropped;
+  const legacyRotate = legacyMove && !cropped &&
+    (!selected?.computedStyles.transform || selected.computedStyles.transform === "none");
+  const rawFrame = nativeDocument ? currentTime * nativeDocument.frameRate.numerator /
+    nativeDocument.frameRate.denominator : NaN;
+  const projectFrame = Math.round(rawFrame);
+  const cropPlan = cropped && nativeDocument && selected && ancestorSafe && !isPlaying &&
+    Math.abs(rawFrame - projectFrame) < 1e-4
+    ? planRemoteNativeCropRotation(nativeDocument, selected, projectFrame) : null;
+  const canRotate = nativeSelected ? !cropped || Boolean(cropPlan) : Boolean(legacyRotate);
+  const rotationCenter = (() => {
+    if (!viewportBox) return null;
+    if (!cropPlan) return { x: viewportBox.x + viewportBox.width / 2,
+      y: viewportBox.y + viewportBox.height / 2 };
+    const { pose, fraction, width, height } = cropPlan;
+    const radians = pose.rotation * Math.PI / 180;
+    const dx = fraction.x * width * pose.scaleX;
+    const dy = fraction.y * height * pose.scaleY;
+    const point = previewRectToClient(frame, { x: selected!.rect.x + selected!.rect.width / 2 +
+      dx * Math.cos(radians) - dy * Math.sin(radians),
+    y: selected!.rect.y + selected!.rect.height / 2 +
+      dx * Math.sin(radians) + dy * Math.cos(radians), width: 0, height: 0 });
+    return point ? { x: point.x, y: point.y } : null;
+  })();
+  const waitingForRevision = pendingRevision !== null || pendingLegacyGesture;
 
   const timelineIdFor = (target: PreviewElementState): string | null => {
     const store = usePlayerStore.getState();
@@ -200,21 +283,25 @@ export function IsolatedPreviewOverlay({ iframeRef, enabled }: Props) {
   };
 
   const startGesture = (event: React.PointerEvent<HTMLElement>, mode: Gesture["mode"]) => {
-    if (event.button !== 0 || !nativeSelected || !viewportBox || waitingForRevision) return;
+    if (event.button !== 0 || !viewportBox || waitingForRevision ||
+      (mode === "move" && !nativeSelected && !legacyMove) ||
+      (mode === "resize" && !nativeSelected && !legacyResize) ||
+      (mode === "rotate" && !canRotate)) return;
     event.stopPropagation();
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
-    const center = { x: viewportBox.x + viewportBox.width / 2,
+    const center = rotationCenter ?? { x: viewportBox.x + viewportBox.width / 2,
       y: viewportBox.y + viewportBox.height / 2 };
     const next = { mode, pointerId: event.pointerId, startX: event.clientX,
-      startY: event.clientY, x: 0, y: 0, angle: angleAt(event.clientX, event.clientY, center) };
+      startY: event.clientY, x: 0, y: 0, angle: angleAt(event.clientX, event.clientY, center),
+      ...(mode === "rotate" && cropPlan ? { projectFrame } : {}) };
     gestureRef.current = next;
     setDrag(next);
   };
   const updateGesture = (event: React.PointerEvent<HTMLElement>) => {
     const active = gestureRef.current;
     if (!active || active.pointerId !== event.pointerId || !viewportBox) return;
-    const center = { x: viewportBox.x + viewportBox.width / 2,
+    const center = rotationCenter ?? { x: viewportBox.x + viewportBox.width / 2,
       y: viewportBox.y + viewportBox.height / 2 };
     const next = { ...active, x: event.clientX - active.startX,
       y: event.clientY - active.startY,
@@ -224,13 +311,40 @@ export function IsolatedPreviewOverlay({ iframeRef, enabled }: Props) {
   };
   const finishGesture = (event: React.PointerEvent<HTMLElement>) => {
     const gesture = gestureRef.current;
-    if (!gesture || gesture.pointerId !== event.pointerId || !selected || !nativeDocument || !viewportBox || waitingForRevision) return;
+    if (!gesture || gesture.pointerId !== event.pointerId || !selected || !viewportBox || waitingForRevision) return;
     event.stopPropagation();
     gestureRef.current = null;
     setDrag(null);
+    // A plain selection click also starts and ends a move gesture. Do not
+    // wait for a document revision when no edit was made.
+    if (gesture.mode === "move" && Math.abs(gesture.x) < 0.5 && Math.abs(gesture.y) < 0.5) return;
+    if (gesture.mode === "resize" && Math.abs(gesture.x) < 0.5 && Math.abs(gesture.y) < 0.5) return;
     const rect = frame.getBoundingClientRect();
     const scaleX = (frame.clientWidth || rect.width) / rect.width;
     const scaleY = (frame.clientHeight || rect.height) / rect.height;
+    if (!nativeSelected) {
+      let request: Parameters<typeof commitRemoteGsapCanvasGesture>[1];
+      if (gesture.mode === "move") request = { mode: "move",
+        delta: { x: gesture.x * scaleX, y: gesture.y * scaleY } };
+      else if (gesture.mode === "resize") {
+        if (legacyWidth === null || legacyHeight === null) return;
+        request = { mode: "resize", width: legacyWidth + gesture.x * scaleX,
+          height: legacyHeight + gesture.y * scaleY };
+      } else {
+        if (!canRotate) return;
+        const center = rotationCenter ?? { x: viewportBox.x + viewportBox.width / 2,
+          y: viewportBox.y + viewportBox.height / 2 };
+        let delta = gesture.angle - angleAt(gesture.startX, gesture.startY, center);
+        if (delta > 180) delta -= 360;
+        if (delta < -180) delta += 360;
+        request = { mode: "rotate", deltaDegrees: delta };
+      }
+      setPendingLegacyGesture(true);
+      void commitRemoteGsapCanvasGesture(selected, request)
+        .catch(() => false).finally(() => setPendingLegacyGesture(false));
+      return;
+    }
+    if (!nativeDocument) return;
     let pending: Promise<boolean>;
     let resizeTarget: PendingRevision["resize"];
     if (gesture.mode === "move") {
@@ -246,13 +360,15 @@ export function IsolatedPreviewOverlay({ iframeRef, enabled }: Props) {
         { width: resizeTarget.width, height: resizeTarget.height }, commitNativeProject);
     } else {
       if (!canRotate) return;
-      const center = { x: viewportBox.x + viewportBox.width / 2,
+      const center = rotationCenter ?? { x: viewportBox.x + viewportBox.width / 2,
         y: viewportBox.y + viewportBox.height / 2 };
       const start = angleAt(gesture.startX, gesture.startY, center);
       let delta = gesture.angle - start;
       if (delta > 180) delta -= 360;
       if (delta < -180) delta += 360;
-      pending = commitRemoteNativeRotation(nativeDocument, selected, delta, commitNativeProject);
+      pending = cropped && gesture.projectFrame !== undefined
+        ? commitRemoteNativeCropRotation(nativeDocument, selected, gesture.projectFrame, delta, commitNativeProject)
+        : commitRemoteNativeRotation(nativeDocument, selected, delta, commitNativeProject);
     }
     setPendingRevision({ revision: nativeDocument.revision + 1, resize: resizeTarget });
     void pending.then(ok => {
@@ -326,23 +442,30 @@ export function IsolatedPreviewOverlay({ iframeRef, enabled }: Props) {
           width: box.width, height: box.height }} /> : null;
     })}
     {selected && selectionStyle && <div
-      className={`absolute border-2 border-studio-accent bg-studio-accent/5 ${nativeSelected ? "cursor-move" : "cursor-default"}`}
+      className={`absolute ${visibleOutline ? "" : "border-2 border-studio-accent bg-studio-accent/5"} ${nativeSelected || legacyMove ? "cursor-move" : "cursor-default"}`}
       data-testid="isolated-preview-selection"
       style={selectionStyle}
       onPointerDown={event => startGesture(event, "move")}
       onPointerMove={updateGesture}
       onPointerUp={finishGesture}
       onPointerCancel={cancelGesture}>
-      {nativeSelected && <button type="button" aria-label="Rotate selected layer" data-testid="isolated-preview-rotate"
+      {visibleOutline && <div data-testid="isolated-preview-visible-selection" aria-hidden="true"
+        className="pointer-events-none absolute border-2 border-studio-accent bg-studio-accent/5"
+        style={visibleOutline} />}
+      {(nativeSelected || legacySelected) && <button type="button" aria-label="Rotate selected layer" data-testid="isolated-preview-rotate"
         disabled={!canRotate || waitingForRevision}
-        title={!canRotate ? "Cropped rotation requires the authored pivot editor" : undefined}
+        title={!canRotate ? nativeSelected
+          ? "Cropped rotation needs a paused frame on an existing rotation key, simple inset crop, and native position tracks"
+          : "This layer's crop or transform needs the authored animation editor" : undefined}
         className="absolute -top-7 left-1/2 h-4 w-4 -translate-x-1/2 rounded-full border-2 border-studio-accent bg-white cursor-grab"
+        style={visibleOutline ? { left: visibleOutline.left + visibleOutline.width / 2,
+          top: visibleOutline.top - 28 } : undefined}
         onPointerDown={event => startGesture(event, "rotate")}
         onPointerMove={updateGesture} onPointerUp={finishGesture}
         onPointerCancel={cancelGesture} />}
-      {nativeSelected && <button type="button" aria-label="Resize selected layer" data-testid="isolated-preview-resize"
-        disabled={!resizeBaseline || waitingForRevision}
-        title={!resizeBaseline ? "This layer's source box cannot be resized from the preview" : undefined}
+      {(nativeSelected || legacySelected) && <button type="button" aria-label="Resize selected layer" data-testid="isolated-preview-resize"
+        disabled={!(nativeSelected ? resizeBaseline : legacyResize) || waitingForRevision}
+        title={!(nativeSelected ? resizeBaseline : legacyResize) ? "This layer's source box cannot be resized from the preview" : undefined}
         className="absolute -bottom-2 -right-2 h-4 w-4 border-2 border-studio-accent bg-white cursor-se-resize"
         onPointerDown={event => startGesture(event, "resize")}
         onPointerMove={updateGesture} onPointerUp={finishGesture}

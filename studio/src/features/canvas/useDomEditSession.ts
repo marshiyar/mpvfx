@@ -462,7 +462,8 @@ export function useDomEditSession({
   const { nativeKeyframeCommands, commitNativeProject, setNativePositionPath } =
     useNativeProjectEditActions({ nativeProjectEditing, showToast });
   const { commitRemoteInspectorEdit, commitRemoteStackingPatches,
-    loadRemoteGsapAnimations, commitRemoteGsapProperty } = useRemoteSourceEdits({
+    commitRemoteNativeMedia, commitRemoteLegacyGrade, loadRemoteGsapAnimations, commitRemoteGsapProperty,
+    commitRemoteGsapKeyframe, commitRemoteGsapAnimation, commitRemoteGsapCanvasGesture } = useRemoteSourceEdits({
     projectId, activeCompPath, previewIframeRef, nativeProjectEditing,
     readProjectFile, writeProjectFile, editHistory, domEditSaveTimestampRef,
     reloadPreview, showToast,
@@ -561,8 +562,13 @@ export function useDomEditSession({
     commitNativeProject,
     commitRemoteInspectorEdit,
     commitRemoteStackingPatches,
+    commitRemoteNativeMedia,
+    commitRemoteLegacyGrade,
     loadRemoteGsapAnimations,
     commitRemoteGsapProperty,
+    commitRemoteGsapKeyframe,
+    commitRemoteGsapAnimation,
+    commitRemoteGsapCanvasGesture,
     handleSetArcPath,
     handleUpdateArcSegment,
     handleUnroll,

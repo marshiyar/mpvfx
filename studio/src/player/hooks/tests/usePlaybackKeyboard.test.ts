@@ -244,7 +244,7 @@ describe("usePlaybackKeyboard — isolated preview transport", () => {
     const iframe = document.createElement("iframe");
     Object.defineProperty(iframe, "contentDocument", { value: null });
     document.body.append(iframe);
-    let transport: ((event: { phase: "down" | "up"; key: "k" | "l" | " "; shiftKey: boolean }) => void) | null = null;
+    let transport: ((event: { phase: "down" | "up"; key: "j" | "k" | "l" | " "; shiftKey: boolean; repeat: boolean }) => void) | null = null;
     const unsubscribe = vi.fn();
     agentMocks.previewAgentForIframe.mockReturnValue({
       onTransportKey: vi.fn((listener) => { transport = listener; return unsubscribe; }),
@@ -253,18 +253,21 @@ describe("usePlaybackKeyboard — isolated preview transport", () => {
     if (!transport) throw new Error("Expected isolated transport listener");
     usePlayerStore.setState({ isPlaying: false });
     act(() => {
-      transport!({ phase: "down", key: " ", shiftKey: false });
-      transport!({ phase: "down", key: "k", shiftKey: false });
-      transport!({ phase: "down", key: "l", shiftKey: false });
+      transport!({ phase: "down", key: " ", shiftKey: false, repeat: false });
+      transport!({ phase: "down", key: "k", shiftKey: false, repeat: false });
+      transport!({ phase: "down", key: "l", shiftKey: false, repeat: false });
     });
     expect(spies.play).toHaveBeenCalledTimes(1);
     expect(spies.pause).toHaveBeenCalledTimes(1);
     expect(spies.seek).toHaveBeenCalledTimes(1);
     act(() => {
-      transport!({ phase: "up", key: "k", shiftKey: false });
-      transport!({ phase: "down", key: "l", shiftKey: false });
+      transport!({ phase: "up", key: "k", shiftKey: false, repeat: false });
+      transport!({ phase: "down", key: "l", shiftKey: false, repeat: false });
+      transport!({ phase: "down", key: "j", shiftKey: false, repeat: false });
+      transport!({ phase: "down", key: "j", shiftKey: false, repeat: true });
     });
     expect(spies.play).toHaveBeenCalledTimes(2);
+    expect(spies.playBackward).toHaveBeenCalledTimes(1);
     cleanup();
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });

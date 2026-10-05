@@ -38,6 +38,7 @@ import { projectNativeKeyframeUi } from "../../../shared/project/nativeKeyframeU
 import { useDomEditActionsContextOptional, useDomEditSelectionContextOptional } from "../canvas/DomEditContext";
 import { RemoteInspectorPanel } from "./RemoteInspectorPanel";
 import { PropertyPanelClassicLayout } from "./PropertyPanelClassicLayout";
+import { snapshotRemoteNativeMedia } from "../project/remoteInspectorNativeMediaTransaction";
 
 // Re-export helpers that external consumers import from this module
 export {
@@ -57,9 +58,13 @@ export {
 export const PropertyPanel = memo(function PropertyPanel(props: PropertyPanelProps) {
   const remoteSelection = useDomEditSelectionContextOptional()?.remoteSelection ?? null;
   const remoteActions = useDomEditActionsContextOptional();
-  const remoteCommit = remoteActions?.nativeDocument ? remoteActions.commitRemoteInspectorEdit : undefined;
+  const remoteCommit = remoteActions?.commitRemoteInspectorEdit;
   const loadRemoteGsapAnimations = remoteActions?.loadRemoteGsapAnimations;
   const commitRemoteGsapProperty = remoteActions?.commitRemoteGsapProperty;
+  const commitRemoteGsapKeyframe = remoteActions?.commitRemoteGsapKeyframe;
+  const commitRemoteGsapAnimation = remoteActions?.commitRemoteGsapAnimation;
+  const commitRemoteNativeMedia = remoteActions?.commitRemoteNativeMedia;
+  const commitRemoteLegacyGrade = remoteActions?.commitRemoteLegacyGrade;
   const {
     projectId,
     projectDir,
@@ -207,7 +212,13 @@ export const PropertyPanel = memo(function PropertyPanel(props: PropertyPanelPro
 
   if (!element) {
     if (remoteSelection && (remoteCommit || loadRemoteGsapAnimations)) return <RemoteInspectorPanel selection={remoteSelection}
-      commit={remoteCommit} loadGsap={loadRemoteGsapAnimations} commitGsap={commitRemoteGsapProperty} />;
+      commit={remoteCommit} loadGsap={loadRemoteGsapAnimations} commitGsap={commitRemoteGsapProperty}
+      commitGsapKeyframe={commitRemoteGsapKeyframe}
+      commitGsapAnimation={commitRemoteGsapAnimation}
+      nativeMedia={remoteActions?.nativeDocument
+        ? snapshotRemoteNativeMedia(remoteSelection, remoteActions.nativeDocument) : null}
+      commitMedia={commitRemoteNativeMedia}
+      commitLegacyGrade={remoteActions?.nativeDocument ? undefined : commitRemoteLegacyGrade} />;
     return (
       <PropertyPanelEmptyState
         flat={STUDIO_FLAT_INSPECTOR_ENABLED}

@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { parseGsapScriptAcorn } from "@hyperframes/core/gsap-parser-acorn";
 import type { PreviewElementState, PreviewGsapObservation } from "../../../../../shared/preview/agentProtocol";
-import { commitRemoteGsapPropertyEdit, loadRemoteGsapTargets } from "../remoteGsapSourceTransaction";
+import { commitRemoteGsapAnimationAction, commitRemoteGsapKeyframeEdit, commitRemoteGsapPropertyEdit,
+  loadRemoteGsapTargets } from "../remoteGsapSourceTransaction";
 
 const sourceFile = "index.html";
 const before = '<!doctype html><html><body><main data-composition-id="main"><div id="one" data-hf-id="hf-one"></div></main><script>const tl=gsap.timeline({paused:true});window.__timelines=window.__timelines||{};window.__timelines.main=tl;tl.to("#one",{duration:2,x:40},0);</script></body></html>';
@@ -42,7 +43,7 @@ describe("remote legacy GSAP source transaction", () => {
   it("lists one exact authored tween and saves one CAS/history snapshot", async () => {
     const store = fixture();
     expect(await loadRemoteGsapTargets(state, observation, store.deps)).toEqual([
-      { id: animationId, label: "to #one", properties: { x: 40 } },
+      { id: animationId, label: "to #one", properties: { x: 40 }, start: 0, duration: 2 },
     ]);
     expect(await commitRemoteGsapPropertyEdit(state, observation,
       { animationId, property: "x", value: 55 }, store.deps)).toBe(true);
@@ -103,5 +104,69 @@ describe("remote legacy GSAP source transaction", () => {
     ] };
     expect((await loadRemoteGsapTargets(state, runtime, multi.deps)).map(target => target.properties))
       .toEqual([{ x: 40 }, { opacity: 0.5 }]);
+  });
+
+  it("updates, adds, and removes exact percentage keyframes with one history entry each", async () => {
+    const keyed = before.replace('tl.to("#one",{duration:2,x:40},0);',
+      'tl.to("#one",{duration:2,keyframes:{"0%":{x:0},"100%":{x:40}}},0);');
+    const keyedObservation = { ...observation, tweens: [{ ...observation.tweens[0]!,
+      properties: {}, keyframes: [
+        { percentage: 0, properties: { x: 0 } },
+        { percentage: 100, properties: { x: 40 } },
+      ] }] } satisfies PreviewGsapObservation;
+    const store = fixture(keyed);
+    expect((await loadRemoteGsapTargets(state, keyedObservation, store.deps))[0]?.keyframes)
+      .toEqual(keyedObservation.tweens[0]!.keyframes);
+    expect(await commitRemoteGsapKeyframeEdit(state, keyedObservation,
+      { action: "add", animationId, percentage: 50, property: "x", value: 20 }, store.deps)).toBe(true);
+    expect(parseGsapScriptAcorn(store.content.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? "")
+      .animations[0]?.keyframes?.keyframes.map(frame => frame.percentage)).toEqual([0, 50, 100]);
+    expect(store.history).toHaveLength(1);
+    const observedWithMiddle = { ...keyedObservation, tweens: keyedObservation.tweens.map(tween => ({
+      ...tween, keyframes: [tween.keyframes![0]!, { percentage: 50, properties: { x: 20 } }, tween.keyframes![1]!],
+    })) };
+    expect(await commitRemoteGsapKeyframeEdit(state, observedWithMiddle,
+      { action: "update", animationId, percentage: 50, property: "x", value: 25 }, store.deps)).toBe(true);
+    const observedWithChange = { ...observedWithMiddle, tweens: observedWithMiddle.tweens.map(tween => ({
+      ...tween, keyframes: tween.keyframes.map(frame => frame.percentage === 50
+        ? { ...frame, properties: { x: 25 } } : frame),
+    })) };
+    expect(await commitRemoteGsapKeyframeEdit(state, observedWithChange,
+      { action: "remove", animationId, percentage: 50 }, store.deps)).toBe(true);
+    expect((await loadRemoteGsapTargets(state, keyedObservation, store.deps))[0]?.keyframes)
+      .toEqual(keyedObservation.tweens[0]!.keyframes);
+    expect(store.history).toHaveLength(3);
+  });
+
+  it("authors a first simple tween and removes only its matched source call", async () => {
+    const empty = fixture(before.replace('tl.to("#one",{duration:2,x:40},0);', ""));
+    const idle = { ...observation, tweens: [] };
+    const selected = { ...state, selector: "#one" };
+    expect(await commitRemoteGsapAnimationAction(selected, idle,
+      { action: "add", method: "to", property: "x", value: 55, position: 0, duration: 2 },
+      empty.deps)).toBe(true);
+    const authored = parseGsapScriptAcorn(empty.content.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? "")
+      .animations[0];
+    expect(authored).toMatchObject({ targetSelector: "#one", method: "to", properties: { x: 55 },
+      position: 0, duration: 2 });
+    const observed = { ...observation, tweens: observation.tweens.map(tween => ({
+      ...tween, properties: { x: 55 },
+    })) };
+    expect(await commitRemoteGsapAnimationAction(selected, observed,
+      { action: "remove", animationId: authored!.id }, empty.deps)).toBe(true);
+    expect(parseGsapScriptAcorn(empty.content.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? "")
+      .animations).toEqual([]);
+    expect(empty.history).toHaveLength(2);
+    const occupied = fixture();
+    await expect(commitRemoteGsapAnimationAction(selected, observation,
+      { action: "add", method: "to", property: "x", value: 55, duration: 2 }, occupied.deps))
+      .rejects.toThrow("idle source-bound");
+    expect(occupied.writes).toHaveLength(0);
+    const unobservedSet = fixture(before.replace('tl.to("#one",{duration:2,x:40},0);',
+      'gsap.set("#one",{x:40});'));
+    await expect(commitRemoteGsapAnimationAction(selected, idle,
+      { action: "add", method: "to", property: "x", value: 55, duration: 2 }, unobservedSet.deps))
+      .rejects.toThrow("already targets");
+    expect(unobservedSet.writes).toHaveLength(0);
   });
 });

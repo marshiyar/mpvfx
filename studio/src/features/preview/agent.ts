@@ -13,6 +13,8 @@ import type { VkfEngine } from "../../../shared/engine/vkfEngine";
 import { installNativeProjectRuntime, type NativeProjectRuntime } from "../project/nativeProjectRuntime";
 import { readPreviewGsapObservation } from "./gsapObservation";
 import { prepareBakedNativeProject, restorePreviewEngine } from "./bakedNativeProject";
+import { parseAudioFxChain } from "@hyperframes/core/audio-fx";
+import { parseAutomation } from "@hyperframes/core/audio-automation";
 
 const MAX_ELEMENTS = 300;
 const STYLE_PROPERTIES = new Set([
@@ -28,9 +30,11 @@ const STYLE_PROPERTIES = new Set([
 const SIMPLE_CROP_PATH = /^inset\(\s*\d+(?:\.\d{1,4})?px(?:\s+\d+(?:\.\d{1,4})?px){3}(?:\s+round\s+\d+(?:\.\d{1,4})?px)?\s*\)$/;
 const ATTRIBUTES = new Set(["id", "class", "title", "alt", "aria-label"]);
 const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "LINK", "META", "HEAD", "HTML"]);
-const READ_STYLES = ["position", "left", "top", "width", "height", "transform", "transform-origin",
+const READ_STYLES = ["position", "left", "top", "width", "height", "overflow", "transform", "transform-origin",
   "opacity", "display", "visibility", "z-index", "color", "background-color", "font-family",
-  "font-size", "font-weight", "line-height", "letter-spacing", "text-align", "border-radius", "clip-path"] as const;
+  "font-size", "font-weight", "line-height", "letter-spacing", "text-align", "border-radius", "clip-path",
+  "border-color", "border-width", "border-style", "box-shadow", "filter", "backdrop-filter",
+  "mix-blend-mode", "background-image", "object-fit", "object-position", "text-transform", "font-style"] as const;
 
 export interface PreviewAgentOptions {
   /** The editor's exact origin, supplied by the preview host. Never use '*'. */
@@ -59,6 +63,21 @@ export function installPreviewAgent(
   let nativeRuntime: NativeProjectRuntime | null = null;
   let nativePlaybackRate = 1;
   let originalEngine: VkfEngine | null | undefined;
+  let scrubAudio: HTMLAudioElement | null = null;
+  let scrubMuted = false;
+  let scrubVolume = 1;
+  let scrubTimer: ReturnType<typeof setTimeout> | null = null;
+  const stopScrub = (): void => {
+    if (scrubTimer) clearTimeout(scrubTimer);
+    scrubTimer = null;
+    if (!scrubAudio) return;
+    try {
+      scrubAudio.pause();
+      scrubAudio.muted = scrubMuted;
+      scrubAudio.volume = scrubVolume;
+    } catch { /* A removed media node is already stopped. */ }
+    scrubAudio = null;
+  };
 
   const assign = (element: Element): string => {
     let id = handles.get(element);
@@ -78,8 +97,12 @@ export function installPreviewAgent(
     return element;
   };
   const sourceFile = (element: Element): string => {
-    const host = element.closest("[data-composition-file], [data-composition-src]");
-    const root = element.closest("[data-composition-id]");
+    // A composition host lives in its parent's source file. Its children live
+    // in the file named on the host after the runtime expands that file.
+    const scope = element.matches("[data-composition-file], [data-composition-src]")
+      ? element.parentElement : element;
+    const host = scope?.closest("[data-composition-file], [data-composition-src]");
+    const root = scope?.closest("[data-composition-id]");
     return (host?.getAttribute("data-composition-file") ?? host?.getAttribute("data-composition-src")
       ?? root?.getAttribute("data-composition-file") ?? root?.getAttribute("data-composition-src")
       ?? options.compositionPath ?? "index.html").slice(0, 512);
@@ -124,7 +147,11 @@ export function installPreviewAgent(
     for (const attribute of Array.from(element.attributes)) {
       if (Object.keys(dataAttributes).length >= 32) break;
       if (attribute.name.startsWith("data-") && attribute.name.length <= 69) {
-        dataAttributes[attribute.name.slice(5)] = attribute.value.slice(0, 512);
+        // The authored color grade is a structured preset, usually larger than
+        // ordinary element metadata. Keep it bounded while allowing a saved
+        // preset to round-trip through the inspector.
+        dataAttributes[attribute.name.slice(5)] = attribute.value.slice(0,
+          attribute.name === "data-color-grading" ? 4096 : 512);
       }
     }
     const file = sourceFile(element);
@@ -184,6 +211,42 @@ export function installPreviewAgent(
       const hit = document.elementFromPoint(command.x, command.y);
       return hit && !SKIP_TAGS.has(hit.tagName) ? describe(hit) : null;
     }
+    if (command.kind === "previewAudioGroup") {
+      const groups = [...document.querySelectorAll("hf-audio-group[id]")]
+        .filter(group => group.id === command.groupId);
+      if (groups.length !== 1) throw new Error("unsupported-action");
+      if (command.attribute === "data-fx-chain" && command.value !== null) {
+        try { parseAudioFxChain(command.value); } catch { throw new Error("unsupported-action"); }
+      }
+      if (command.attribute === "data-automation" && command.value !== null) {
+        try { parseAutomation(command.value); } catch { throw new Error("unsupported-action"); }
+      }
+      if (command.value === null) groups[0]!.removeAttribute(command.attribute);
+      else groups[0]!.setAttribute(command.attribute, command.value);
+      return null;
+    }
+    if (command.kind === "scrubAudio") {
+      if (command.timeSeconds === null) { stopScrub(); return null; }
+      const matches = [...document.querySelectorAll("audio[id]")]
+        .filter(element => element.id === command.audioId);
+      if (matches.length !== 1 || !(matches[0] instanceof HTMLAudioElement)) {
+        throw new Error("unsupported-action");
+      }
+      const audio = matches[0];
+      if (scrubAudio !== audio) {
+        stopScrub();
+        scrubAudio = audio;
+        scrubMuted = audio.muted;
+        scrubVolume = audio.volume;
+      }
+      audio.muted = false;
+      audio.volume = Math.min(1, 0.25 * command.volume);
+      if (Math.abs(audio.currentTime - command.timeSeconds) > 0.04) audio.currentTime = command.timeSeconds;
+      if (audio.paused) void audio.play().catch(() => {});
+      if (scrubTimer) clearTimeout(scrubTimer);
+      scrubTimer = setTimeout(stopScrub, 140);
+      return null;
+    }
     const element = resolve(command.handle);
     if (!element) throw new Error("stale-handle");
     if (command.kind === "readElement") return describe(element);
@@ -230,7 +293,7 @@ export function installPreviewAgent(
     if (event.type === "keydown") event.preventDefault();
     send({ channel: PREVIEW_AGENT_CHANNEL, version: PREVIEW_AGENT_VERSION,
       type: "transport-key", token, phase: event.type === "keydown" ? "down" : "up",
-      key: key as PreviewTransportKeyEvent["key"], shiftKey: event.shiftKey });
+      key: key as PreviewTransportKeyEvent["key"], shiftKey: event.shiftKey, repeat: event.repeat });
   };
   const onMessage = (event: MessageEvent): void => {
     if (event.source !== view.parent || event.origin !== options.parentOrigin) return;
@@ -249,6 +312,7 @@ export function installPreviewAgent(
       return;
     }
     if (isPreviewAgentInit(event.data)) {
+      stopScrub();
       token = event.data.token;
       lastId = 0;
       elements.clear();
@@ -282,6 +346,7 @@ export function installPreviewAgent(
   document.addEventListener("keydown", onKey, true);
   document.addEventListener("keyup", onKey, true);
   return () => {
+    stopScrub();
     view.removeEventListener("message", onMessage);
     document.removeEventListener("keydown", onKey, true);
     document.removeEventListener("keyup", onKey, true);

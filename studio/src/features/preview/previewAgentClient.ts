@@ -60,7 +60,9 @@ export function isPreviewElementState(value: unknown): value is PreviewElementSt
       (value.selectorIndex as number) >= 0 && (value.selectorIndex as number) <= 1000)) &&
     typeof value.sourceFile === "string" && value.sourceFile.length <= 512 &&
     typeof value.compositionPath === "string" && value.compositionPath.length <= 512 &&
-    isBoundedStringMap(value.dataAttributes, 32, 64, 512) &&
+    isRecord(value.dataAttributes) && Object.entries(value.dataAttributes).length <= 32 &&
+    Object.entries(value.dataAttributes).every(([key, entry]) => key.length <= 64 &&
+      typeof entry === "string" && entry.length <= (key === "color-grading" ? 4096 : 512)) &&
     isBoundedStringMap(value.inlineStyles, 64, 64, 256) &&
     isBoundedStringMap(value.computedStyles, 64, 64, 256);
 }
@@ -122,7 +124,7 @@ export class PreviewAgentClient {
   private disposed = false;
   private pending = new Map<number, PendingRequest>();
   private readyListeners = new Set<() => void>();
-  private transportKeyListeners = new Set<(event: Pick<PreviewTransportKeyEvent, "phase" | "key" | "shiftKey">) => void>();
+  private transportKeyListeners = new Set<(event: Pick<PreviewTransportKeyEvent, "phase" | "key" | "shiftKey" | "repeat">) => void>();
   private initRetry: ReturnType<typeof setInterval> | null = null;
 
   constructor(private readonly iframe: HTMLIFrameElement) {
@@ -138,7 +140,7 @@ export class PreviewAgentClient {
     return () => this.readyListeners.delete(listener);
   }
 
-  onTransportKey(listener: (event: Pick<PreviewTransportKeyEvent, "phase" | "key" | "shiftKey">) => void): () => void {
+  onTransportKey(listener: (event: Pick<PreviewTransportKeyEvent, "phase" | "key" | "shiftKey" | "repeat">) => void): () => void {
     this.transportKeyListeners.add(listener);
     return () => this.transportKeyListeners.delete(listener);
   }
@@ -255,7 +257,7 @@ export class PreviewAgentClient {
       data.version !== PREVIEW_AGENT_VERSION || data.token !== this.token) return;
     if (this.ready && isPreviewTransportKeyEvent(data)) {
       for (const listener of this.transportKeyListeners) {
-        listener({ phase: data.phase, key: data.key, shiftKey: data.shiftKey });
+        listener({ phase: data.phase, key: data.key, shiftKey: data.shiftKey, repeat: data.repeat });
       }
       return;
     }

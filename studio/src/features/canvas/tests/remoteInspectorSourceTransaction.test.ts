@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PreviewElementState } from "../../../../shared/preview/agentProtocol";
 import { NATIVE_PROJECT_DOCUMENT_PATH, parseNativeProjectDocument, serializeNativeProjectDocument } from "../../../../shared/project/nativeProjectDocument";
-import { commitRemoteInspectorSourcePatch } from "../remoteInspectorSourceTransaction";
+import { commitRemoteInspectorSourcePatch, commitRemoteLegacyInspectorSourcePatch,
+  commitRemoteLegacyGradePreset } from "../remoteInspectorSourceTransaction";
 
 const project = parseNativeProjectDocument({
   schemaVersion: 1, id: "project", revision: 2,
@@ -156,5 +157,76 @@ describe("remote inspector durable source edits", () => {
       { type: "inline-style", property: "border-radius", value: "12px;position:absolute" },
     ], "Edit", deps)).rejects.toThrow(/not supported/);
     expect(deps.readOptionalProjectFile).not.toHaveBeenCalled();
+  });
+
+  it("saves bounded border, gradient, and filter styles with one source snapshot", async () => {
+    const { files, deps, recordEdit } = harness();
+    expect(await commitRemoteInspectorSourcePatch(state, [
+      { type: "inline-style", property: "border-color", value: "#abcdef" },
+      { type: "inline-style", property: "background-image", value: "linear-gradient(90deg,#000000,#ffffff)" },
+      { type: "inline-style", property: "filter", value: "blur(4px)" },
+    ], "Edit visual style", deps)).toBe(true);
+    expect(files.get("index.html")).toContain("border-color: #abcdef");
+    expect(files.get("index.html")).toContain("linear-gradient(90deg,#000000,#ffffff)");
+    expect(files.get("index.html")).toContain("filter: blur(4px)");
+    expect(recordEdit).toHaveBeenCalledTimes(1);
+    await expect(commitRemoteInspectorSourcePatch(state, [
+      { type: "inline-style", property: "background-image", value: "url(https://bad.example/x)" },
+    ], "Edit", deps)).rejects.toThrow(/not supported/);
+  });
+});
+
+describe("legacy-only isolated inspector source edits", () => {
+  it("saves and clears a verified source-bound video grade preset in one history entry", async () => {
+    const video = { ...state, tag: "video", text: "", textEditable: false };
+    const { files, deps, recordEdit } = harness('<video id="card" data-hf-id="hf-card" src="clip.mp4"></video>');
+    files.delete(NATIVE_PROJECT_DOCUMENT_PATH);
+    expect(await commitRemoteLegacyGradePreset(video, "warm-daylight", "index.html", deps)).toBe(true);
+    expect(files.get("index.html")).toContain('data-color-grading=');
+    expect(files.get("index.html")).toContain("warm-daylight");
+    expect(recordEdit).toHaveBeenCalledTimes(1);
+    expect(await commitRemoteLegacyGradePreset(video, null, "index.html", deps)).toBe(true);
+    expect(files.get("index.html")).not.toContain('data-color-grading=');
+    await expect(commitRemoteLegacyGradePreset(video, "unknown-preset", "index.html", deps))
+      .rejects.toThrow(/unsupported/);
+  });
+
+  it("saves plain text and bounded style with one source history entry", async () => {
+    const { files, deps, recordEdit } = harness();
+    files.delete(NATIVE_PROJECT_DOCUMENT_PATH);
+    expect(await commitRemoteLegacyInspectorSourcePatch(state, [
+      { type: "text-content", property: "textContent", value: "After" },
+      { type: "inline-style", property: "color", value: "#123456" },
+    ], "Edit card", "index.html", deps)).toBe(true);
+    expect(files.get("index.html")).toContain("After</div>");
+    expect(files.get("index.html")).toContain("color: #123456");
+    expect(recordEdit).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects drifted composition or duplicate authored identity before writing", async () => {
+    const { files, deps } = harness();
+    files.delete(NATIVE_PROJECT_DOCUMENT_PATH);
+    await expect(commitRemoteLegacyInspectorSourcePatch(state, [
+      { type: "text-content", property: "textContent", value: "No" },
+    ], "Edit", "other.html", deps)).rejects.toThrow(/active composition/);
+    files.set("index.html", '<div id="card" data-hf-id="hf-card">One</div><div id="card">Two</div>');
+    await expect(commitRemoteLegacyInspectorSourcePatch(state, [
+      { type: "text-content", property: "textContent", value: "No" },
+    ], "Edit", "index.html", deps)).rejects.toThrow(/not unique/);
+    expect(deps.writeProjectFile).not.toHaveBeenCalled();
+  });
+
+  it("refuses destructive nested text replacement and restores source after history failure", async () => {
+    const { files, deps } = harness('<div id="card" data-hf-id="hf-card"><span>Keep</span></div>');
+    files.delete(NATIVE_PROJECT_DOCUMENT_PATH);
+    await expect(commitRemoteLegacyInspectorSourcePatch(state, [
+      { type: "text-content", property: "textContent", value: "No" },
+    ], "Edit", "index.html", deps)).rejects.toThrow(/plain-text leaf/);
+    const before = files.get("index.html")!;
+    deps.recordEdit.mockRejectedValueOnce(new Error("history unavailable"));
+    await expect(commitRemoteLegacyInspectorSourcePatch(state, [
+      { type: "inline-style", property: "color", value: "#123456" },
+    ], "Edit", "index.html", deps)).rejects.toThrow("history unavailable");
+    expect(files.get("index.html")).toBe(before);
   });
 });

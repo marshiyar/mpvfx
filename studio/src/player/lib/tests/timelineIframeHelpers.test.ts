@@ -8,6 +8,8 @@ import {
   stopScrubPreviewAudio,
 } from "../timelineIframeHelpers";
 import type { IframeWindow } from "../playbackTypes";
+const previewAgentForIframeMock = vi.hoisted(() => vi.fn());
+vi.mock("../../../features/preview/previewAgentClient", () => ({ previewAgentForIframe: previewAgentForIframeMock }));
 
 function makeDoc(html: string): Document {
   const d = document.implementation.createHTMLDocument();
@@ -73,6 +75,18 @@ describe("setPreviewMediaVolume", () => {
 });
 
 describe("scrubPreviewAudio", () => {
+  it("routes paused-seek music audition through the isolated agent and stops it", () => {
+    const iframe = document.createElement("iframe");
+    Object.defineProperty(iframe, "contentDocument", { value: null });
+    const request = vi.fn(async () => null);
+    previewAgentForIframeMock.mockReturnValue({ isReady: true, request });
+    scrubPreviewAudio(iframe, 2.5, "music", 0.4);
+    expect(request).toHaveBeenCalledWith({ kind: "scrubAudio", audioId: "music",
+      timeSeconds: 2.5, volume: 0.4 });
+    stopScrubPreviewAudio();
+    expect(request).toHaveBeenLastCalledWith({ kind: "scrubAudio", audioId: "music",
+      timeSeconds: null, volume: 0 });
+  });
   it("scales scrub feedback by the Studio preview volume", () => {
     const iframe = document.createElement("iframe");
     document.body.append(iframe);

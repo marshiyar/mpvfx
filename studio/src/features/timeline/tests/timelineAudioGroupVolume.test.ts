@@ -16,13 +16,16 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { usePlayerStore, type TimelineElement } from "../../../player/index";
-import { resolveGroupSourceFile, useSetAudioGroupAttribute } from "../timelineAudioGroupVolume";
+import { resolveGroupSourceFile, resolveUniqueAudioGroupSourceFile, useSetAudioGroupAttribute } from "../timelineAudioGroupVolume";
 import {
   NATIVE_PROJECT_DOCUMENT_PATH, parseNativeProjectDocument, serializeNativeProjectDocument,
 } from "../../../../shared/project/nativeProjectDocument";
+const previewAgentForIframeMock = vi.hoisted(() => vi.fn());
+vi.mock("../../preview/previewAgentClient", () => ({ previewAgentForIframe: previewAgentForIframeMock }));
 
 afterEach(() => {
   usePlayerStore.getState().reset();
+  previewAgentForIframeMock.mockReset();
 });
 
 function member(domId: string, track: number): TimelineElement {
@@ -67,6 +70,85 @@ function makeSetter() {
 }
 
 describe("group attribute writes reach the store", () => {
+  it("resolves a nested bus from source bytes and refuses duplicate or absent buses", async () => {
+    const files = new Map([
+      ["index.html", "<main></main>"],
+      ["scene.html", '<hf-audio-group id="voiceover"></hf-audio-group>'],
+    ]);
+    const read = async (path: string) => files.get(path);
+    await expect(resolveUniqueAudioGroupSourceFile("voiceover", ["index.html", "scene.html"], read))
+      .resolves.toBe("scene.html");
+    files.set("index.html", '<hf-audio-group id="voiceover"></hf-audio-group>');
+    await expect(resolveUniqueAudioGroupSourceFile("voiceover", ["index.html", "scene.html"], read))
+      .rejects.toThrow("ambiguous source");
+    await expect(resolveUniqueAudioGroupSourceFile("other", ["index.html", "scene.html"], read))
+      .rejects.toThrow("no unique source file");
+  });
+
+  it("writes a native subcomposition bus to its actual source file", async () => {
+    const project = parseNativeProjectDocument({
+      schemaVersion: 1, mediaEngine: "ffmpeg", id: "project", revision: 0,
+      frameRate: { numerator: 30, denominator: 1 },
+      canvas: { width: 64, height: 32, background: "#000000" },
+      assets: [], sequence: { id: "sequence", name: "Sequence", tracks: [], audioGroups: [{ id: "voiceover" }] },
+    });
+    const files = new Map([
+      [NATIVE_PROJECT_DOCUMENT_PATH, serializeNativeProjectDocument(project)],
+      ["index.html", "<html><body><main></main></body></html>"],
+      ["scene.html", '<html><body><hf-audio-group id="voiceover"></hf-audio-group></body></html>'],
+    ]);
+    usePlayerStore.setState({ clipManifest: [{ compositionSrc: "scene.html" }] as never });
+    const nativeDocumentRef = { current: project };
+    const recordEdit = vi.fn(async () => {});
+    const writeProjectFile = vi.fn(async (path: string, content: string, expected?: string) => {
+      expect(files.get(path)).toBe(expected);
+      files.set(path, content);
+    });
+    const input = {
+      projectIdRef: { current: "project" }, activeCompPath: "index.html", showToast: vi.fn(),
+      writeProjectFile, recordEdit, domEditSaveTimestampRef: { current: 0 },
+      pendingTimelineEditPathRef: { current: new Set<string>() }, previewIframeRef: { current: null },
+      nativeProjectEditing: { readOptionalProjectFile: async (path: string) => files.get(path),
+        onNativeDocumentCommitted: (document: typeof project) => { nativeDocumentRef.current = document; } },
+      nativeDocumentRef, editQueueRef: { current: Promise.resolve() },
+    };
+    let setter: ReturnType<typeof useSetAudioGroupAttribute> | null = null;
+    const Probe = () => { setter = useSetAudioGroupAttribute(input as never); return null; };
+    const react = await import("react");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    renderToStaticMarkup(react.createElement(Probe));
+    await setter!.setQuiet("voiceover", "data-volume", "0.5", "Set bus gain");
+    expect(files.get("scene.html")).toContain('data-volume="0.5"');
+    expect(files.get("index.html")).toBe("<html><body><main></main></body></html>");
+    expect(nativeDocumentRef.current.sequence.audioGroups?.[0]?.volume).toBe(0.5);
+    expect(recordEdit).toHaveBeenCalledOnce();
+  });
+  it("sends live bus gain and mute to the isolated preview without a file write", async () => {
+    const iframe = document.createElement("iframe");
+    Object.defineProperty(iframe, "contentDocument", { value: null });
+    const request = vi.fn(async () => null);
+    previewAgentForIframeMock.mockReturnValue({ isReady: true, request });
+    const input = {
+      projectIdRef: { current: "project" }, activeCompPath: "index.html", showToast: vi.fn(),
+      writeProjectFile: vi.fn(), recordEdit: vi.fn(),
+      domEditSaveTimestampRef: { current: 0 }, pendingTimelineEditPathRef: { current: new Set<string>() },
+      previewIframeRef: { current: iframe },
+    };
+    let setter: ReturnType<typeof useSetAudioGroupAttribute> | null = null;
+    const Probe = () => { setter = useSetAudioGroupAttribute(input as never); return null; };
+    const react = await import("react");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    renderToStaticMarkup(react.createElement(Probe));
+    usePlayerStore.getState().setElements([member("voice-1", 0)]);
+    setter!.setLive("voiceover", "data-volume", "0.5");
+    setter!.setLive("voiceover", "data-hidden", "");
+    expect(request).toHaveBeenNthCalledWith(1, { kind: "previewAudioGroup", groupId: "voiceover",
+      attribute: "data-volume", value: "0.5" });
+    expect(request).toHaveBeenNthCalledWith(2, { kind: "previewAudioGroup", groupId: "voiceover",
+      attribute: "data-hidden", value: "" });
+    expect(usePlayerStore.getState().elements[0]).toMatchObject({ audioGroupVolume: 0.5, audioGroupHidden: true });
+    expect(input.writeProjectFile).not.toHaveBeenCalled();
+  });
   it("persists a native bus fader in the sidecar and HTML in one history entry", async () => {
     const project = parseNativeProjectDocument({
       schemaVersion: 1, mediaEngine: "ffmpeg", id: "project", revision: 0,

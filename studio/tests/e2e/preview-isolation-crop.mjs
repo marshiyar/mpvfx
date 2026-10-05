@@ -100,6 +100,85 @@ try {
   }, 10000);
   await page.screenshot({ path: join(root, "crop-applied.png") });
 
+  // Zoom transforms the editor stage around the iframe. Agent geometry inside
+  // the frame must stay in source CSS pixels while the iframe client box grows.
+  const sourceGeometry = async () => preview.evaluate(() => {
+    const element = document.getElementById("crop-clip");
+    return { width: element.getBoundingClientRect().width,
+      height: element.getBoundingClientRect().height,
+      cssWidth: getComputedStyle(element).width,
+      cssHeight: getComputedStyle(element).height };
+  });
+  const stageWidth = () => page.$eval('[data-testid="preview-zoom-stage"]', node => node.getBoundingClientRect().width);
+  const atFit = { source: await sourceGeometry(), stageWidth: await stageWidth() };
+  const originalStageTransform = await page.$eval('[data-testid="preview-zoom-stage"]', stage => {
+    const original = stage.style.transform;
+    stage.style.transform = "scale(2.06)";
+    return original;
+  });
+  const at206 = { source: await sourceGeometry(), stageWidth: await stageWidth() };
+  await page.$eval('[data-testid="preview-zoom-stage"]', (stage, original) => {
+    stage.style.transform = original;
+  }, originalStageTransform);
+  if (JSON.stringify(atFit.source) !== JSON.stringify(at206.source) ||
+    Math.abs(at206.stageWidth / atFit.stageWidth - 2.06) > 0.02) {
+    throw new Error(`Preview zoom changed agent-space source geometry: ${JSON.stringify({ atFit, at206 })}`);
+  }
+
+  // Rotate the cropped picture around its visible center. The native pose,
+  // source crop, and one Undo entry must stay together across frame reloads.
+  const currentFrame = page.frames().find(frame => frame.url().includes("/api/projects/MpVFX/preview"));
+  const currentClipBox = await (await currentFrame.$("#crop-clip")).boundingBox();
+  await page.mouse.click(currentClipBox.x + currentClipBox.width / 2,
+    currentClipBox.y + currentClipBox.height / 2);
+  await page.waitForSelector('[data-testid="isolated-preview-visible-selection"]', { timeout: 10000 });
+  const rotate = await page.waitForSelector('[data-testid="isolated-preview-rotate"]', { timeout: 10000 });
+  const rotateEnabled = await rotate.evaluate(node => !node.disabled);
+  if (!rotateEnabled) {
+    const info = await currentFrame.evaluate(() => {
+      const element = document.getElementById("crop-clip");
+      const style = getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return { tag: element.tagName, crop: style.clipPath, origin: style.transformOrigin,
+        transform: style.transform, width: style.width, height: style.height,
+        rect: { width: rect.width, height: rect.height } };
+    });
+    throw new Error(`Cropped layer rotation unavailable: ${JSON.stringify({
+      title: await rotate.evaluate(node => node.title), info,
+      document: JSON.parse(await readFile(nativePath, "utf8")),
+    })}`);
+  }
+  const rotateBox = await rotate.boundingBox();
+  const visibleBox = await page.$eval('[data-testid="isolated-preview-visible-selection"]',
+    node => { const rect = node.getBoundingClientRect(); return { x: rect.x, y: rect.y,
+      width: rect.width, height: rect.height }; });
+  const center = { x: visibleBox.x + visibleBox.width / 2,
+    y: visibleBox.y + visibleBox.height / 2 };
+  const start = { x: rotateBox.x + rotateBox.width / 2, y: rotateBox.y + rotateBox.height / 2 };
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(center.x + Math.abs(start.y - center.y), center.y, { steps: 8 });
+  await page.mouse.up();
+  const rotatedDocument = await waitFor(async () => {
+    const document = JSON.parse(await readFile(nativePath, "utf8"));
+    const rotation = document.sequence.tracks[0].clips[0].staticParameters?.["transform.rotation"];
+    return typeof rotation === "number" && Math.abs(rotation) > 45 ? document : null;
+  }, 10000);
+  const rotatedOutline = await waitFor(async () => page.$eval(
+    '[data-testid="isolated-preview-visible-selection"]', node => {
+      const rect = node.getBoundingClientRect();
+      return { width: rect.width, height: rect.height };
+    }).then(rect => rect.height > rect.width + 25 ? rect : null).catch(() => null), 10000);
+  await page.screenshot({ path: join(root, "crop-rotated-visible-center.png") });
+
+  await page.keyboard.down("Meta");
+  await page.keyboard.press("z");
+  await page.keyboard.up("Meta");
+  await waitFor(async () => {
+    const document = JSON.parse(await readFile(nativePath, "utf8"));
+    return !document.sequence.tracks[0].clips[0].staticParameters?.["transform.rotation"] &&
+      (await savedCrop()) !== null ? true : null;
+  }, 10000);
   await page.keyboard.down("Meta");
   await page.keyboard.press("z");
   await page.keyboard.up("Meta");
@@ -118,6 +197,15 @@ try {
   await page.keyboard.up("Shift");
   await page.keyboard.up("Meta");
   await waitFor(savedCrop, 10000);
+  await page.keyboard.down("Meta");
+  await page.keyboard.down("Shift");
+  await page.keyboard.press("z");
+  await page.keyboard.up("Shift");
+  await page.keyboard.up("Meta");
+  await waitFor(async () => {
+    const document = JSON.parse(await readFile(nativePath, "utf8"));
+    return Math.abs(document.sequence.tracks[0].clips[0].staticParameters?.["transform.rotation"] ?? 0) > 45;
+  }, 10000);
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.evaluate(() => { location.hash = "#project/MpVFX"; });
   const reopened = await waitFor(async () => {
@@ -128,10 +216,12 @@ try {
   }, 10000);
   const afterReopen = await waitFor(async () => {
     const state = await clipState(reopened);
-    return !state.hiddenEdgeHit && state.visibleCenterHit ? state : null;
+    return state.clipPath === authoredCrop ? state : null;
   }, 10000);
   await page.screenshot({ path: join(root, "crop-reopened.png") });
-  const evidence = { root, authoredCrop, before, cropped, undone, afterReopen,
+  const evidence = { root, authoredCrop, before, cropped, undone, afterReopen, atFit, at206,
+    rotation: rotatedDocument.sequence.tracks[0].clips[0].staticParameters,
+    rotatedOutline,
     nativeRevision: JSON.parse(await readFile(nativePath, "utf8")).revision };
   await writeFile(join(root, "evidence.json"), JSON.stringify(evidence, null, 2));
   console.log(JSON.stringify(evidence));

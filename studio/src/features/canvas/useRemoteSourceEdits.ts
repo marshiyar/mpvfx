@@ -2,10 +2,14 @@ import { useCallback } from "react";
 import { PREVIEW_GSAP_CHANNELS, type PreviewElementState, type PreviewGsapChannel } from "../../../shared/preview/agentProtocol";
 import type { PreviewAgentCommand } from "../../../shared/preview/agentProtocol";
 import type { PatchOperation } from "../legacy/sourcePatcher";
-import { commitRemoteInspectorSourcePatch } from "./remoteInspectorSourceTransaction";
+import { commitRemoteInspectorSourcePatch, commitRemoteLegacyInspectorSourcePatch,
+  commitRemoteLegacyGradePreset } from "./remoteInspectorSourceTransaction";
 import { commitRemoteStackingBatch, type RemoteStackingEntry } from "./remoteStackingBatchTransaction";
-import { commitRemoteGsapPropertyEdit, loadRemoteGsapTargets, type RemoteGsapTarget } from "../animation/GSAP/remoteGsapSourceTransaction";
-import { previewAgentForIframe } from "../preview/previewAgentClient";
+import { commitRemoteGsapAnimationAction, commitRemoteGsapKeyframeEdit, commitRemoteGsapPropertyEdit,
+  loadRemoteGsapTargets, type RemoteGsapTarget } from "../animation/GSAP/remoteGsapSourceTransaction";
+import { isPreviewElementState, previewAgentForIframe } from "../preview/previewAgentClient";
+import { commitRemoteGsapGesture, type RemoteGsapGesture } from "../animation/GSAP/remoteGsapGestureTransaction";
+import { commitRemoteNativeMediaEdit, type RemoteNativeMediaCommand } from "../project/remoteInspectorNativeMediaTransaction";
 import type { UseDomEditSessionParams } from "./useDomEditSession";
 
 type RemoteSourceEditParams = Pick<UseDomEditSessionParams,
@@ -23,14 +27,20 @@ export function useRemoteSourceEdits({
     state: PreviewElementState, operations: PatchOperation[] | "reset-design", label: string,
   ): Promise<boolean> => {
     const editing = nativeProjectEditing;
-    if (!editing?.nativeDocument || !projectId) return false;
+    if (!projectId) return false;
     try {
-      const saved = await commitRemoteInspectorSourcePatch(state, operations, label, {
-        readOptionalProjectFile: editing.readOptionalProjectFile,
-        writeProjectFile: editing.writeProjectFile,
+      const deps = {
+        readOptionalProjectFile: editing?.readOptionalProjectFile ?? (async (path: string) => {
+          try { return await readProjectFile(path); } catch { return null; }
+        }),
+        writeProjectFile: editing?.writeProjectFile ?? writeProjectFile,
         recordEdit: editHistory.recordEdit,
-        commitFileTransaction: editing.commitFileTransaction,
-      });
+        commitFileTransaction: editing?.commitFileTransaction,
+      };
+      const saved = editing?.nativeDocument
+        ? await commitRemoteInspectorSourcePatch(state, operations, label, deps)
+        : await commitRemoteLegacyInspectorSourcePatch(state, operations, label,
+          activeCompPath ?? "index.html", deps);
       if (!saved) return false;
       domEditSaveTimestampRef.current = Date.now();
       const client = previewAgentForIframe(previewIframeRef.current);
@@ -61,7 +71,8 @@ export function useRemoteSourceEdits({
       showToast(error instanceof Error ? error.message : "The inspector edit could not be saved", "error");
       return false;
     }
-  }, [domEditSaveTimestampRef, editHistory.recordEdit, nativeProjectEditing, previewIframeRef, projectId, reloadPreview, showToast]);
+  }, [activeCompPath, domEditSaveTimestampRef, editHistory.recordEdit, nativeProjectEditing,
+    previewIframeRef, projectId, readProjectFile, reloadPreview, showToast, writeProjectFile]);
   const commitRemoteStackingPatches = useCallback(async (
     entries: readonly RemoteStackingEntry[], coalesceKey?: string,
   ): Promise<boolean> => {
@@ -81,6 +92,52 @@ export function useRemoteSourceEdits({
       return saved;
     } catch (error) {
       showToast(error instanceof Error ? error.message : "The layer order could not be saved", "error");
+      return false;
+    }
+  }, [domEditSaveTimestampRef, editHistory.recordEdit, nativeProjectEditing, projectId, reloadPreview, showToast]);
+  const commitRemoteLegacyGrade = useCallback(async (
+    state: PreviewElementState, presetId: string | null,
+  ): Promise<boolean> => {
+    if (!projectId || nativeProjectEditing?.nativeDocument) return false;
+    try {
+      const saved = await commitRemoteLegacyGradePreset(state, presetId,
+        activeCompPath ?? "index.html", {
+          readOptionalProjectFile: async path => {
+            try { return await readProjectFile(path); } catch { return null; }
+          },
+          writeProjectFile, recordEdit: editHistory.recordEdit,
+          commitFileTransaction: nativeProjectEditing?.commitFileTransaction,
+        });
+      if (saved) {
+        domEditSaveTimestampRef.current = Date.now();
+        reloadPreview();
+      }
+      return saved;
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "The color grade could not be saved", "error");
+      return false;
+    }
+  }, [activeCompPath, domEditSaveTimestampRef, editHistory.recordEdit, nativeProjectEditing,
+    projectId, readProjectFile, reloadPreview, showToast, writeProjectFile]);
+  const commitRemoteNativeMedia = useCallback(async (
+    state: PreviewElementState, command: RemoteNativeMediaCommand,
+  ): Promise<boolean> => {
+    const editing = nativeProjectEditing;
+    if (!editing?.nativeDocument || !projectId) return false;
+    try {
+      await commitRemoteNativeMediaEdit(state, command, {
+        expectedRevision: editing.nativeDocument.revision,
+        readOptionalProjectFile: editing.readOptionalProjectFile,
+        writeProjectFile: editing.writeProjectFile,
+        recordEdit: editHistory.recordEdit,
+        commitFileTransaction: editing.commitFileTransaction,
+        onNativeDocumentCommitted: editing.onNativeDocumentCommitted,
+      });
+      domEditSaveTimestampRef.current = Date.now();
+      reloadPreview();
+      return true;
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "The media edit could not be saved", "error");
       return false;
     }
   }, [domEditSaveTimestampRef, editHistory.recordEdit, nativeProjectEditing, projectId, reloadPreview, showToast]);
@@ -134,6 +191,104 @@ export function useRemoteSourceEdits({
     }
   }, [activeCompPath, domEditSaveTimestampRef, editHistory.recordEdit, nativeProjectEditing,
     previewIframeRef, projectId, readProjectFile, reloadPreview, showToast, writeProjectFile]);
-  return { commitRemoteInspectorEdit, commitRemoteStackingPatches,
-    loadRemoteGsapAnimations, commitRemoteGsapProperty };
+  const commitRemoteGsapKeyframe = useCallback(async (
+    state: PreviewElementState, edit: Parameters<typeof commitRemoteGsapKeyframeEdit>[2],
+  ): Promise<boolean> => {
+    const client = previewAgentForIframe(previewIframeRef.current);
+    if (!projectId || !client?.isReady) return false;
+    try {
+      const observation = await client.observeGsap(state.handle, [...PREVIEW_GSAP_CHANNELS]);
+      const saved = await commitRemoteGsapKeyframeEdit(state, observation, edit, {
+        expectedSourceFile: activeCompPath ?? "index.html",
+        readOptionalProjectFile: async path => {
+          try { return await readProjectFile(path); } catch { return null; }
+        },
+        writeProjectFile,
+        recordEdit: editHistory.recordEdit,
+        commitFileTransaction: nativeProjectEditing?.commitFileTransaction,
+      });
+      if (saved) {
+        domEditSaveTimestampRef.current = Date.now();
+        reloadPreview();
+      }
+      return saved;
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "The authored keyframe could not be saved", "error");
+      return false;
+    }
+  }, [activeCompPath, domEditSaveTimestampRef, editHistory.recordEdit, nativeProjectEditing,
+    previewIframeRef, projectId, readProjectFile, reloadPreview, showToast, writeProjectFile]);
+  const commitRemoteGsapAnimation = useCallback(async (
+    state: PreviewElementState, action: Parameters<typeof commitRemoteGsapAnimationAction>[2],
+  ): Promise<boolean> => {
+    const client = previewAgentForIframe(previewIframeRef.current);
+    if (!projectId || !client?.isReady) return false;
+    try {
+      const observation = await client.observeGsap(state.handle, [...PREVIEW_GSAP_CHANNELS]);
+      const saved = await commitRemoteGsapAnimationAction(state, observation, action, {
+        expectedSourceFile: activeCompPath ?? "index.html",
+        readOptionalProjectFile: async path => {
+          try { return await readProjectFile(path); } catch { return null; }
+        },
+        writeProjectFile,
+        recordEdit: editHistory.recordEdit,
+        commitFileTransaction: nativeProjectEditing?.commitFileTransaction,
+      });
+      if (saved) {
+        domEditSaveTimestampRef.current = Date.now();
+        reloadPreview();
+      }
+      return saved;
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "The authored animation could not be saved", "error");
+      return false;
+    }
+  }, [activeCompPath, domEditSaveTimestampRef, editHistory.recordEdit, nativeProjectEditing,
+    previewIframeRef, projectId, readProjectFile, reloadPreview, showToast, writeProjectFile]);
+  const commitRemoteGsapCanvasGesture = useCallback(async (
+    state: PreviewElementState, gesture: RemoteGsapGesture,
+  ): Promise<boolean> => {
+    const client = previewAgentForIframe(previewIframeRef.current);
+    if (!projectId || !client?.isReady) return false;
+    try {
+      const ancestors: PreviewElementState[] = [];
+      const seen = new Set<string>([state.handle]);
+      let parent = state.parent;
+      while (parent !== null && ancestors.length <= 16) {
+        if (seen.has(parent)) throw new Error("The preview parent chain is cyclic");
+        seen.add(parent);
+        const resolved = await client.request({ kind: "readElement", handle: parent });
+        if (!isPreviewElementState(resolved) || resolved.handle !== parent) {
+          throw new Error("The preview parent chain is unavailable");
+        }
+        ancestors.push(resolved);
+        parent = resolved.parent;
+      }
+      if (parent !== null) throw new Error("The preview parent chain is too deep");
+      const observation = await client.observeGsap(state.handle, [...PREVIEW_GSAP_CHANNELS]);
+      const saved = await commitRemoteGsapGesture(state, observation, ancestors, gesture, {
+        expectedSourceFile: activeCompPath ?? "index.html",
+        readOptionalProjectFile: async path => {
+          try { return await readProjectFile(path); } catch { return null; }
+        },
+        writeProjectFile,
+        recordEdit: editHistory.recordEdit,
+        commitFileTransaction: nativeProjectEditing?.commitFileTransaction,
+      });
+      if (saved) {
+        domEditSaveTimestampRef.current = Date.now();
+        reloadPreview();
+      }
+      return saved;
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "The animated canvas edit could not be saved", "error");
+      return false;
+    }
+  }, [activeCompPath, domEditSaveTimestampRef, editHistory.recordEdit, nativeProjectEditing,
+    previewIframeRef, projectId, readProjectFile, reloadPreview, showToast, writeProjectFile]);
+  return { commitRemoteInspectorEdit, commitRemoteStackingPatches, commitRemoteNativeMedia,
+    commitRemoteLegacyGrade,
+    loadRemoteGsapAnimations, commitRemoteGsapProperty, commitRemoteGsapKeyframe,
+    commitRemoteGsapAnimation,
+    commitRemoteGsapCanvasGesture };
 }

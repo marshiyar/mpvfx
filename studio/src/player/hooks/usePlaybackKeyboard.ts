@@ -201,10 +201,10 @@ export function usePlaybackKeyboard({
       // The isolated preview is still reachable through its validated agent.
     }
     const agent = iframeDoc ? null : previewAgentForIframe(iframe);
-    const unsubscribeTransport = agent?.onTransportKey(({ phase, key, shiftKey }) => {
+    const unsubscribeTransport = agent?.onTransportKey(({ phase, key, shiftKey, repeat }) => {
       const code = key === " " ? "Space" : key.startsWith("Arrow") ? key : `Key${key.toUpperCase()}`;
       const event = new KeyboardEvent(phase === "down" ? "keydown" : "keyup", {
-        key, code, shiftKey, cancelable: true,
+        key, code, shiftKey, repeat, cancelable: true,
       });
       if (phase === "down") playbackKeyDownRef.current(event);
       else playbackKeyUpRef.current(event);
