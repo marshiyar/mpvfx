@@ -22,7 +22,7 @@ This does not notarize the app. Do not run the command on an app whose origin yo
 
 - Node.js **24.x**, with its Node-API headers. The repository selects Node 24 through `studio/.configurations/.nvmrc`; desktop packaging rejects other major versions.
 - CMake **3.25 or newer** and a C++20 toolchain. On macOS, install Xcode command line tools and a macOS SDK. Linux needs SQLite development files discoverable by CMake; Windows needs the SQLite vcpkg package and its CMake toolchain file. The native library uses system SQLite on macOS.
-- The included `third_party/video-keyframing` engine source. For engine development against another checkout, optionally set `VKF_ENGINE_DIR` to its absolute path.
+- The MpVFX-owned video-keyframing C++ engine source, stored at the legacy path `third_party/video-keyframing`. That directory name describes its build layout, not outside ownership. For engine development against another checkout, optionally set `VKF_ENGINE_DIR` to its absolute path.
 - Network access for the first `npm ci`: the postinstall step downloads checksum-verified redistributable FFmpeg and FFprobe binaries and applies local dependency patches.
 
 From the repository root:
@@ -72,7 +72,7 @@ Both packaging commands rebuild first and check the Node version and installed m
 | `studio/desktop/` | Electron lifecycle, local protocol, preload bridge, and OS integration |
 | `studio/runtime/` | Project and library services, media import, preview, and export |
 | `studio/shared/` | Contracts used across the editor, desktop, and runtime |
-| `studio/native/vkf/` | Build wrapper for the separate C++ keyframe engine's Node module |
+| `studio/native/vkf/` | Build wrapper for MpVFX's C++ keyframe engine Node module |
 | `studio/native/library/` | C++/SQLite library catalog Node module |
 | `scripts/` | Build, verification, dependency patch, and release scripts |
 | `Crosspost/` | Optional Python publishing GUI and setup instructions |
