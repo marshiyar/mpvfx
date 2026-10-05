@@ -19,9 +19,16 @@ else()
 endif()
 if(WIN32)
   if(NOT EXISTS "${NODE_API_LIBRARY}")
-    message(FATAL_ERROR "node.lib not found; set NODE_API_LIBRARY to the Node 24 import library")
+    message(FATAL_ERROR "Electron node.lib not found; set NODE_API_LIBRARY")
   endif()
+  if(NOT EXISTS "${NODE_API_DELAY_LOAD_HOOK}")
+    message(FATAL_ERROR "Electron delay-load hook not found; set NODE_API_DELAY_LOAD_HOOK")
+  endif()
+  target_sources(mpvfx_library PRIVATE "${NODE_API_DELAY_LOAD_HOOK}")
+  target_compile_definitions(mpvfx_library PRIVATE HOST_BINARY="node.exe")
   target_link_libraries(mpvfx_library PRIVATE "${NODE_API_LIBRARY}")
+  target_link_libraries(mpvfx_library PRIVATE delayimp.lib)
+  target_link_options(mpvfx_library PRIVATE /DELAYLOAD:node.exe)
   # Visual Studio otherwise appends /Release and the package misses the addon.
   set_target_properties(mpvfx_library PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"

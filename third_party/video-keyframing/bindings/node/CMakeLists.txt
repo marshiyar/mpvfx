@@ -25,8 +25,8 @@ set_target_properties(vkf_node PROPERTIES
   OUTPUT_NAME "vkf"
   LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/node")
 if(WIN32)
-  # Windows requires an import library for Node-API symbols. The Node ZIP puts
-  # node.lib next to node.exe; callers can override that location explicitly.
+  # Electron exports Node-API symbols from electron.exe. Its node.lib and the
+  # node-gyp delay-load hook must be linked into this final .node module.
   if(NOT VKF_NODE_API_LIBRARY)
     find_program(VKF_NODE_EXECUTABLE node)
     if(VKF_NODE_EXECUTABLE)
@@ -36,9 +36,16 @@ if(WIN32)
     endif()
   endif()
   if(NOT EXISTS "${VKF_NODE_API_LIBRARY}")
-    message(FATAL_ERROR "node.lib not found; set VKF_NODE_API_LIBRARY to the Node 24 import library")
+    message(FATAL_ERROR "Electron node.lib not found; set VKF_NODE_API_LIBRARY")
   endif()
+  if(NOT EXISTS "${VKF_NODE_API_DELAY_LOAD_HOOK}")
+    message(FATAL_ERROR "Electron delay-load hook not found; set VKF_NODE_API_DELAY_LOAD_HOOK")
+  endif()
+  target_sources(vkf_node PRIVATE "${VKF_NODE_API_DELAY_LOAD_HOOK}")
+  target_compile_definitions(vkf_node PRIVATE HOST_BINARY="node.exe")
   target_link_libraries(vkf_node PRIVATE "${VKF_NODE_API_LIBRARY}")
+  target_link_libraries(vkf_node PRIVATE delayimp.lib)
+  target_link_options(vkf_node PRIVATE /DELAYLOAD:node.exe)
   # A MODULE is a runtime DLL on Windows; Visual Studio otherwise puts it in
   # node/Release, while the desktop build expects node/vkf.node.
   set_target_properties(vkf_node PROPERTIES

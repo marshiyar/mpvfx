@@ -6,18 +6,27 @@ import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 
 const studioDir = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const engineDir = resolve(process.env.VKF_ENGINE_DIR ?? join(studioDir, "../third_party/video-keyframing"));
 const outDir = join(studioDir, ".build/native/vkf");
 const buildDir = join(outDir, "cmake");
 const nodeDir = dirname(process.execPath);
+const require = createRequire(join(studioDir, "package.json"));
+const electronVersion = process.platform === "win32" ? require("electron/package.json").version : undefined;
+const electronHeaders = electronVersion ? join(studioDir, ".build/electron-headers", electronVersion) : undefined;
+const electronHook = process.platform === "win32"
+  ? resolve(dirname(require.resolve("@electron/node-gyp/bin/node-gyp.js")), "../src/win_delay_load_hook.cc")
+  : undefined;
 const nodeApiIncludeDir = process.env.NODE_API_INCLUDE_DIR ?? [
+  ...(electronHeaders ? [join(electronHeaders, "include/node")] : []),
   resolve(nodeDir, "../include/node"),
   resolve(nodeDir, "include/node"),
 ].find((path) => existsSync(join(path, "node_api.h")));
 const nodeApiLibrary = process.platform === "win32"
   ? process.env.NODE_API_LIBRARY ?? [
+    join(electronHeaders, "x64/node.lib"),
     join(nodeDir, "node.lib"),
     resolve(nodeDir, "../node.lib"),
   ].find((path) => existsSync(path))
@@ -32,9 +41,10 @@ if (!nodeApiIncludeDir || !existsSync(join(nodeApiIncludeDir, "node_api.h"))) {
   process.exit(1);
 }
 if (process.platform === "win32" && (!nodeApiLibrary || !existsSync(nodeApiLibrary))) {
-  console.error(`Node import library not found near ${process.execPath}. Set NODE_API_LIBRARY.`);
+  console.error("Electron node.lib not found. Run npm run prepare:electron-windows-headers or set NODE_API_LIBRARY.");
   process.exit(1);
 }
+if (electronHook && !existsSync(electronHook)) throw new Error(`Electron delay-load hook missing: ${electronHook}`);
 
 function run(command, args) {
   const result = spawnSync(command, args, { stdio: "inherit" });
@@ -59,6 +69,7 @@ run("cmake", [
   // Node-API headers from the Node running this build (ABI-stable across Electron).
   `-DVKF_NODE_API_INCLUDE_DIR=${nodeApiIncludeDir}`,
   ...(nodeApiLibrary ? [`-DVKF_NODE_API_LIBRARY=${nodeApiLibrary}`] : []),
+  ...(electronHook ? [`-DVKF_NODE_API_DELAY_LOAD_HOOK=${electronHook}`] : []),
 ]);
 run("cmake", ["--build", buildDir, "--target", "vkf_node", "--config", "Release"]);
 copyFileSync(join(buildDir, "node/vkf.node"), join(outDir, "vkf.node"));

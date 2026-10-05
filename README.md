@@ -37,13 +37,14 @@ npm run dev
 
 If your Node installation does not provide headers at its usual `include/node` location, set `NODE_API_INCLUDE_DIR` to the directory containing `node_api.h` before building. `npm run build` runs typechecking, builds the keyframe engine and native library, prepares frame runtime and publisher resources, then compiles the renderer and desktop code. `npm run dev` runs that build again before starting Electron; it is not a hot reload command.
 
-On Windows, use a Node 24 installation and install `sqlite3:x64-windows` with vcpkg before the same npm commands:
+On Windows, use Node 24 and install static SQLite with vcpkg. Prepare Electron's matching headers and import library after `npm ci` before building:
 
 ```powershell
 cd studio
 $env:CMAKE_TOOLCHAIN_FILE = "$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake"
-& "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install sqlite3:x64-windows
+& "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install sqlite3:x64-windows-static-md
 npm ci
+npm run prepare:electron-windows-headers
 npm run build
 npm run dev
 ```
