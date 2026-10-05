@@ -168,7 +168,11 @@ export function ExternalFileConflictBanner({
 }) {
   const [reviewing, setReviewing] = useState(false);
   const blocked = coordinator.blocked;
-  if (!blocked) return null;
+  if (!blocked) return coordinator.eventStreamUnavailable ? (
+    <div role="alert" className="absolute left-1/2 top-14 z-[94] max-w-[calc(100vw-32px)] -translate-x-1/2 rounded-md border border-amber-400/30 bg-amber-950 px-4 py-2 text-[12px] font-medium text-amber-50">
+      File watching is disconnected. Studio is reconnecting; external changes may not appear until it succeeds.
+    </div>
+  ) : null;
 
   const conflict = blocked.status === "conflict" ? blocked : null;
   const failure = blocked.status === "failed" ? blocked : null;

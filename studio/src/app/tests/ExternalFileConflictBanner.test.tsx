@@ -14,6 +14,25 @@ describe("ExternalFileConflictBanner", () => {
     vi.restoreAllMocks();
   });
 
+  it("shows and clears a file watching outage without offering destructive conflict actions", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const coordinator: ExternalFileChangeCoordinatorHandle = {
+      blocked: null,
+      eventStreamUnavailable: true,
+      retry: vi.fn(async () => undefined),
+      useExternalFile: vi.fn(async () => undefined),
+      keepStudioFile: vi.fn(async () => undefined),
+    };
+    await act(async () => root.render(<ExternalFileConflictBanner coordinator={coordinator} />));
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("File watching is disconnected");
+    expect(container.textContent).not.toContain("Discard Studio edits");
+    await act(async () => root.render(<ExternalFileConflictBanner coordinator={{ ...coordinator, eventStreamUnavailable: false }} />));
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    await act(async () => root.unmount());
+  });
+
   it("keeps destructive choices explicit and exposes both full versions for review", async () => {
     const container = document.createElement("div");
     document.body.append(container);

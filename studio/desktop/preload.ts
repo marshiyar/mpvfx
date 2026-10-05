@@ -51,7 +51,9 @@ const bridge: DesktopBridge = {
       if (!closed && id === subscriptionId) listener(event);
     };
     ipcRenderer.on(DESKTOP_CHANNELS.event, receive);
-    void ipcRenderer.invoke(DESKTOP_CHANNELS.subscribe, id, path).catch(() => {
+    void ipcRenderer.invoke(DESKTOP_CHANNELS.subscribe, id, path).then(() => {
+      if (!closed) listener({ type: "ready", data: "" });
+    }).catch(() => {
       if (!closed) listener({ type: "error", data: "Subscription failed" });
     });
     return () => {

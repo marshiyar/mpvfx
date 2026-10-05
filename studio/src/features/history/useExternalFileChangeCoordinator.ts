@@ -1,4 +1,5 @@
 import { DesktopEvents } from "../../lib/desktopClient";
+import { subscribeDesktopFileChanges } from "./desktopFileChangeSubscription";
 import {
   useCallback,
   useEffect,
@@ -78,6 +79,7 @@ interface ExternalFileChangeCoordinatorOptions {
 
 export interface ExternalFileChangeCoordinatorHandle {
   blocked: ExternalFileChangeBlockedState | null;
+  eventStreamUnavailable?: boolean;
   retry: () => Promise<void>;
   useExternalFile: () => Promise<void>;
   keepStudioFile: () => Promise<void>;
@@ -156,6 +158,7 @@ export function useExternalFileChangeCoordinator({
   const [blocked, setBlocked] = useState<ExternalFileChangeBlockedState | null>(
     null,
   );
+  const [eventStreamUnavailable, setEventStreamUnavailable] = useState(false);
   const generationRef = useRef(0);
   const mountedRef = useRef(true);
   const lastEventIdentityRef = useRef<string | null>(null);
@@ -415,14 +418,36 @@ export function useExternalFileChangeCoordinator({
       adapter.on("hf:file-change", handler);
       return () => adapter.off("hf:file-change", handler);
     }
+    if (typeof window.mpvfx?.subscribe === "function") {
+      setEventStreamUnavailable(false);
+      return subscribeDesktopFileChanges(
+        () => new DesktopEvents("/api/events"),
+        handler,
+        () => {
+          if (!projectId) return;
+          // A dropped subscription can miss media replacements as well as
+          // source edits. Retire cached thumbnails and media facts before the
+          // normal save-drain/reload reconciliation of the open composition.
+          thumbnailScheduler.invalidateProject(projectId);
+          const mediaPaths = new Set(usePlayerStore.getState().elements.flatMap(element => {
+            const path = element.src && projectMediaSourcePath(element.src, projectId);
+            return path ? [path] : [];
+          }));
+          for (const path of mediaPaths) {
+            void processChange({ projectId, kind: "media", path }, true);
+          }
+          if (activeCompPath) void processChange({ projectId, path: activeCompPath }, true);
+        },
+        () => setEventStreamUnavailable(true),
+        () => setEventStreamUnavailable(false),
+      );
+    }
     if (import.meta.hot) {
       import.meta.hot.on("hf:file-change", handler);
       return () => import.meta.hot?.off?.("hf:file-change", handler);
     }
-    const eventSource = new DesktopEvents("/api/events");
-    eventSource.addEventListener("file-change", handler);
-    return () => eventSource.close();
-  }, [processChange]);
+    return undefined;
+  }, [activeCompPath, processChange, projectId]);
 
   const retry = useCallback(async () => {
     const current = blockedRef.current;
@@ -537,5 +562,5 @@ export function useExternalFileChangeCoordinator({
     resetSaveQueues,
   ]);
 
-  return { blocked, retry, useExternalFile, keepStudioFile };
+  return { blocked, eventStreamUnavailable, retry, useExternalFile, keepStudioFile };
 }
