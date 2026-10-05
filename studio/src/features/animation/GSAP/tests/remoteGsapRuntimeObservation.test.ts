@@ -2,9 +2,10 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { gsap } from "gsap";
 import { MotionPathPlugin } from "gsap/MotionPathPlugin.js";
+import { parseGsapScriptAcorn } from "@hyperframes/core/gsap-parser-acorn";
 import type { PreviewElementState } from "../../../../../shared/preview/agentProtocol";
 import { readPreviewGsapObservation } from "../../../preview/gsapObservation";
-import { loadRemoteGsapTargets } from "../remoteGsapSourceTransaction";
+import { commitRemoteGsapAnimationAction, loadRemoteGsapTargets } from "../remoteGsapSourceTransaction";
 
 afterEach(() => {
   gsap.globalTimeline.clear();
@@ -12,6 +13,44 @@ afterEach(() => {
 });
 
 describe("bounded GSAP observation on real keyframed runtime", () => {
+  it("round trips an inserted interior waypoint through authored source and real GSAP", async () => {
+    gsap.registerPlugin(MotionPathPlugin);
+    let source = '<!doctype html><html><body><main data-composition-id="main"><div id="one" data-hf-id="hf-one"></div></main><script>const tl=gsap.timeline({paused:true});window.__timelines=window.__timelines||{};window.__timelines.main=tl;tl.to("#one",{duration:2,motionPath:{path:[{x:0,y:0},{x:20,y:30},{x:40,y:0}],curviness:1,autoRotate:false}},0);</script></body></html>';
+    document.body.innerHTML = '<main data-composition-id="main"><div id="one" data-hf-id="hf-one"></div></main>';
+    const element = document.getElementById("one")!;
+    const view = window as Window & { gsap?: typeof gsap; __timelines?: Record<string, gsap.core.Timeline> };
+    view.gsap = gsap;
+    const runAuthoredScript = () => {
+      const script = source.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? "";
+      new Function("gsap", "window", script)(gsap, view);
+      return parseGsapScriptAcorn(script).animations[0]!.id;
+    };
+    const id = runAuthoredScript();
+    const state = { handle: "e1", id: "one", sourceFile: "index.html", compositionPath: "index.html",
+      dataAttributes: { "hf-id": "hf-one" } } as PreviewElementState;
+    const observe = () => readPreviewGsapObservation({ view, element, handle: "e1",
+      sourceFile: "index.html", compositionPath: "index.html", requestedChannels: ["x", "y"] });
+    const original = observe();
+    expect(await commitRemoteGsapAnimationAction(state, original,
+      { action: "add-motion-point", animationId: id, index: 1, x: 10, y: 12 }, {
+        expectedSourceFile: "index.html", readOptionalProjectFile: async () => source,
+        writeProjectFile: async (_path, next, expected) => {
+          expect(expected).toBe(source);
+          source = next;
+        },
+        recordEdit: async () => {},
+      })).toBe(true);
+    runAuthoredScript();
+    const edited = observe();
+    expect(edited.tweens[0]?.motionPath?.points).toEqual([
+      { x: 0, y: 0 }, { x: 10, y: 12 }, { x: 20, y: 30 }, { x: 40, y: 0 },
+    ]);
+    expect((await loadRemoteGsapTargets(state, edited, {
+      expectedSourceFile: "index.html", readOptionalProjectFile: async () => source,
+    }))[0]?.motionPath?.points).toEqual(edited.tweens[0]?.motionPath?.points);
+    delete view.gsap;
+    delete view.__timelines;
+  });
   it("matches a real MotionPathPlugin tween to its literal source points", async () => {
     gsap.registerPlugin(MotionPathPlugin);
     const source = '<!doctype html><html><body><main data-composition-id="main"><div id="one" data-hf-id="hf-one"></div></main><script>const tl=gsap.timeline({paused:true});window.__timelines=window.__timelines||{};window.__timelines.main=tl;tl.to("#one",{duration:2,motionPath:{path:[{x:0,y:0},{x:20,y:30},{x:40,y:0}],curviness:1,autoRotate:false}},0);</script></body></html>';

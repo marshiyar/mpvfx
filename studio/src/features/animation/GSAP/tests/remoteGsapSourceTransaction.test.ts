@@ -242,4 +242,32 @@ describe("remote legacy GSAP source transaction", () => {
     expect(store.history).toHaveLength(1);
     expect(await loadRemoteGsapTargets(state, observed, store.deps)).toEqual([]);
   });
+
+  it("inserts and removes only interior points on a matched simple motion path", async () => {
+    const pathSource = before.replace('tl.to("#one",{duration:2,x:40},0);',
+      'tl.to("#one",{duration:2,motionPath:{path:[{x:0,y:0},{x:20,y:30},{x:40,y:0}],curviness:1,autoRotate:false}},0);');
+    const points = [{ x: 0, y: 0 }, { x: 20, y: 30 }, { x: 40, y: 0 }];
+    const observed = { ...observation, tweens: [{ ...observation.tweens[0]!, properties: {},
+      motionPath: { points, curviness: 1, autoRotate: false, isCubic: false } }] } satisfies PreviewGsapObservation;
+    const store = fixture(pathSource);
+    const id = parseGsapScriptAcorn(pathSource.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? "")
+      .animations[0]!.id;
+    await expect(commitRemoteGsapAnimationAction(state, observed,
+      { action: "remove-motion-point", animationId: id, index: 0 }, store.deps))
+      .rejects.toThrow("no longer uniquely editable");
+    expect(await commitRemoteGsapAnimationAction(state, observed,
+      { action: "add-motion-point", animationId: id, index: 1, x: 10, y: 12 }, store.deps)).toBe(true);
+    const inserted = [{ x: 0, y: 0 }, { x: 10, y: 12 }, { x: 20, y: 30 }, { x: 40, y: 0 }];
+    const insertedObservation = { ...observed, tweens: [{ ...observed.tweens[0]!,
+      motionPath: { ...observed.tweens[0]!.motionPath!, points: inserted } }] };
+    expect((await loadRemoteGsapTargets(state, insertedObservation, store.deps))[0]?.motionPath?.points)
+      .toEqual(inserted);
+    expect(await commitRemoteGsapAnimationAction(state, insertedObservation,
+      { action: "remove-motion-point", animationId: id, index: 1 }, store.deps)).toBe(true);
+    expect((await loadRemoteGsapTargets(state, observed, store.deps))[0]?.motionPath?.points)
+      .toEqual(points);
+    expect(store.history).toHaveLength(2);
+    expect(store.history[0]?.files[sourceFile]).toEqual({ before: pathSource,
+      after: store.history[1]?.files[sourceFile]?.before });
+  });
 });

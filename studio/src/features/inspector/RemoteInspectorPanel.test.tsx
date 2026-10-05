@@ -264,6 +264,22 @@ describe("remote inspector", () => {
       .find(button => button.textContent === "Save motion point")!.click(); });
     expect(commitGsapAnimation).toHaveBeenCalledWith(selection,
       { action: "motion-point", animationId: "path-1", index: 1, x: 20, y: 35 });
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(point, "1");
+      point.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () => { [...section.querySelectorAll("button")]
+      .find(button => button.textContent?.trim() === "Insert point before selected")!.click(); });
+    expect(commitGsapAnimation).toHaveBeenCalledWith(selection,
+      { action: "add-motion-point", animationId: "path-1", index: 1, x: 20, y: 30 });
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(point, "1");
+      point.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () => { [...section.querySelectorAll("button")]
+      .find(button => button.textContent?.trim() === "Remove selected point")!.click(); });
+    expect(commitGsapAnimation).toHaveBeenCalledWith(selection,
+      { action: "remove-motion-point", animationId: "path-1", index: 1 });
     act(() => root.unmount());
   });
 

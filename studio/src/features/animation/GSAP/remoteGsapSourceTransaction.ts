@@ -1,8 +1,8 @@
 import { parseHTML } from "linkedom";
 import { parseGsapScriptAcorn } from "@hyperframes/core/gsap-parser-acorn";
-import { addAnimationToScript, addKeyframeToScript, removeAnimationFromScript,
+import { addAnimationToScript, addKeyframeToScript, addMotionPathPointInScript, removeAnimationFromScript,
   removeKeyframeFromScript, updateAnimationInScript, updateKeyframeInScript,
-  updateMotionPathPointInScript } from "@hyperframes/core/gsap-writer-acorn";
+  updateMotionPathPointInScript, removeMotionPathPointInScript } from "@hyperframes/core/gsap-writer-acorn";
 import type { PreviewElementState, PreviewGsapChannel, PreviewGsapKeyframe, PreviewGsapTween,
   PreviewGsapObservation } from "../../../../shared/preview/agentProtocol";
 import { PREVIEW_GSAP_CHANNELS } from "../../../../shared/preview/agentProtocol";
@@ -284,6 +284,8 @@ type AnimationAction =
   | { action: "remove"; animationId: string }
   | { action: "ease"; animationId: string; ease: string }
   | { action: "motion-point"; animationId: string; index: number; x: number; y: number }
+  | { action: "add-motion-point"; animationId: string; index: number; x: number; y: number }
+  | { action: "remove-motion-point"; animationId: string; index: number }
   | { action: "add"; method: "to" | "from" | "fromTo" | "set"; property: PreviewGsapChannel;
       value: number; fromValue?: number; ease?: string; position?: number; duration?: number };
 
@@ -303,10 +305,12 @@ export async function commitRemoteGsapAnimationAction(
   if (action.action === "ease" && !EDITABLE_EASES.has(action.ease)) {
     throw new Error("The requested GSAP ease is unsupported");
   }
-  if (action.action === "motion-point" && (!Number.isSafeInteger(action.index) ||
-      action.index < 0 || action.index >= 64 || !Number.isFinite(action.x) ||
-      !Number.isFinite(action.y) || Math.abs(action.x) > 1_000_000 ||
-      Math.abs(action.y) > 1_000_000)) {
+  if ((action.action === "motion-point" || action.action === "add-motion-point" ||
+      action.action === "remove-motion-point") && (!Number.isSafeInteger(action.index) ||
+      action.index < 0 || action.index >= 64 ||
+      (action.action !== "remove-motion-point" && (!Number.isFinite(action.x) ||
+        !Number.isFinite(action.y) || Math.abs(action.x) > 1_000_000 ||
+        Math.abs(action.y) > 1_000_000)))) {
     throw new Error("The motion path point is unsupported");
   }
   if (action.action === "add" &&
@@ -342,22 +346,42 @@ export async function commitRemoteGsapAnimationAction(
       if (action.action === "ease" && (target.method === "set" || target.keyframes)) {
         throw new Error("This animation's ease cannot be edited as a flat tween");
       }
-      if (action.action === "motion-point" && !target.motionPath?.points[action.index]) {
+      const originalPoints = target.motionPath?.points;
+      if ((action.action === "motion-point" && !originalPoints?.[action.index]) ||
+          (action.action === "add-motion-point" && (!originalPoints ||
+            originalPoints.length >= 64 || action.index < 1 || action.index >= originalPoints.length)) ||
+          (action.action === "remove-motion-point" && (!originalPoints ||
+            originalPoints.length <= 2 || action.index < 1 || action.index >= originalPoints.length - 1))) {
         throw new Error("The selected motion path point is no longer uniquely editable");
       }
       changed = action.action === "remove"
         ? removeAnimationFromScript(script.textContent ?? "", target.id)
         : action.action === "ease"
           ? updateAnimationInScript(script.textContent ?? "", target.id, { ease: action.ease })
-          : updateMotionPathPointInScript(script.textContent ?? "", target.id, action.index,
-            { x: action.x, y: action.y });
+          : action.action === "add-motion-point"
+            ? addMotionPathPointInScript(script.textContent ?? "", target.id, action.index,
+              { x: action.x, y: action.y })
+            : action.action === "remove-motion-point"
+              ? removeMotionPathPointInScript(script.textContent ?? "", target.id, action.index)
+              : updateMotionPathPointInScript(script.textContent ?? "", target.id, action.index,
+                { x: action.x, y: action.y });
       if (changed === script.textContent) return false;
       const updated = parseGsapScriptAcorn(changed).animations.find(anim => anim.id === target.id);
-      const point = action.action === "motion-point"
-        ? updated?.keyframes?.keyframes[action.index]?.properties : null;
+      const expectedPoints = originalPoints?.map(point => ({ ...point })) ?? [];
+      if (action.action === "motion-point") expectedPoints[action.index] = { x: action.x, y: action.y };
+      if (action.action === "add-motion-point") expectedPoints.splice(action.index, 0, { x: action.x, y: action.y });
+      if (action.action === "remove-motion-point") expectedPoints.splice(action.index, 1);
+      const pathMatches = updated?.arcPath?.enabled && target.motionPath &&
+        updated.arcPath.autoRotate === target.motionPath.autoRotate &&
+        updated.arcPath.segments.length === expectedPoints.length - 1 &&
+        updated.arcPath.segments.every(segment => !segment.cp1 && !segment.cp2 &&
+          segment.curviness === target.motionPath!.curviness) &&
+        updated.keyframes?.keyframes.length === expectedPoints.length &&
+        updated.keyframes.keyframes.every((frame, index) =>
+          frame.properties.x === expectedPoints[index]?.x && frame.properties.y === expectedPoints[index]?.y);
       if (action.action === "remove" ? Boolean(updated)
         : action.action === "ease" ? updated?.ease !== action.ease
-          : !updated?.arcPath?.enabled || point?.x !== action.x || point?.y !== action.y) {
+          : !pathMatches) {
         throw new Error("The authored animation change could not be verified");
       }
     } else {

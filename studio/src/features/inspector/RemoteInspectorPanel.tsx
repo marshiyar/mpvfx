@@ -144,7 +144,8 @@ export function RemoteInspectorPanel({ selection, commit, loadGsap, commitGsap,
     }); }
     finally { setGsapBusy(false); }
   };
-  const changeAnimation = async (action: "add" | "remove" | "ease" | "motion-point") => {
+  const changeAnimation = async (action: "add" | "remove" | "ease" | "motion-point" |
+    "add-motion-point" | "remove-motion-point") => {
     if (!commitGsapAnimation || (action !== "add" && !gsapTargetId)) return;
     const value = Number(newGsapValue);
     const position = Number(newGsapPosition);
@@ -154,7 +155,8 @@ export function RemoteInspectorPanel({ selection, commit, loadGsap, commitGsap,
       (newGsapMethod !== "set" && (!newGsapDuration.trim() || !Number.isFinite(duration) || duration <= 0)) ||
       (newGsapMethod === "fromTo" && (!newGsapFromValue.trim() || !Number.isFinite(Number(newGsapFromValue)))))) return;
     if (action === "ease" && !GSAP_EASES.includes(gsapEase)) return;
-    if (action === "motion-point" && (!motionPointX.trim() || !motionPointY.trim() ||
+    if ((action === "motion-point" || action === "add-motion-point") &&
+        (!motionPointX.trim() || !motionPointY.trim() ||
         !Number.isFinite(Number(motionPointX)) || !Number.isFinite(Number(motionPointY)))) return;
     setGsapBusy(true);
     try {
@@ -163,6 +165,10 @@ export function RemoteInspectorPanel({ selection, commit, loadGsap, commitGsap,
         : action === "ease" ? { action: "ease", animationId: gsapTargetId, ease: gsapEase }
         : action === "motion-point" ? { action: "motion-point", animationId: gsapTargetId,
             index: motionPointIndex, x: Number(motionPointX), y: Number(motionPointY) }
+        : action === "add-motion-point" ? { action: "add-motion-point", animationId: gsapTargetId,
+            index: motionPointIndex, x: Number(motionPointX), y: Number(motionPointY) }
+        : action === "remove-motion-point" ? { action: "remove-motion-point", animationId: gsapTargetId,
+            index: motionPointIndex }
         : { action: "add", method: newGsapMethod, property: newGsapProperty, value,
           position, ...(newGsapMethod !== "set" ? { duration } : {}),
           ...(newGsapMethod === "fromTo" ? { fromValue: Number(newGsapFromValue) } : {}),
@@ -329,6 +335,21 @@ export function RemoteInspectorPanel({ selection, commit, loadGsap, commitGsap,
           </label>
           <button type="button" disabled={gsapBusy} onClick={() => void changeAnimation("motion-point")}
             className="rounded border border-neutral-700 px-3 py-2 text-xs disabled:opacity-50">Save motion point</button>
+          <div className="flex gap-2">
+            <button type="button" disabled={gsapBusy || motionPointIndex < 1 ||
+                (gsapTargets.find(target => target.id === gsapTargetId)?.motionPath?.points.length ?? 0) >= 64}
+              onClick={() => void changeAnimation("add-motion-point")}
+              className="rounded border border-neutral-700 px-3 py-2 text-xs disabled:opacity-50">
+              Insert point before selected
+            </button>
+            <button type="button" disabled={gsapBusy || motionPointIndex < 1 ||
+                motionPointIndex >= (gsapTargets.find(target => target.id === gsapTargetId)
+                  ?.motionPath?.points.length ?? 0) - 1}
+              onClick={() => void changeAnimation("remove-motion-point")}
+              className="rounded border border-neutral-700 px-3 py-2 text-xs disabled:opacity-50">
+              Remove selected point
+            </button>
+          </div>
         </div>}
         {gsapTargets.find(target => target.id === gsapTargetId)?.method === "fromTo" &&
           gsapTargets.find(target => target.id === gsapTargetId)?.fromProperties?.[gsapProperty as PreviewGsapChannel] !== undefined && <>
