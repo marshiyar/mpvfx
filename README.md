@@ -6,7 +6,7 @@ MpVFX is a local desktop video editor. It combines a timeline and canvas editor 
 
 Open MpVFX and create or open a library from the left sidebar. A library can contain events and projects; imported media can be copied into the library or linked to an original file. The editor also supports standalone projects. Application data, including standalone projects, renders, cache, and sessions, lives under Electron's platform-specific MpVFX user-data directory. A library created at a chosen location remains separate from that directory.
 
-The application packages its media binaries and native modules. Users of an installed build do not need the development toolchain below. The **Publish…** action has additional, optional Python and account setup; see [Crosspost/README.md](Crosspost/README.md). Opening the publisher does not upload a file; real uploads have not been verified by this project.
+The application packages its media binaries and native modules. Users of an installed build do not need the development toolchain below. Official installers also bundle the optional **Publish…** GUI and its Python dependencies; account credentials still require setup described in [Crosspost/README.md](Crosspost/README.md). Opening the publisher does not upload a file; real uploads have not been verified by this project.
 
 Current macOS builds are ad hoc signed and unnotarized, so macOS may quarantine a downloaded app. For a build you trust, after moving it to Applications, remove that quarantine attribute with:
 

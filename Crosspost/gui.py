@@ -322,7 +322,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--video")
     parser.add_argument("--ready-file")
+    parser.add_argument("--preflight", action="store_true")
     args = parser.parse_args()
+    if args.preflight:
+        print("mpvfx-publisher-ready", flush=True)
+        raise SystemExit(0)
     app = VideoCrossPosterApp(args.video)
     if args.ready_file:
         def signal_ready():

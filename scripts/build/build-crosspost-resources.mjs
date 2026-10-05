@@ -18,6 +18,12 @@ export function buildCrosspostResources(sourceDir = defaultSource, outputDir = d
   // resource set, including symlinks, before writing any staged file.
   const allowed = new Set(crosspostResourceNames);
   for (const entry of readdirSync(outputDir, { withFileTypes: true })) {
+    if (entry.name === "bin" && entry.isDirectory()) {
+      const binaries = readdirSync(join(outputDir, "bin"), { withFileTypes: true });
+      const expected = process.platform === "win32" ? "mpvfx-publisher.exe" : "mpvfx-publisher";
+      if (binaries.length === 1 && binaries[0].name === expected && binaries[0].isFile() &&
+          lstatSync(join(outputDir, "bin", expected)).nlink === 1) continue;
+    }
     if (!allowed.has(entry.name) || !entry.isFile() || lstatSync(join(outputDir, entry.name)).nlink !== 1) {
       throw new Error(`Unexpected Crosspost staging entry: ${join(outputDir, entry.name)}`);
     }
