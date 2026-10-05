@@ -1,5 +1,6 @@
 import os
 import argparse
+import sys
 import threading
 import queue
 from tkinter import filedialog
@@ -325,7 +326,11 @@ if __name__ == "__main__":
     parser.add_argument("--preflight", action="store_true")
     args = parser.parse_args()
     if args.preflight:
-        print("mpvfx-publisher-ready", flush=True)
+        if args.ready_file:
+            with open(args.ready_file, "x", encoding="utf-8") as marker:
+                marker.write("mpvfx-publisher-ready")
+        elif sys.stdout:
+            print("mpvfx-publisher-ready", flush=True)
         raise SystemExit(0)
     app = VideoCrossPosterApp(args.video)
     if args.ready_file:

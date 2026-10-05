@@ -1,6 +1,7 @@
 const { spawnSync } = require("node:child_process");
-const { lstatSync } = require("node:fs");
+const { existsSync, lstatSync, mkdtempSync, readFileSync, rmSync } = require("node:fs");
 const { join } = require("node:path");
+const { tmpdir } = require("node:os");
 
 function packagedPublisherPath(outputPath, platform) {
   const resources = platform === "darwin"
@@ -17,11 +18,18 @@ function assertPackagedCrosspostBundle(packageResult) {
     try { info = lstatSync(executable); }
     catch { throw new Error(`Packaged publisher is missing: ${executable}`); }
     if (!info.isFile()) throw new Error(`Packaged publisher is not a regular file: ${executable}`);
-    const result = spawnSync(executable, ["--preflight"], {
-      cwd: join(executable, "..", ".."), encoding: "utf8", timeout: 45_000, windowsHide: true,
-    });
-    if (result.error || result.status !== 0 || !result.stdout?.includes("mpvfx-publisher-ready")) {
-      throw new Error(`Packaged publisher failed preflight: ${result.error?.message ?? result.stderr?.trim() ?? result.status}`);
+    const scratch = mkdtempSync(join(tmpdir(), "mpvfx-packaged-publisher-"));
+    try {
+      const marker = join(scratch, "ready");
+      const result = spawnSync(executable, ["--preflight", "--ready-file", marker], {
+        cwd: scratch, encoding: "utf8", timeout: 45_000, windowsHide: true,
+      });
+      if (result.error || result.status !== 0 ||
+          !existsSync(marker) || readFileSync(marker, "utf8") !== "mpvfx-publisher-ready") {
+        throw new Error(`Packaged publisher failed preflight: ${result.error?.message ?? result.stderr?.trim() ?? result.status}`);
+      }
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
     }
   }
 }

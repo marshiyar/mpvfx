@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -44,10 +44,12 @@ export function buildCrosspostBundle(options = {}) {
     if (!existsSync(built) || !statSync(built).isFile()) {
       throw new Error(`Publisher build did not produce ${crosspostBundleName(platform)}`);
     }
-    const preflight = spawnSync(built, ["--preflight"], {
+    const marker = join(scratch, "preflight-ready");
+    const preflight = spawnSync(built, ["--preflight", "--ready-file", marker], {
       cwd: scratch, encoding: "utf8", timeout: 30_000, windowsHide: true,
     });
-    if (preflight.error || preflight.status !== 0 || !preflight.stdout?.includes("mpvfx-publisher-ready")) {
+    if (preflight.error || preflight.status !== 0 ||
+        !existsSync(marker) || readFileSync(marker, "utf8") !== "mpvfx-publisher-ready") {
       throw new Error(`Bundled publisher preflight failed: ${preflight.error?.message ?? preflight.stderr?.trim() ?? preflight.status}`);
     }
     rmSync(bin, { recursive: true, force: true });
