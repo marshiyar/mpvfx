@@ -24,8 +24,10 @@ class VideoCrossPosterApp(ctk.CTk):
     Constructs the GUI layout, gathers metadata inputs, and triggers background
     upload threads to deliver media to YouTube and Facebook simultaneously.
     """
-    def __init__(self, video_path=None):
+    def __init__(self, video_path=None, hidden=False):
         super().__init__()
+        if hidden:
+            self.withdraw()
         self.ui_updates = queue.Queue()
         self.upload_in_progress = False
         self.protocol("WM_DELETE_WINDOW", self.handle_close)
@@ -324,6 +326,7 @@ if __name__ == "__main__":
     parser.add_argument("--video")
     parser.add_argument("--ready-file")
     parser.add_argument("--preflight", action="store_true")
+    parser.add_argument("--self-test-ui", action="store_true")
     args = parser.parse_args()
     if args.preflight:
         if args.ready_file:
@@ -332,10 +335,19 @@ if __name__ == "__main__":
         elif sys.stdout:
             print("mpvfx-publisher-ready", flush=True)
         raise SystemExit(0)
-    app = VideoCrossPosterApp(args.video)
-    if args.ready_file:
-        def signal_ready():
+    app = VideoCrossPosterApp(args.video, hidden=args.self_test_ui)
+    if args.self_test_ui:
+        app.update_idletasks()
+        if args.video and app.file_path_entry.get() != args.video:
+            raise RuntimeError("Publisher did not preselect the exported file")
+        if args.ready_file:
             with open(args.ready_file, "x", encoding="utf-8") as marker:
-                marker.write("ready")
-        app.after_idle(signal_ready)
-    app.mainloop()
+                marker.write("ui-ready")
+        app.destroy()
+    else:
+        if args.ready_file:
+            def signal_ready():
+                with open(args.ready_file, "x", encoding="utf-8") as marker:
+                    marker.write("ready")
+            app.after_idle(signal_ready)
+        app.mainloop()
