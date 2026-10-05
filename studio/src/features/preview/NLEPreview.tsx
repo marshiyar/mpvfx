@@ -12,6 +12,8 @@ import {
   type PreviewZoomState,
 } from "./previewZoom";
 import { readStudioUiPreferences, writeStudioUiPreferences } from "../../app/studioUiPreferences";
+import { useCompositionDimensions } from "./useCompositionDimensions";
+import { attachPreviewAgent, detachPreviewAgent } from "./previewAgentClient";
 interface NLEPreviewProps {
   projectId: string;
   iframeRef: RefObject<HTMLIFrameElement | null>;
@@ -68,27 +70,6 @@ function loadInitialZoom(): PreviewZoomState {
   };
 }
 
-// fallow-ignore-next-line complexity
-function readPreviewCompositionSize(
-  iframe: HTMLIFrameElement | null,
-): PreviewCompositionSize | null {
-  try {
-    const doc = iframe?.contentDocument;
-    const root =
-      doc?.querySelector("[data-composition-id][data-width][data-height]") ??
-      doc?.querySelector("[data-width][data-height]");
-    if (!root) return null;
-    const width = Number.parseInt(root.getAttribute("data-width") ?? "", 10);
-    const height = Number.parseInt(root.getAttribute("data-height") ?? "", 10);
-    if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) {
-      return null;
-    }
-    return { width, height };
-  } catch {
-    return null;
-  }
-}
-
 export function resolvePreviewStageSize(
   viewportWidth: number,
   viewportHeight: number,
@@ -139,7 +120,7 @@ export const NLEPreview = memo(function NLEPreview({
   useEffect(() => {
     onStageRef?.(stageRef);
   }, [onStageRef]);
-  const [compositionSize, setCompositionSize] = useState<PreviewCompositionSize | null>(null);
+  const compositionSize = useCompositionDimensions(activeKey, iframeRef);
   const [stageSize, setStageSize] = useState(() => resolvePreviewStageSize(0, 0, null, portrait));
 
   const zoomRef = useRef<PreviewZoomState>(loadInitialZoom());
@@ -181,23 +162,18 @@ export const NLEPreview = memo(function NLEPreview({
   const onCompositionSizeChangeRef = useRef(onCompositionSizeChange);
   onCompositionSizeChangeRef.current = onCompositionSizeChange;
 
-  const updateCompositionSizeFromPreview = useCallback(() => {
-    const next = readPreviewCompositionSize(previewIframeRef.current);
-    // Pure updater — the parent notification happens in the effect below
-    // (updaters may run more than once under Strict Mode / concurrent React).
-    setCompositionSize((prev) =>
-      prev?.width === next?.width && prev?.height === next?.height ? prev : next,
-    );
-  }, []);
-
   useEffect(() => {
     onCompositionSizeChangeRef.current?.(compositionSize);
   }, [compositionSize]);
 
   const setPreviewIframeRef = useCallback(
     (node: HTMLIFrameElement | null) => {
+      if (previewIframeRef.current && previewIframeRef.current !== node) {
+        detachPreviewAgent(previewIframeRef.current);
+      }
       previewIframeRef.current = node;
       iframeRef.current = node;
+      if (node) attachPreviewAgent(node);
     },
     [iframeRef],
   );
@@ -485,7 +461,6 @@ export const NLEPreview = memo(function NLEPreview({
               projectId={directUrl ? undefined : projectId}
               directUrl={directUrl}
               onLoad={() => {
-                updateCompositionSizeFromPreview();
                 onIframeLoad();
                 applyInitialZoom();
               }}

@@ -63,6 +63,7 @@ describe("syncIframePlayback", () => {
       play: vi.fn(() => calls.push("play")),
     };
     const iframe = {
+      src: "https://studio.test/api/projects/p/preview/comp/a.html",
       contentWindow: { __player: player, postMessage },
       getRootNode: () => ({}),
     } as unknown as HTMLIFrameElement;
@@ -70,9 +71,33 @@ describe("syncIframePlayback", () => {
     expect(syncIframePlayback(iframe, true)).toBe(true);
     expect(postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ action: "set-muted", muted: true }),
-      "*",
+      "https://studio.test",
     );
     expect(calls).toEqual(["mute", "play"]);
     expect(player.play).toHaveBeenCalledOnce();
+  });
+
+  it("uses exact-origin controls for isolated composition hover", () => {
+    const postMessage = vi.fn();
+    const iframe = {
+      src: "mpvfx://70.preview/api/projects/p/preview/comp/a.html",
+      contentWindow: { postMessage },
+      getRootNode: () => ({}),
+    } as unknown as HTMLIFrameElement;
+
+    expect(syncIframePlayback(iframe, true)).toBe(true);
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "set-muted", muted: true }),
+      "mpvfx://70.preview",
+    );
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "play" }),
+      "mpvfx://70.preview",
+    );
+    expect(syncIframePlayback(iframe, false)).toBe(true);
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "seek", timeSeconds: 3 }),
+      "mpvfx://70.preview",
+    );
   });
 });

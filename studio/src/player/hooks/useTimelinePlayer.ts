@@ -49,6 +49,7 @@ import {
 import { createPreviewMessageHandler } from "./previewMessageRouter";
 import { timelineElementsChanged } from "./timelinePlayerSync";
 import { selectPreferredNativePlaybackAdapter } from "../lib/nativePlaybackAdapter";
+import { createIsolatedPlaybackAdapter } from "../lib/isolatedPlaybackAdapter";
 
 export function useTimelinePlayer() {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -124,6 +125,17 @@ export function useTimelinePlayer() {
       const iframe = iframeRef.current;
       const win = iframe?.contentWindow as IframeWindow | null;
       if (!iframe || !win) return null;
+
+      let isolated = false;
+      try {
+        isolated = iframe.contentDocument === null;
+      } catch {
+        isolated = true;
+      }
+      if (isolated) {
+        releaseStaticSeekCache(staticSeekAdapterRef, staticSeekWarnedRef);
+        return createIsolatedPlaybackAdapter(iframe);
+      }
 
       const docDuration = readTimelineDurationFromDocument(iframe.contentDocument);
       const nativeAdapter = selectPreferredNativePlaybackAdapter(win, docDuration);

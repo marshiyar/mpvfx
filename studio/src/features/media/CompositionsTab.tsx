@@ -1,5 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { setPreviewMediaMuted } from "../../player/lib/timelineIframeHelpers";
+import { postRuntimeControlMessage } from "../../player/lib/runtimeProtocol";
+import { isExpectedPreviewMessage, previewOriginFromIframe, resolvePreviewUrl } from "../../player/lib/previewUrl";
 import { buildCompositionThumbnailUrl } from "../../player/components/CompositionThumbnail";
 import { TIMELINE_COMPOSITION_MIME } from "../timeline/timelineCompositionDrop";
 import { Tooltip } from "../../ui/Tooltip";
@@ -94,8 +96,22 @@ function resolveIframeDuration(iframe: HTMLIFrameElement | null): number | null 
 }
 
 export function syncIframePlayback(iframe: HTMLIFrameElement | null, shouldPlay: boolean): boolean {
+  if (!iframe) return false;
   try {
-    const player = (iframe?.contentWindow as PreviewWindow | null)?.__player;
+    const origin = previewOriginFromIframe(iframe);
+    const win = iframe.contentWindow as PreviewWindow | null;
+    if (!origin || !win) return false;
+    if (new URL(iframe.src).protocol === "mpvfx:") {
+      if (shouldPlay) {
+        setPreviewMediaMuted(iframe, true);
+        postRuntimeControlMessage(win, "play", {}, 30, origin);
+      } else {
+        postRuntimeControlMessage(win, "pause", {}, 30, origin);
+        postRuntimeControlMessage(win, "seek", { timeSeconds: THUMBNAIL_SEEK_TIME_SECONDS }, 30, origin);
+      }
+      return true;
+    }
+    const player = win.__player;
     if (!player) return false;
 
     if (shouldPlay) {
@@ -171,7 +187,8 @@ function CompCard({
     setLivePreviewLoaded(false);
   };
   const name = comp.replace(/^compositions\//, "").replace(/\.html$/, "");
-  const previewUrl = `/api/projects/${projectId}/preview/comp/${comp}`;
+  const previewUrl = `/api/projects/${encodeURIComponent(projectId)}/preview/comp/${comp}`;
+  const isolatedPreviewUrl = resolvePreviewUrl(projectId, previewUrl, window.location.origin);
   const thumbnailUrl = buildCompositionThumbnailUrl({
     previewUrl,
     seekTime: THUMBNAIL_SEEK_TIME_SECONDS,
@@ -189,6 +206,25 @@ function CompCard({
 
   useEffect(() => {
     if (hovered) requestIframePlaybackSync(true);
+  }, [hovered, requestIframePlaybackSync]);
+
+  useEffect(() => {
+    if (!hovered) return;
+    const onMessage = (event: MessageEvent) => {
+      if (!isExpectedPreviewMessage(event, iframeRef.current)) return;
+      const data = event.data;
+      if (data?.source !== "hf-preview") return;
+      if (data.type === "ready") requestIframePlaybackSync(true);
+      if (data.type === "timeline") {
+        const width = Number(data.compositionWidth);
+        const height = Number(data.compositionHeight);
+        if (width > 0 && height > 0 && Number.isFinite(width) && Number.isFinite(height)) {
+          setStageSize({ width, height });
+        }
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
   }, [hovered, requestIframePlaybackSync]);
 
   useEffect(() => {
@@ -260,7 +296,8 @@ function CompCard({
         {hovered && (
           <iframe
             ref={iframeRef}
-            src={previewUrl}
+            src={isolatedPreviewUrl}
+            allow="autoplay"
             sandbox="allow-scripts allow-same-origin"
             className="absolute border-none pointer-events-none"
             style={{

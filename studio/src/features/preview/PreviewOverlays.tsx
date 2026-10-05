@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { CaptionOverlay } from "../../captions/components/CaptionOverlay";
 import { useCaptionStore } from "../../captions/store";
 import { DomEditOverlay } from "../canvas/DomEditOverlay";
+import { IsolatedPreviewOverlay } from "../canvas/IsolatedPreviewOverlay";
 import { SnapToolbar } from "../canvas/SnapToolbar";
 import { useCompositionDimensions } from "./useCompositionDimensions";
 import { useStudioPlaybackContext, useStudioShellContext } from "../../app/StudioContext";
@@ -418,6 +419,7 @@ export function PreviewOverlays({
         onToggleRecording={onToggleRecording}
         onMarqueeSelect={applyMarqueeSelection}
       />
+      <IsolatedPreviewOverlay iframeRef={previewIframeRef} enabled={shouldShowSelectedDomBounds} />
       <SnapToolbar
         recordingState={recordingState}
         onToggleRecording={onToggleRecording}

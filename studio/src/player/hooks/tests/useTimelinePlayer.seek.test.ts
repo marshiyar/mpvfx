@@ -51,6 +51,7 @@ function attachIframeWindow(
   iframeWindow: Record<string, unknown>,
 ): void {
   const iframe = document.createElement("iframe");
+  iframe.src = "https://studio.test/preview";
   Object.defineProperty(iframe, "contentWindow", {
     value: iframeWindow,
     configurable: true,
@@ -166,6 +167,7 @@ describe("useTimelinePlayer seek hydration", () => {
       window.dispatchEvent(
         new MessageEvent("message", {
           source: iframeWindow,
+          origin: "https://studio.test",
           data: {
             source: "hf-preview",
             type: "timeline",
@@ -243,6 +245,7 @@ describe("useTimelinePlayer seek hydration", () => {
       window.dispatchEvent(
         new MessageEvent("message", {
           source: iframeWindow as unknown as Window,
+          origin: "https://studio.test",
           data: { source: "hf-preview", type: "state", protocolVersion: 999 },
         }),
       );
@@ -253,6 +256,7 @@ describe("useTimelinePlayer seek hydration", () => {
       window.dispatchEvent(
         new MessageEvent("message", {
           source: iframeWindow as unknown as Window,
+          origin: "https://studio.test",
           data: { source: "hf-preview", type: "state" },
         }),
       );
@@ -360,7 +364,7 @@ describe("useTimelinePlayer audio controls (#835)", () => {
         action: "set-playback-rate",
         playbackRate: 2,
       }),
-      "*",
+      "https://studio.test",
     );
     expect(postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -369,7 +373,7 @@ describe("useTimelinePlayer audio controls (#835)", () => {
         action: "set-muted",
         muted: false,
       }),
-      "*",
+      "https://studio.test",
     );
     expect(timeScale).toHaveBeenCalledWith(2);
 
@@ -384,7 +388,7 @@ describe("useTimelinePlayer audio controls (#835)", () => {
         action: "set-muted",
         muted: false,
       }),
-      "*",
+      "https://studio.test",
     );
 
     unmountWithAct(root);
@@ -407,7 +411,7 @@ describe("useTimelinePlayer audio controls (#835)", () => {
         action: "set-muted",
         muted: true,
       }),
-      "*",
+      "https://studio.test",
     );
 
     unmountWithAct(root);

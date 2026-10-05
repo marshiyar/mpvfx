@@ -22,6 +22,7 @@ import {
   readTimelineElementZIndex,
 } from "./timelineElementHelpers";
 import { postRuntimeControlMessage } from "./runtimeProtocol";
+import { previewOriginFromIframe } from "./previewUrl";
 
 // ---------------------------------------------------------------------------
 // Viewport / DOM normalisation
@@ -114,7 +115,8 @@ function postPreviewControl(
   action: string,
   payload: Record<string, unknown>,
 ): void {
-  postRuntimeControlMessage(iframe.contentWindow, action, payload);
+  const origin = previewOriginFromIframe(iframe);
+  if (origin) postRuntimeControlMessage(iframe.contentWindow, action, payload, 30, origin);
 }
 
 export function setPreviewMediaMuted(iframe: HTMLIFrameElement | null, muted: boolean): void {

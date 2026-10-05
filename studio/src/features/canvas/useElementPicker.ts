@@ -3,8 +3,15 @@ import { useMountEffect } from "../../app/useMountEffect";
 import { resolveSourceFile, applyPatch } from "../legacy/sourcePatcher";
 import {
   acceptStudioRuntimeMessage,
-  postRuntimeControlMessage,
+  createRuntimeControlMessage,
 } from "../../player/lib/runtimeProtocol";
+import { isExpectedPreviewMessage, previewOriginFromIframe } from "../../player/lib/previewUrl";
+
+function sendPickerControl(iframe: HTMLIFrameElement | null, action: string): void {
+  if (!iframe) return;
+  const origin = previewOriginFromIframe(iframe);
+  if (origin) iframe.contentWindow?.postMessage(createRuntimeControlMessage(action), origin);
+}
 
 export interface PickedElement {
   id: string | null;
@@ -69,7 +76,7 @@ export function useElementPicker(
 
   const enablePick = useCallback(() => {
     try {
-      postRuntimeControlMessage(getActiveIframe()?.contentWindow, "enable-pick-mode");
+      sendPickerControl(getActiveIframe(), "enable-pick-mode");
       setIsPickMode(true);
     } catch {
       /* cross-origin */
@@ -78,7 +85,7 @@ export function useElementPicker(
 
   const disablePick = useCallback(() => {
     try {
-      postRuntimeControlMessage(getActiveIframe()?.contentWindow, "disable-pick-mode");
+      sendPickerControl(getActiveIframe(), "disable-pick-mode");
     } catch {
       /* cross-origin */
     }
@@ -98,7 +105,8 @@ export function useElementPicker(
       // Accept events from either the primary iframe or the active override
       const activeIframe = getActiveIframe();
       if (!activeIframe) return;
-      if (e.source !== activeIframe.contentWindow && e.source !== iframeRef.current?.contentWindow)
+      if (!isExpectedPreviewMessage(e, activeIframe) &&
+          !isExpectedPreviewMessage(e, iframeRef.current))
         return;
 
       if (data.type === "element-picked") {

@@ -59,6 +59,7 @@ describe("buildMissingCompositionElements — hfId (R7)", () => {
 describe("setPreviewMediaVolume", () => {
   it("sends a clamped runtime volume to a direct preview iframe", () => {
     const iframe = document.createElement("iframe");
+    iframe.src = "https://studio.test/preview";
     document.body.append(iframe);
     const postMessage = vi.spyOn(iframe.contentWindow!, "postMessage");
 
@@ -66,7 +67,7 @@ describe("setPreviewMediaVolume", () => {
 
     expect(postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ action: "set-volume", volume: 1 }),
-      "*",
+      "https://studio.test",
     );
   });
 });
@@ -96,6 +97,7 @@ describe("applyPreviewAudioFlags", () => {
   // turned down came back loud.
   it("re-pushes mute and volume together", () => {
     const iframe = document.createElement("iframe");
+    iframe.src = "https://studio.test/preview";
     document.body.append(iframe);
     const postMessage = vi.spyOn(iframe.contentWindow!, "postMessage");
 
@@ -118,6 +120,7 @@ describe("applyPreviewAudioFlags", () => {
     document.body.append(host);
     const shadow = host.attachShadow({ mode: "open" });
     const iframe = document.createElement("iframe");
+    iframe.src = "https://studio.test/preview";
     const postMessage = vi.fn();
     Object.defineProperty(iframe, "contentWindow", {
       value: { postMessage },
@@ -131,11 +134,11 @@ describe("applyPreviewAudioFlags", () => {
     expect(host.volume).toBe(0.75);
     expect(postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ action: "set-muted", muted: false }),
-      "*",
+      "https://studio.test",
     );
     expect(postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ action: "set-volume", volume: 0.75 }),
-      "*",
+      "https://studio.test",
     );
   });
 });
