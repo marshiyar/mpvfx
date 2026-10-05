@@ -38,6 +38,37 @@ function renderField() {
 }
 
 describe("GradingNumberField", () => {
+  it("shows the accepted value after a constrained edit and sibling selection", () => {
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    function Fixture() {
+      const [value, setValue] = React.useState(0.4);
+      return <>
+        <GradingNumberField
+          label="Curve input"
+          value={value}
+          min={0}
+          max={1}
+          onBegin={() => {}}
+          onPreview={(next) => setValue(Math.min(next, 0.368))}
+          onSettle={() => {}}
+          onCancel={() => {}}
+        />
+        <button onClick={() => setValue(0.41)}>Select sibling</button>
+      </>;
+    }
+    act(() => root.render(<Fixture />));
+    const input = host.querySelector("input");
+    if (!input) throw new Error("Expected a curve input field");
+    act(() => input.focus());
+    act(() => changeInput(input, "0.99"));
+    act(() => input.blur());
+    expect(input.value).toBe("0.368");
+    act(() => host.querySelector("button")?.click());
+    expect(input.value).toBe("0.41");
+    act(() => root.unmount());
+  });
+
   it("keeps Escape cancellation inside the field after it blurs", () => {
     const { root, input, callbacks } = renderField();
     const globalKey = vi.fn();

@@ -56,7 +56,9 @@ export function GradingNumberField({
       return;
     }
     const next = clampNumber(parsed, min, max);
-    setDraft(formatValue(next));
+    // The parent may have constrained the last live preview (for example to
+    // keep adjacent curve nodes ordered). Display its accepted value on blur.
+    setDraft(formatValue(value));
     if (!dirtyRef.current || Object.is(next, baselineRef.current)) {
       if (dirtyRef.current) onCancel();
       dirtyRef.current = false;

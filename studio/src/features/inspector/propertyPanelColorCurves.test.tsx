@@ -65,6 +65,13 @@ function activate(host: HTMLElement, key: string) {
   return graph;
 }
 
+function typeNumber(input: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+  if (!setter) throw new Error("Expected native input setter");
+  setter.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
 describe("ColorCurves", () => {
   it.each(["Enter", " ", "Delete", "Backspace", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"])("keeps its handled %s key from bubbling into unrelated commands", (key) => {
     const { host, root } = renderCurves();
@@ -197,6 +204,37 @@ describe("ColorCurves", () => {
     const moved = onCommit.mock.calls.at(-1)?.[0]?.curves.master[1];
     expect(moved[0]).toBeCloseTo(0.39 + 4 / 144, 4);
     expect(moved[1]).toBeCloseTo(0.25 - 4 / 144, 4);
+    act(() => root.unmount());
+  });
+
+  it("shows the constrained coordinate and then the selected close sibling", () => {
+    const value: ColorCurveValues = {
+      ...IDENTITY,
+      curves: { ...IDENTITY.curves, master: [[0, 0], [0.4, 0.25], [0.41, 0.75], [1, 1]] },
+    };
+    const { host, root, onCommit } = renderCurves(value);
+    const graph = activate(host, "master");
+    act(() => {
+      graph.dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true, pointerId: 18, clientX: 65.6, clientY: 116,
+      }));
+      graph.dispatchEvent(new PointerEvent("pointerup", {
+        bubbles: true, pointerId: 18, clientX: 65.6, clientY: 116,
+      }));
+    });
+    const input = host.querySelector<HTMLInputElement>('[aria-label="Curve point input"]');
+    if (!input) throw new Error("Expected selected curve input");
+    act(() => input.focus());
+    act(() => typeNumber(input, "0.99"));
+    act(() => input.blur());
+    expect(input.value).toBe("0.368");
+    expect(onCommit.mock.calls.at(-1)?.[0]?.curves.master).toEqual([
+      [0, 0], [0.3683333333333333, 0.25], [0.41, 0.75], [1, 1],
+    ]);
+    act(() => graph.dispatchEvent(new KeyboardEvent("keydown", {
+      key: "PageDown", bubbles: true, cancelable: true,
+    })));
+    expect(input.value).toBe("0.41");
     act(() => root.unmount());
   });
 
