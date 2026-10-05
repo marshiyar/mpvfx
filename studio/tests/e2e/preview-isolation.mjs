@@ -146,6 +146,23 @@ try {
   const clip = await preview.$("#attack-clip");
   const clipBox = await clip.boundingBox();
   if (!clipBox) throw new Error("Ordinary authored clip did not render");
+  const playbackHost = await waitFor(() => page.evaluate(() => {
+    const player = document.querySelector("hyperframes-player");
+    return player?.ready && player.duration >= 4;
+  }), 10000);
+  if (!playbackHost) throw new Error("Isolated player did not become ready");
+  await page.evaluate(() => document.querySelector("hyperframes-player").seek(2));
+  const seekTime = await waitFor(async () => {
+    const time = await page.evaluate(() => document.querySelector("hyperframes-player").currentTime);
+    return Math.abs(time - 2) < 0.1 ? time : null;
+  }, 10000);
+  await page.evaluate(() => document.querySelector("hyperframes-player").play());
+  const playingTime = await waitFor(async () => {
+    const time = await page.evaluate(() => document.querySelector("hyperframes-player").currentTime);
+    return time > seekTime + 0.2 ? time : null;
+  }, 10000);
+  await page.evaluate(() => document.querySelector("hyperframes-player").pause());
+  evidence.playback = { seekTime, playingTime };
   await page.mouse.click(clipBox.x + clipBox.width / 2, clipBox.y + clipBox.height / 2);
   await page.waitForSelector('[data-testid="isolated-preview-selection"]', { timeout: 10000 });
   evidence.selection = await page.$eval('[data-testid="isolated-preview-selection"]', element => {
