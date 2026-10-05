@@ -76,7 +76,7 @@ Both packaging commands rebuild first and check the Node version and installed m
 | `scripts/` | Build, verification, dependency patch, and release scripts |
 | `Crosspost/` | Optional Python publishing GUI and setup instructions |
 
-Electron loads the native keyframe module before starting the editor runtime. The library module owns catalog operations; the local runtime coordinates project files, imports, and exports. The renderer communicates with desktop services through a restricted preload bridge. The editor does not open a network listener for this local runtime.
+Electron loads the native keyframe module before starting the editor runtime. The library module owns catalog operations; the local runtime coordinates project files, imports, and exports. The renderer communicates with desktop services through the Electron preload bridge. The editor does not open a network listener for this local runtime.
 
 The library catalog owns library, event, asset, and export identities. Editing content still uses each project's native timeline document and compatibility resources; a catalog-only revision history and automatic retention cleanup are not implemented. See [library implementation status](studio/design/library-implementation-status.md) for delivered behavior and limits. The [library architecture document](studio/design/library-import-export-architecture.md) describes a broader target design, including work that is not yet implemented.
 
