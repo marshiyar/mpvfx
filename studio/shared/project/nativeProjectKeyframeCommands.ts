@@ -7,6 +7,7 @@ import {
   createNativeParameterTrack,
   type NativeInterpolation,
   type NativeKeyframe,
+  type NativeMotionPath,
   type NativeParameterTrack,
   type NativeParameterValue,
   type NativeParameterValueMap,
@@ -18,6 +19,12 @@ import {
   type NativeProjectClip,
   type NativeProjectDocument,
 } from "./nativeProjectDocument";
+import { currentNativeCropPivotReferences, validNativeCropPivotSegments } from "./nativeCropPivotSegments";
+import { applyPositionPathCommand, applyToVec2Position, type PositionCommandOperations } from "./nativeProjectKeyframePositionCommands";
+import {
+  findVec2PositionTrack,
+  positionComponentOf,
+} from "./nativePositionTrack";
 
 const valueMatchesType = (valueType: NativeValueType, value: unknown): boolean => {
   if (valueType === "number") return typeof value === "number";
@@ -88,6 +95,19 @@ export type NativeProjectAtomicKeyframeCommand =
       readonly address: NativeProjectParameterAddress;
       readonly frame: number;
       readonly outgoing: NativeInterpolation;
+    }
+  | {
+      /** Shape of the position path from the keyframe at `frame` to the next; null = straight. */
+      readonly type: "set-motion-path";
+      readonly address: NativeProjectParameterAddress;
+      readonly frame: number;
+      readonly path: NativeMotionPath | null;
+    }
+  | {
+      /** Turn the layer to face its direction of motion along the position path. */
+      readonly type: "set-auto-rotate";
+      readonly address: NativeProjectParameterAddress;
+      readonly autoRotate: boolean;
     };
 
 type RestoreDocumentCommand = {
@@ -116,6 +136,7 @@ export type NativeProjectKeyframeFailureCode =
   | "frame-rate-mismatch"
   | "invalid-value"
   | "invalid-interpolation"
+  | "position-components-misaligned"
   | "document-mismatch";
 
 export interface NativeProjectKeyframeFailure {
@@ -220,7 +241,14 @@ const replaceParameterTracks = (
           : {
               ...track,
               clips: track.clips.map((clip, clipIndex) =>
-                clipIndex !== location.clipIndex ? clip : { ...clip, parameterTracks },
+                clipIndex !== location.clipIndex ? clip : {
+                  ...clip, parameterTracks,
+                  cropPivotSegments: currentNativeCropPivotReferences(
+                    validNativeCropPivotSegments(clip.cropPivotSegments, parameterTracks),
+                    clip.parameterTracks,
+                    parameterTracks,
+                  ),
+                },
               ),
             },
       ),
@@ -247,12 +275,52 @@ const mapTrackFailure = (
   return reject(document, mapped, message);
 };
 
+/** The vec2 position a component command is routed to, if the clip uses one. */
+export const routedPosition = (
+  clip: NativeProjectClip,
+  parameterId: string,
+): { track: NativeParameterTrack<"vec2">; component: "x" | "y" } | null => {
+  const component = positionComponentOf(parameterId);
+  if (!component) return null;
+  if (clip.parameterTracks.some((track) => track.parameterId === parameterId)) return null;
+  const track = findVec2PositionTrack(clip.parameterTracks);
+  return track ? { track, component } : null;
+};
+
+/**
+ * Editors send position edits as an x/y pair. On a vec2 position the two
+ * structural halves (move, delete, easing, collapse) are one edit: batches
+ * apply a signature once. Value edits are per component and never merged.
+ * `document` is the batch's starting document.
+ */
+export const positionPairSignature = (
+  document: NativeProjectDocument,
+  command: { readonly type: string; readonly address: NativeProjectParameterAddress },
+): string | null => {
+  if (command.type === "upsert" || command.type === "update-value" || command.type === "offset-track" || command.type === "set-static") return null;
+  const location = locateClip(document, command.address);
+  if (isFailure(location) || !routedPosition(location.clip, command.address.parameterId)) return null;
+  const { address, ...rest } = command as typeof command & Record<string, unknown>;
+  return JSON.stringify([address.sequenceId, address.trackId, address.clipId, rest]);
+};
+
+const positionOperations: PositionCommandOperations = {
+  nativeParameterTrackId, nativeParameterKeyframeId, reject, succeed,
+  replaceParameterTracks, mapTrackFailure, invalidFrame,
+  applyAtomic: (document, command) => applyAtomic(document, command),
+};
+
 const applyAtomic = (
   document: NativeProjectDocument,
   command: NativeProjectAtomicKeyframeCommand,
 ): NativeProjectKeyframeCommandResult => {
   const location = locateClip(document, command.address);
   if (isFailure(location)) return reject(document, location.code, location.message);
+  if (command.type === "set-motion-path" || command.type === "set-auto-rotate") {
+    return applyPositionPathCommand(document, location, command, positionOperations);
+  }
+  const routed = routedPosition(location.clip, command.address.parameterId);
+  if (routed) return applyToVec2Position(document, location, routed.track, routed.component, command, positionOperations);
 
   const frames =
     command.type === "move"
@@ -473,8 +541,14 @@ export const applyNativeProjectKeyframeCommand = (
 
   if (command.type !== "batch") return applyAtomic(document, command);
 
+  const applied = new Set<string>();
   let next = document;
   for (const child of command.commands) {
+    const signature = positionPairSignature(document, child);
+    if (signature !== null) {
+      if (applied.has(signature)) continue;
+      applied.add(signature);
+    }
     const result = applyAtomic(next, child);
     if (!result.ok) return reject(document, result.failure.code, result.failure.message);
     next = result.document;

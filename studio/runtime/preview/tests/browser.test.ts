@@ -6,6 +6,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 const browserMocks = vi.hoisted(() => {
   const page = {
     setViewport: vi.fn(async () => {}),
+    setRequestInterception: vi.fn(async () => {}),
+    on: vi.fn(),
     goto: vi.fn(async () => {}),
     evaluate: vi.fn(async () => undefined),
     waitForFunction: vi.fn(async () => undefined),
@@ -91,6 +93,28 @@ describe("generateThumbnail", () => {
     const launchOptions = browserMocks.launch.mock.calls[0]?.[0] as { args?: string[] };
     expect(launchOptions.args).not.toContain("--no-sandbox");
     expect(launchOptions.args).not.toContain("--disable-setuid-sandbox");
+  });
+
+  it("aborts external thumbnail requests and serves pinned GSAP without network access", async () => {
+    await generateThumbnail({
+      ...options(),
+      readResource: async () => new Response("project resource"),
+    });
+    const listener = browserMocks.page.on.mock.calls.find(([name]) => name === "request")?.[1];
+    expect(listener).toBeTypeOf("function");
+    const external = { url: () => "https://example.invalid/collect", abort: vi.fn(async () => {}),
+      respond: vi.fn(async () => {}), isInterceptResolutionHandled: () => false };
+    listener(external);
+    await vi.waitFor(() => expect(external.abort).toHaveBeenCalledOnce());
+    expect(external.respond).not.toHaveBeenCalled();
+
+    const gsap = { url: () => "https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js",
+      abort: vi.fn(async () => {}), respond: vi.fn(async () => {}),
+      isInterceptResolutionHandled: () => false };
+    listener(gsap);
+    await vi.waitFor(() => expect(gsap.respond).toHaveBeenCalledOnce());
+    expect(gsap.respond.mock.calls[0]?.[0]).toMatchObject({ status: 200, contentType: "text/javascript" });
+    expect(gsap.abort).not.toHaveBeenCalled();
   });
 
   it("lets the route own dedupe and closes browser work on cancellation", async () => {

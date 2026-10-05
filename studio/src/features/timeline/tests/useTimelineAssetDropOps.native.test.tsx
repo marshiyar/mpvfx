@@ -83,7 +83,8 @@ async function mountNativeHarness(options?: {
   };
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => Response.json({ content: files.get("index.html") })),
+    vi.fn(async (url: string) => Response.json(url.includes("/media/streams?")
+      ? { hasVideo: true, hasAudio: false } : { content: files.get("index.html") })),
   );
 
   function Probe(): null {
@@ -172,6 +173,8 @@ describe("native timeline asset drop integration", () => {
     expect(clip?.binding?.sourceFile).toBe("index.html");
     expect(html).toContain('data-start="2.5025"');
     expect(html).toContain('data-duration="4.004"');
+    // No audio-stream probe ran; absence must not be reported as confirmed silence.
+    expect(html).not.toContain('data-has-audio="false"');
     expect(html).not.toMatch(/<video[^>]*\smuted(?:\s|=|>)/i);
     expect(harness.writeProjectFile).not.toHaveBeenCalled();
     expect(harness.recordEdit).not.toHaveBeenCalled();
@@ -205,6 +208,7 @@ describe("native timeline asset drop integration", () => {
     expect(saved.revision).toBe(1);
     const clips = saved.sequence.tracks.flatMap((track) => track.clips);
     expect(clips).toHaveLength(2);
+    expect(harness.files.get("index.html")!).not.toContain('data-has-audio="false"');
     expect(clips.map((clip) => [clip.startFrame, clip.durationFrames])).toEqual([
       [60, 120],
       [180, 120],
@@ -376,7 +380,7 @@ describe("native timeline asset drop integration", () => {
     expect(harness.onNativeDocumentCommitted).not.toHaveBeenCalled();
     expect(harness.writeProjectFile).toHaveBeenCalledOnce();
     expect(harness.recordEdit).toHaveBeenCalledOnce();
-    expect(harness.files.get("index.html")).toContain('<video id="camera"');
+    expect(harness.files.get("index.html")).toMatch(/<video id="camera-[^"]+"/);
     expect(harness.forceReloadSdkSession).toHaveBeenCalledOnce();
     expect(harness.reloadPreview).toHaveBeenCalledOnce();
     await act(async () => harness.root.unmount());

@@ -680,8 +680,9 @@ describe("applyInlineStyle when something else is painting the glyphs", () => {
     applyInlineStyle(rangeOver(host, 4, 9), { color: "red" });
 
     const [left, right] = Array.from(host.querySelectorAll<HTMLElement>("span"));
-    expect(left?.style.getPropertyValue("-webkit-text-fill-color")).toBe("blue");
-    expect(right?.style.getPropertyValue("-webkit-text-fill-color")).toBe("");
+    // happy-dom preserves the vendor declaration in markup but omits it from CSSOM.
+    expect(left?.getAttribute("style")).toContain("-webkit-text-fill-color: blue");
+    expect(right?.getAttribute("style")).not.toContain("-webkit-text-fill-color");
   });
 
   it("drops a generated mirror when the ancestor stops overpainting", () => {

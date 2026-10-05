@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 import {
+  buildTimelineAssetId,
   buildTimelineFileDropPlacements,
   buildTimelineAssetInsertHtml,
   extendCompositionDurationIfNeeded,
@@ -12,6 +13,65 @@ import {
   resolveTimelineAssetSrc,
   setCompositionDurationToContent,
 } from "../timelineAssetDrop";
+
+describe("fresh media clip identity", () => {
+  const assetPath = "media/camera.mov";
+  const editedClip = `<video id="camera" class="clip" src="media/camera.mov" data-volume="0.3" data-fx-chain="[]" style="clip-path: inset(10% 5% 0 0); transform: rotate(30deg)"></video>`;
+  const editedSource = `<main data-composition-id="main" data-duration="8">
+    ${editedClip}
+  </main><script>gsap.to("#camera", { rotation: 30, x: 100 });</script>`;
+  const deletedSource = editedSource.replace(editedClip, "");
+
+  it("does not reuse a deleted clip's ID when old selectors remain in saved source", () => {
+    const id = buildTimelineAssetId(assetPath, []);
+    expect(id).toMatch(/^camera-/);
+    expect(id).not.toBe("camera");
+
+    const saved = insertTimelineAssetIntoSource(
+      deletedSource,
+      buildTimelineAssetInsertHtml({
+        id, hfId: "hf-new", assetPath, kind: "video", start: 0,
+        duration: 8, track: 0, zIndex: 0,
+      }),
+    );
+    const reopened = new DOMParser().parseFromString(saved, "text/html");
+    expect(reopened.querySelectorAll("#camera")).toHaveLength(0);
+    expect(reopened.getElementById(id)?.getAttribute("data-hf-id")).toBe("hf-new");
+    expect(reopened.getElementById(id)?.hasAttribute("data-volume")).toBe(false);
+    expect(reopened.getElementById(id)?.hasAttribute("data-fx-chain")).toBe(false);
+    expect(reopened.getElementById(id)?.getAttribute("style")).not.toContain("clip-path");
+    expect(saved).toContain('gsap.to("#camera", { rotation: 30, x: 100 })');
+  });
+
+  it("gives two placements of one asset independent IDs while saved undo markup retains edits", () => {
+    const firstId = buildTimelineAssetId(assetPath, []);
+    const secondId = buildTimelineAssetId(assetPath, [firstId]);
+    expect(secondId).not.toBe(firstId);
+
+    const first = buildTimelineAssetInsertHtml({
+      id: firstId, hfId: "hf-first", assetPath, kind: "video", start: 0,
+      duration: 4, track: 0, zIndex: 0,
+    });
+    const second = buildTimelineAssetInsertHtml({
+      id: secondId, hfId: "hf-second", assetPath, kind: "video", start: 4,
+      duration: 4, track: 0, zIndex: 0,
+    });
+    const saved = insertTimelineAssetIntoSource(
+      insertTimelineAssetIntoSource(deletedSource, first), second,
+    );
+    const reopened = new DOMParser().parseFromString(saved, "text/html");
+    expect(reopened.getElementById(firstId)?.getAttribute("data-hf-id")).toBe("hf-first");
+    expect(reopened.getElementById(secondId)?.getAttribute("data-hf-id")).toBe("hf-second");
+    expect(reopened.querySelectorAll("#camera")).toHaveLength(0);
+
+    // Undo restores the exact pre-delete snapshot, including authored edits.
+    const restored = new DOMParser().parseFromString(editedSource, "text/html");
+    expect(restored.getElementById("camera")).not.toBeNull();
+    expect(restored.getElementById("camera")?.getAttribute("data-volume")).toBe("0.3");
+    expect(restored.getElementById("camera")?.getAttribute("style")).toContain("clip-path");
+    expect(editedSource).toContain('gsap.to("#camera", { rotation: 30, x: 100 })');
+  });
+});
 
 describe("composition-root 3D normalization for imported media", () => {
   const sourceWithScript = (script: string, rootStyle = "") => `<!doctype html><html><body>
@@ -221,6 +281,7 @@ describe("buildTimelineAssetInsertHtml", () => {
         hfId: `hf-camera-${extension}`,
         assetPath,
         kind: "video",
+        hasAudio: true,
         start: 0,
         duration: 5,
         track: 0,

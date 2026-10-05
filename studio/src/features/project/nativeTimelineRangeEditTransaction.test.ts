@@ -9,6 +9,8 @@ import {
 } from "../../../shared/project/nativeProjectDocument";
 import { NativeProjectRevisionConflictError } from "./nativeProjectPersistence";
 import { commitNativeTimelineRangeEdit } from "./nativeTimelineRangeEditTransaction";
+import { buildPatchTarget } from "../timeline/timelineEditingHelpers";
+import { applyPatchByTarget } from "../legacy/sourcePatcher";
 
 const rate = { numerator: 30_000, denominator: 1_001 } as const;
 const secondsAtFrame = (frame: number) => (frame * rate.denominator) / rate.numerator;
@@ -105,6 +107,27 @@ function memory(options?: {
 }
 
 describe("native timeline dual-file range transaction", () => {
+  it("uses the saved binding and restores a preview-only hf ID before trimming", async () => {
+    const state = memory();
+    state.files.set("index.html", state.originalHtml.replace(' data-hf-id="hf-clip"', ""));
+    const result = await commitNativeTimelineRangeEdit({
+      expectedRevision: 6, element,
+      requestedStartSeconds: secondsAtFrame(45),
+      requestedDurationSeconds: secondsAtFrame(105),
+      readOptionalProjectFile: state.readOptionalProjectFile,
+      writeProjectFile: state.writeProjectFile,
+      recordEdit: state.recordEdit,
+      patchCompatibilityContent: (content, timing, binding) => {
+        const target = buildPatchTarget(binding);
+        return target ? applyPatchByTarget(content, target, {
+          type: "attribute", property: "start", value: timing.start,
+        }) : content;
+      },
+    });
+    expect(result.committed).toBe(true);
+    expect(state.files.get("index.html")).toContain('data-hf-id="hf-clip"');
+    expect(state.files.get("index.html")).toContain(`data-start="${secondsAtFrame(45)}"`);
+  });
   it("uses one durable file transaction and publishes only after it resolves", async () => {
     const state = memory();
     let resolveCommit!: () => void;
@@ -184,7 +207,9 @@ describe("native timeline dual-file range transaction", () => {
       duration: String(secondsAtFrame(105)),
       sourceOffset: String(secondsAtFrame(40)),
     };
-    expect(state.patchCompatibilityContent).toHaveBeenCalledWith(state.originalHtml, timing);
+    expect(state.patchCompatibilityContent).toHaveBeenCalledWith(state.originalHtml, timing, {
+      sourceFile: "index.html", domId: "clip", hfId: "hf-clip",
+    });
     expect(state.recordEdit).toHaveBeenCalledOnce();
     expect(state.recordEdit).toHaveBeenCalledWith({
       label: "Trim timeline clip",
@@ -298,7 +323,7 @@ describe("native timeline dual-file range transaction", () => {
     expect(state.onCommitted).not.toHaveBeenCalled();
   });
 
-  it("explicitly declines an unbound element before locking or reading files", async () => {
+  it("commits a native-only trim without reading or writing HTML", async () => {
     const state = memory({ bound: false });
     const result = await commitNativeTimelineRangeEdit({
       expectedRevision: 6,
@@ -312,8 +337,10 @@ describe("native timeline dual-file range transaction", () => {
       onCommitted: state.onCommitted,
     });
 
-    expect(result).toEqual({ committed: false, reason: "unbound-clip" });
-    expect(state.readOptionalProjectFile).not.toHaveBeenCalled();
-    expect(state.writeProjectFile).not.toHaveBeenCalled();
+    expect(result.committed).toBe(true);
+    expect(state.readOptionalProjectFile.mock.calls.every(([path]) => path === NATIVE_PROJECT_DOCUMENT_PATH)).toBe(true);
+    expect(state.writeProjectFile).toHaveBeenCalledTimes(1);
+    expect(state.recordEdit).toHaveBeenCalledOnce();
+    expect(state.patchCompatibilityContent).not.toHaveBeenCalled();
   });
 });

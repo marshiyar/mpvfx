@@ -1,7 +1,4 @@
 // @vitest-environment jsdom
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   patchElementInHtml,
   type PatchOperation,
@@ -19,12 +16,17 @@ import { STUDIO_OFFSET_X_PROP, STUDIO_PATH_OFFSET_ATTR } from "../manualEditsTyp
 import { makeSelection } from "../domSelectionTestHarness";
 import { buildTextFieldChildOperations } from "../domEditTextFieldCommitOps";
 
-const testDir = dirname(fileURLToPath(import.meta.url));
-const fixtureDir = join(testDir, "../../../../tests/e2e/fixtures/design-panel-qa");
-
-function readFixture(relativePath: string): string {
-  return readFileSync(join(fixtureDir, relativePath), "utf-8");
-}
+// 07dd728 removed the old design-panel e2e project. These small authored
+// sources retain the persistence cases without restoring its deleted assets.
+const indexHtml = `<main>
+  <div id="qa-zone-headline" data-hf-id="qa-zone-headline" data-start="0"><h1 id="qa-headline" data-hf-id="qa-headline">Static Headline</h1></div>
+  <div id="qa-multi" data-hf-id="qa-multi"><span class="qa-line-a">First styled line</span><span class="qa-line-b">Second styled line</span></div>
+  <img id="qa-image" data-hf-id="qa-image" src="image.png" />
+  <div id="qa-shape" data-hf-id="qa-shape"></div>
+  <div id="qa-caption-host" data-hf-id="qa-caption-host"></div>
+  <video id="qa-video" data-hf-id="qa-video" data-volume="0.5"></video>
+</main>`;
+const subHtml = `<template><div data-hf-id="qa-sub-clip"><h2 id="qa-sub-title" data-hf-id="qa-sub-title">Sub-composition child</h2></div></template>`;
 
 function createSelection(input: {
   id: string;
@@ -80,10 +82,7 @@ function countOccurrences(value: string, needle: string): number {
   return value.split(needle).length - 1;
 }
 
-describe("persist seam source mutation", () => {
-  const indexHtml = readFixture("index.html");
-  const subHtml = readFixture("compositions/qa-sub.html");
-
+describe("authored source mutation", () => {
   it("persists qa-headline text font-size style operation", () => {
     const html = patchAndExpectChange(
       indexHtml,

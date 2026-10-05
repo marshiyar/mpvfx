@@ -15,6 +15,9 @@ interface ClipContextMenuProps {
   onSplit: (element: TimelineElement, splitTime: number) => void;
   onDelete: (element: TimelineElement) => void;
   onToggleMuted: (element: TimelineElement, muted: boolean) => void;
+  muteAvailable?: boolean;
+  nativeAudioAction?: "detach" | "reattach";
+  onNativeAudioAction?: (element: TimelineElement, action: "detach" | "reattach") => void;
 }
 
 export const ClipContextMenu = memo(function ClipContextMenu({
@@ -26,6 +29,9 @@ export const ClipContextMenu = memo(function ClipContextMenu({
   onSplit,
   onDelete,
   onToggleMuted,
+  muteAvailable = true,
+  nativeAudioAction,
+  onNativeAudioAction,
 }: ClipContextMenuProps) {
   const thumbnailMode = usePlayerStore((state) => state.thumbnailMode);
   const setThumbnailMode = usePlayerStore((state) => state.setThumbnailMode);
@@ -36,11 +42,12 @@ export const ClipContextMenu = memo(function ClipContextMenu({
   const showsVisualThumbnails =
     element.tag === "video" || element.tag === "img" || Boolean(element.compositionSrc);
   const canMute =
+    muteAvailable &&
     !element.compositionSrc &&
     element.kind !== "composition" &&
     (element.tag === "video" || element.tag === "audio");
   const isMuted = element.muted === true;
-  const menuHeight = (showsVisualThumbnails ? 116 : 80) + (canMute ? 36 : 0);
+  const menuHeight = (showsVisualThumbnails ? 116 : 80) + (canMute ? 36 : 0) + (nativeAudioAction ? 36 : 0);
   const overflowY = y + menuHeight - window.innerHeight;
   const adjustedX = x + menuWidth > window.innerWidth ? x - menuWidth : x;
   const adjustedY = overflowY > 0 ? y - overflowY - 8 : y;
@@ -121,6 +128,23 @@ export const ClipContextMenu = memo(function ClipContextMenu({
             <span className="w-4 text-right text-studio-accent" aria-hidden="true">
               {isMuted ? "✓" : ""}
             </span>
+          </button>
+          <div className="my-1 border-t border-neutral-700/60" />
+        </>
+      )}
+
+      {nativeAudioAction && onNativeAudioAction && (
+        <>
+          <button
+            type="button"
+            role="menuitem"
+            className="w-full px-3 py-1.5 text-xs text-left text-neutral-300 hover:bg-neutral-800 focus-visible:bg-neutral-800 outline-none"
+            onClick={() => {
+              onNativeAudioAction(element, nativeAudioAction);
+              onClose();
+            }}
+          >
+            {nativeAudioAction === "detach" ? "Detach audio" : "Reattach audio"}
           </button>
           <div className="my-1 border-t border-neutral-700/60" />
         </>

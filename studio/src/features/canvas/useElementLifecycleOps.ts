@@ -27,6 +27,7 @@ import { studioWriteHeaders } from "../history/studioFileVersion";
 
 interface UseElementLifecycleOpsParams extends DomEditCommitBaseParams {
   /** Route delete through SDK when session resolves the hf-id. */
+  onTryNativeDelete?: (selections: DomEditSelection[]) => Promise<boolean>;
   onTrySdkDelete?: (
     hfId: string,
     originalContent: string,
@@ -84,6 +85,7 @@ export function useElementLifecycleOps({
   projectIdRef,
   reloadPreview,
   clearDomSelection,
+  onTryNativeDelete,
   onTrySdkDelete,
   onReorderShadow,
   forceReloadSdkSession,
@@ -127,6 +129,16 @@ export function useElementLifecycleOps({
         (candidate) => (candidate.sourceFile || activeCompPath || "index.html") === targetPath,
       );
       try {
+        if (await onTryNativeDelete?.(deletableSelections)) {
+          clearDomSelection();
+          usePlayerStore.getState().setSelectedElementId(null);
+          usePlayerStore.getState().setSelectedElementIds(new Set());
+          domEditSaveTimestampRef.current = Date.now();
+          forceReloadSdkSession?.();
+          reloadPreview();
+          showToast(`Deleted ${label}. Use Undo to restore ${deletableSelections.length === 1 ? "it" : "them"}.`, "info");
+          return { ok: true } as const;
+        }
         const originalContent = await readProjectFileContent(pid, targetPath);
 
         const patchTargets = sameFile.map((member) => buildDomEditPatchTarget(member));
@@ -240,7 +252,8 @@ export function useElementLifecycleOps({
       clearDomSelection,
       domEditSaveTimestampRef,
       editHistory.recordEdit,
-      onTrySdkDelete,
+      onTryNativeDelete,
+  onTrySdkDelete,
       onElementDeleted,
       forceReloadSdkSession,
       projectIdRef,

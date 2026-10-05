@@ -1,13 +1,19 @@
 // @vitest-environment happy-dom
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addBlockToProject } from "./blockInstaller";
+import { addBlockToProject, maxAuthoredZIndex } from "./blockInstaller";
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 describe("addBlockToProject", () => {
+  it("places a block above saved and discovered layers without preview access", () => {
+    expect(maxAuthoredZIndex(
+      '<div style="z-index: 7"></div><div style="z-index: -2"></div>',
+      [{ id: "overlay", tag: "div", start: 0, duration: 1, track: 1, zIndex: 12 }],
+    )).toBe(12);
+  });
   it("uses an explicit selected-media duration and track for a Registry overlay block", async () => {
     const componentPath = "compositions/camcorder-hud.html";
     const targetPath = "compositions/scene.html";

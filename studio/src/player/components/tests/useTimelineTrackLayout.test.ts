@@ -224,8 +224,15 @@ describe("useTimelineTrackLayout", () => {
             method: "to",
             position: 0,
             duration: 1,
-            properties: { opacity: 1 },
+            properties: {},
             propertyGroup: "visual",
+            keyframes: {
+              format: "percentage",
+              keyframes: [
+                { percentage: 0, properties: { opacity: 0 } },
+                { percentage: 100, properties: { opacity: 1 } },
+              ],
+            },
           },
         ],
       ],
@@ -245,7 +252,9 @@ describe("useTimelineTrackLayout", () => {
       ],
     ]);
 
-    expect(mergeTimelineLaneCounts(animations, native)).toEqual(new Map([["clip-1", 3]]));
+    expect(mergeTimelineLaneCounts(animations, native, [
+      { id: "clip-1", tag: "div", start: 0, duration: 1, track: 0 },
+    ])).toEqual(new Map([["clip-1", 3]]));
   });
 
   it("counts legacy-only clips while native clips have no legacy source", () => {
@@ -259,8 +268,15 @@ describe("useTimelineTrackLayout", () => {
             method: "to",
             position: 0,
             duration: 1,
-            properties: { width: 100 },
+            properties: {},
             propertyGroup: "size",
+            keyframes: {
+              format: "percentage",
+              keyframes: [
+                { percentage: 0, properties: { width: 80 } },
+                { percentage: 100, properties: { width: 100 } },
+              ],
+            },
           },
         ],
       ],
@@ -277,7 +293,10 @@ describe("useTimelineTrackLayout", () => {
       ],
     ]);
 
-    expect(mergeTimelineLaneCounts(animations, native)).toEqual(
+    expect(mergeTimelineLaneCounts(animations, native, [
+      { id: "legacy-clip", tag: "div", start: 0, duration: 1, track: 0 },
+      { id: "native-clip", tag: "div", start: 0, duration: 1, track: 1 },
+    ])).toEqual(
       new Map([
         ["legacy-clip", 1],
         ["native-clip", 1],
@@ -327,7 +346,7 @@ describe("useTimelineTrackLayout", () => {
     act(() => root.unmount());
   });
 
-  it("counts a flat tween lane and reserves its expanded row height", () => {
+  it("does not reserve an empty expanded lane for a flat tween", () => {
     const elements: TimelineElement[] = [
       { id: "clip-1", tag: "div", start: 0, duration: 1, track: 0 },
     ];
@@ -349,10 +368,12 @@ describe("useTimelineTrackLayout", () => {
     ]);
     const { layout, unmount } = renderTrackLayout(elements, animations);
 
-    expect(layout.laneCounts.get("clip-1")).toBe(1);
-    expect(layout.rowHeights).toEqual([TRACK_H + LANE_H]);
+    expect(getTimelinePropertyLanes(animations.get("clip-1") ?? [], 0, 1)).toEqual([]);
+    expect(layout.laneCounts.get("clip-1")).toBe(0);
+    expect(layout.rowHeights).toEqual([TRACK_H]);
     expect(layout.rowGeometry.rowKeys).toEqual([0]);
-    expect(layout.rowGeometry.canvasHeight).toBeGreaterThan(TRACK_H + LANE_H);
+    expect(layout.rowGeometry.canvasHeight).toBeGreaterThan(TRACK_H);
+    expect(mergeTimelineLaneCounts(animations, new Map(), elements)).toEqual(new Map([["clip-1", 0]]));
     unmount();
   });
 

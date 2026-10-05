@@ -23,7 +23,8 @@ export type LegacyGsapNativeBootstrapReason =
   | "missing-clip-reference"
   | "clip-not-found"
   | "binding-mismatch"
-  | "native-parameter-already-owned";
+  | "native-parameter-already-owned"
+  | "outside-clip-range";
 
 export interface LegacyGsapNativeBootstrapSource {
   /** Canonical native clip ID. Prefer binding when crossing the legacy boundary. */
@@ -267,6 +268,7 @@ export function mergeLegacyGsapAnimationsIntoNativeProject(
       const adapted = adaptLegacyGsapAnimations({
         clipId,
         clipStartSeconds: startSeconds,
+        clipDurationFrames: matched.clip.durationFrames,
         frameRate,
         animations: [animation],
       });
@@ -297,6 +299,18 @@ export function mergeLegacyGsapAnimationsIntoNativeProject(
         continue;
       }
       if (merged.importedTrackIds.length === 0) continue;
+      // The clip may be shorter than the legacy tween (for example after a
+      // split); a key past its end is not representable on this clip.
+      const beyond = adapted.nativeTracks.some((track) =>
+        track.keyframes.some((keyframe) => keyframe.frame > currentMatch.clip.durationFrames),
+      );
+      if (beyond) {
+        legacyOnly.push({ clipId, animation });
+        diagnostics.push(
+          diagnostic(source, "outside-clip-range", "Animation keyframes fall outside the clip", animation, clipId),
+        );
+        continue;
+      }
       importedTrackIds.push(...merged.importedTrackIds);
       document = parseNativeProjectDocument({
         ...document,

@@ -74,7 +74,7 @@ export function addStudioPendingEditFlushListener(
   const listener = (event: Event) => {
     const detail = (event as CustomEvent<StudioFlushPendingEditsDetail>).detail;
     if (!detail?.promises) return;
-    const promise = trackStudioPendingEdit(handler());
+    const promise = trackStudioPendingEdit(Promise.resolve().then(handler));
     if (promise) detail.promises.push(promise);
   };
   window.addEventListener(STUDIO_FLUSH_PENDING_EDITS_EVENT, listener);

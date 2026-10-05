@@ -1,3 +1,5 @@
+import { stabilizeNativeBindingSource, synchronizeNativeBindingSource } from "./nativeBindingSource";
+import { discoverNativeTimelineSources } from "./nativeTimelineSources";
 import type { RecordEditInput } from "../history/studioFileHistory";
 import { serializeStudioFileMutations } from "../history/studioFileMutationCoordinator";
 import {
@@ -91,18 +93,6 @@ const throwIfAborted = (signal?: AbortSignal): void => {
   throw new DOMException("The native timeline split was aborted", "AbortError");
 };
 
-const requestedSourcePaths = (
-  splits: readonly NativeTimelineSplitChange[],
-): string[] | null => {
-  const paths: string[] = [];
-  for (const split of splits) {
-    if (typeof split.element.sourceFile !== "string" || split.element.sourceFile.length === 0) {
-      return null;
-    }
-    paths.push(split.element.sourceFile);
-  }
-  return [...new Set(paths)].sort();
-};
 
 type PreparedCompatibilityEdit = NativeTimelineSplitCompatibilityEdit & {
   readonly addressKey: string;
@@ -143,8 +133,8 @@ const prepareCompatibilityEdits = (
       };
     }
     const { clip, trackId } = resolution.located;
-    if (!clip.binding) return { ok: false, reason: "unbound-clip" };
-    if (clip.binding.sourceFile !== split.element.sourceFile) {
+    if (!clip.binding) continue;
+    if (split.element.sourceFile && clip.binding.sourceFile !== split.element.sourceFile) {
       return { ok: false, reason: "binding-source-mismatch" };
     }
     const addressKey = JSON.stringify([document.sequence.id, trackId, clip.id]);
@@ -158,12 +148,10 @@ const prepareCompatibilityEdits = (
       return { ok: false, reason: "invalid-split-time" };
     }
     const localFrame = splitFrame - clip.startFrame;
-    const rate = clip.playbackRate ?? { numerator: 1, denominator: 1 };
     if (
       !Number.isSafeInteger(splitFrame) ||
       localFrame <= 0 ||
-      localFrame >= clip.durationFrames ||
-      (BigInt(localFrame) * BigInt(rate.numerator)) % BigInt(rate.denominator) !== 0n
+      localFrame >= clip.durationFrames
     ) {
       return { ok: false, reason: "native-command-rejected" };
     }
@@ -194,8 +182,9 @@ export async function commitNativeTimelineSplits(
   input: CommitNativeTimelineSplitsInput,
 ): Promise<CommitNativeTimelineSplitsResult> {
   throwIfAborted(input.signal);
-  const sourcePaths = requestedSourcePaths(input.splits);
-  if (!sourcePaths) return { committed: false, reason: "binding-source-mismatch" };
+  const discovery = await discoverNativeTimelineSources(input, input.splits.map(item => item.element));
+  if (!discovery.ok) return { committed: false, reason: discovery.reason };
+  const sourcePaths = discovery.sourceFiles;
 
   const result = await serializeStudioFileMutations(
     input.writeProjectFile,
@@ -212,7 +201,7 @@ export async function commitNativeTimelineSplits(
         throw new NativeProjectRevisionConflictError(input.expectedRevision, current.revision);
       }
 
-      const prepared = prepareCompatibilityEdits(current, input.splits);
+      let prepared = prepareCompatibilityEdits(current, input.splits);
       if (!prepared.ok) return { committed: false, reason: prepared.reason };
       const resolvedSourcePaths = [...new Set(prepared.edits.map((edit) => edit.sourceFile))].sort();
       if (
@@ -233,7 +222,17 @@ export async function commitNativeTimelineSplits(
         compatibilityBefore[sourceFile] = content;
       }
 
-      const compatibilityAfter: Record<string, string> = { ...compatibilityBefore };
+      const canonicalSplits = input.splits.map(split => {
+        const located = resolveNativeClipSelection(current, split.element);
+        if (!located.ok) throw new Error(located.failure.message);
+        return { ...split, element: { ...split.element, attributes: { ...split.element.attributes, "data-studio-clip-id": located.located.clip.id } } };
+      });
+      const compatibilityAfter: Record<string, string> = {};
+      for (const sourceFile of sourcePaths) {
+        compatibilityAfter[sourceFile] = stabilizeNativeBindingSource(current, sourceFile, compatibilityBefore[sourceFile]!);
+      }
+      prepared = prepareCompatibilityEdits(current, canonicalSplits);
+      if (!prepared.ok) return { committed: false, reason: prepared.reason };
       const bindingsByRequest = new Map<number, Readonly<NativeClipDomBinding>>();
       const orderedEdits = [...prepared.edits].sort((left, right) =>
         left.sourceFile.localeCompare(right.sourceFile) || left.addressKey.localeCompare(right.addressKey),
@@ -260,7 +259,7 @@ export async function commitNativeTimelineSplits(
 
       const plan = planNativeTimelineSplits({
         document: current,
-        splits: input.splits.map((split, requestIndex) => ({
+        splits: canonicalSplits.map((split, requestIndex) => ({
           ...split,
           rightBinding: bindingsByRequest.get(requestIndex)!,
         })),
@@ -271,6 +270,9 @@ export async function commitNativeTimelineSplits(
         ...plan.document,
         revision: current.revision + 1,
       });
+      for (const sourceFile of plan.sourceFiles) {
+        compatibilityAfter[sourceFile] = synchronizeNativeBindingSource(document, sourceFile, compatibilityAfter[sourceFile]!);
+      }
       const nativeAfter = serializeNativeProjectDocument(document);
       const snapshots: Record<string, { before: string; after: string }> = {
         [NATIVE_PROJECT_DOCUMENT_PATH]: { before: nativeBefore, after: nativeAfter },

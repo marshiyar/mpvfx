@@ -40,6 +40,7 @@ interface ToggleTimelineTrackHiddenInput {
   recordEdit: (input: RecordEditInput) => Promise<void>;
   domEditSaveTimestampRef: MutableRef<number>;
   pendingTimelineEditPathRef: MutableRef<Set<string>>;
+  reloadPreview?: () => void;
 }
 
 interface ToggleTimelineElementHiddenInput extends Omit<ToggleTimelineTrackHiddenInput, "track"> {
@@ -58,6 +59,7 @@ interface SetElementsHiddenInput {
   recordEdit: (input: RecordEditInput) => Promise<void>;
   domEditSaveTimestampRef: MutableRef<number>;
   pendingTimelineEditPathRef: MutableRef<Set<string>>;
+  reloadPreview?: () => void;
 }
 
 interface UseTimelineTrackVisibilityEditingInput extends Omit<
@@ -69,6 +71,7 @@ interface UseTimelineTrackVisibilityEditingInput extends Omit<
   showToast: (message: string, tone?: "error" | "info") => void;
   isRecordingRef?: ReadonlyRef<boolean>;
   forceReloadSdkSession?: () => void;
+  reloadPreview?: () => void;
 }
 
 export interface UseTimelineElementVisibilityEditingInput extends Omit<
@@ -80,6 +83,7 @@ export interface UseTimelineElementVisibilityEditingInput extends Omit<
   showToast: (message: string, tone?: "error" | "info") => void;
   isRecordingRef?: ReadonlyRef<boolean>;
   forceReloadSdkSession?: () => void;
+  reloadPreview?: () => void;
 }
 
 function getTimelineElementTargetPath(
@@ -104,6 +108,15 @@ function patchLiveHiddenState(
       target.removeAttribute("data-hidden");
     }
   }
+}
+
+function reloadIsolatedVisibilityPreview(
+  iframe: HTMLIFrameElement | null,
+  reloadPreview?: () => void,
+): void {
+  if (!iframe || !reloadPreview) return;
+  try { if (iframe.contentDocument) return; } catch { /* Isolated preview. */ }
+  reloadPreview();
 }
 
 export function reseekPreviewRuntime(iframe: HTMLIFrameElement | null): void {
@@ -143,6 +156,7 @@ async function setElementsHidden({
   recordEdit,
   domEditSaveTimestampRef,
   pendingTimelineEditPathRef,
+  reloadPreview,
 }: SetElementsHiddenInput): Promise<string[]> {
   if (elements.length === 0) return [];
 
@@ -195,6 +209,7 @@ async function setElementsHidden({
     for (const element of elements) {
       usePlayerStore.getState().updateElement(element.key ?? element.id, { hidden });
     }
+    reloadIsolatedVisibilityPreview(previewIframe, reloadPreview);
     return changedPaths;
   } catch (error) {
     // The optimistic live patch already ran; a patch-target/save failure here would
@@ -219,6 +234,7 @@ export async function toggleTimelineTrackHidden({
   recordEdit,
   domEditSaveTimestampRef,
   pendingTimelineEditPathRef,
+  reloadPreview,
 }: ToggleTimelineTrackHiddenInput): Promise<string[]> {
   // `track` is the fractional sort key the callback needs; the history entry is
   // read by a human, so it gets the display row instead — the one the clicked
@@ -249,6 +265,7 @@ export async function toggleTimelineTrackHidden({
     recordEdit,
     domEditSaveTimestampRef,
     pendingTimelineEditPathRef,
+    reloadPreview,
   });
 }
 
@@ -263,6 +280,7 @@ export async function toggleTimelineElementHidden({
   recordEdit,
   domEditSaveTimestampRef,
   pendingTimelineEditPathRef,
+  reloadPreview,
 }: ToggleTimelineElementHiddenInput): Promise<string[]> {
   const keys = new Set(typeof elementKey === "string" ? [elementKey] : elementKey);
   const elements = timelineElements.filter((item) => keys.has(item.key ?? item.id));
@@ -284,6 +302,7 @@ export async function toggleTimelineElementHidden({
     recordEdit,
     domEditSaveTimestampRef,
     pendingTimelineEditPathRef,
+    reloadPreview,
   });
 }
 
@@ -298,6 +317,7 @@ export function useTimelineTrackVisibilityEditing({
   pendingTimelineEditPathRef,
   isRecordingRef,
   forceReloadSdkSession,
+  reloadPreview,
 }: UseTimelineTrackVisibilityEditingInput): (
   track: number,
   hidden: boolean,
@@ -331,6 +351,7 @@ export function useTimelineTrackVisibilityEditing({
           recordEdit,
           domEditSaveTimestampRef,
           pendingTimelineEditPathRef,
+          reloadPreview,
         });
         forceReloadSdkSession?.();
       } catch (error) {
@@ -351,6 +372,7 @@ export function useTimelineTrackVisibilityEditing({
       isRecordingRef,
       showToast,
       forceReloadSdkSession,
+      reloadPreview,
       projectIdRef,
     ],
   );
@@ -367,6 +389,7 @@ export function useTimelineElementVisibilityEditing({
   pendingTimelineEditPathRef,
   isRecordingRef,
   forceReloadSdkSession,
+  reloadPreview,
 }: UseTimelineElementVisibilityEditingInput): (
   elementKey: string | readonly string[],
   hidden: boolean,
@@ -400,6 +423,7 @@ export function useTimelineElementVisibilityEditing({
           recordEdit,
           domEditSaveTimestampRef,
           pendingTimelineEditPathRef,
+          reloadPreview,
         });
         forceReloadSdkSession?.();
       } catch (error) {
@@ -420,6 +444,7 @@ export function useTimelineElementVisibilityEditing({
       isRecordingRef,
       showToast,
       forceReloadSdkSession,
+      reloadPreview,
       projectIdRef,
     ],
   );

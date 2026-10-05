@@ -24,7 +24,6 @@ import {
   commitWholePathOffset,
   findExistingPositionWrite,
 } from "../GSAP/gsapDragCommit";
-import { promoteSetToKeyframes } from "../Keyframe/useEnableKeyframes";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -297,43 +296,6 @@ gsap.set(${JSON.stringify(written)}, { x: 10, y: 10 });
 
     expect(second.mutations[0]!.type).toBe("update-properties");
     expect(second.mutations[0]!.animationId).toBe(existing!.id);
-  });
-});
-
-/**
- * Candidate C. Every `replace-with-keyframes` in useEnableKeyframes names an
- * `animationId` parsed out of the CURRENT SOURCE (the anims list comes from
- * tryFetchAnimationsForElement), so each one rewrites a tween the author already
- * has. Narrowing those to one element would silently drop the other four
- * siblings out of an animation that was aimed at the group on purpose.
- */
-describe("useEnableKeyframes — rewriting an existing tween keeps its group target", () => {
-  it("promoteSetToKeyframes leaves a group-authored set aimed at the group", async () => {
-    const groups = mountGroupSiblings();
-    const mutations: Array<Record<string, unknown>> = [];
-    const setAnim = {
-      id: "set-group",
-      targetSelector: ".group",
-      method: "set",
-      properties: { x: 0, y: 0 },
-      resolvedStart: 0,
-      duration: 0,
-    } as unknown as GsapAnimation;
-    const session = {
-      commitMutation: async (mutation: Record<string, unknown>) => {
-        mutations.push(mutation);
-      },
-      handleGsapRemoveKeyframe: vi.fn(),
-    };
-
-    // Playhead at the set: the branch that replaces it with a single keyframe,
-    // which can source its value from the set itself (no live iframe needed).
-    await promoteSetToKeyframes(session as never, classOnlySelection(groups[2]!), setAnim, 0, null);
-
-    expect(mutations[0]!.type).toBe("replace-with-keyframes");
-    expect(mutations[0]!.animationId).toBe("set-group");
-    expect(mutations[0]!.targetSelector).toBe(".group");
-    expect(attributedTo(mutations[0]!.targetSelector as string)).toHaveLength(5);
   });
 });
 

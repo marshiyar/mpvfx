@@ -1,3 +1,4 @@
+import type { NativePositionPathChange } from "../canvas/useDomEditSession";
 import type { RefObject } from "react";
 import type { ArcPathSegment, GsapAnimation } from "@hyperframes/parsers/gsap-parser";
 import type { DomEditSelection } from "../canvas/domEditing";
@@ -146,6 +147,8 @@ export interface PropertyPanelProps {
   ) => Promise<void>;
   onRemoveNativeKeyframes?: (targets: readonly NativeProjectKeyframeTarget[]) => Promise<void>;
   onRemoveNativeKeyframe?: (target: NativeProjectKeyframeTarget) => Promise<void>;
+  /** Arc motion on a native clip's position (segment path shapes, auto-rotate). */
+  onSetNativePositionPath?: (change: NativePositionPathChange) => Promise<void>;
   onSetNativeKeyframesInterpolation?: (
     targets: readonly NativeProjectKeyframeTarget[],
     outgoing: NativeInterpolation,

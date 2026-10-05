@@ -2,7 +2,7 @@ import os
 import json
 import requests
 
-CREDENTIALS_FILE = "facebook_credentials.json"
+CREDENTIALS_FILE = os.path.join(os.environ.get("MPVFX_CROSSPOST_CONFIG_DIR", "."), "facebook_credentials.json")
 
 def load_facebook_credentials():
     """Loads Page ID and Page Access Token from the local config file."""
@@ -58,7 +58,7 @@ def upload_facebook_video(file_path, title, description, progress_callback=None)
 if __name__ == "__main__":
     # Test script directly before connecting to the GUI
     test_video = "test.mp4"  # Change to your local 30s video path
-    
+
     if os.path.exists(test_video):
         print(f"Uploading '{test_video}' to Facebook Page...")
         try:

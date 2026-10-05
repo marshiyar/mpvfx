@@ -102,6 +102,51 @@ describe("durable media file operations", () => {
     expect((await p.request("DELETE", "media/a.mov", { transactionId: "delete-unused" }))?.status).toBe(200);
   });
 
+  it.each([
+    ["mp4", "video", "video"], ["mov", "video", "video"], ["webm", "video", "video"],
+    ["mp3", "audio", "audio"], ["wav", "audio", "audio"], ["m4a", "audio", "audio"],
+    ["jpg", "image", "img"], ["png", "image", "img"], ["webp", "image", "img"], ["gif", "image", "img"],
+  ])("requires opt-in and atomically deletes %s placements with exact undo", async (extension, kind, tag) => {
+    const path = `media/Unicode Khé¿.${extension}`;
+    const nativeSource = JSON.stringify({ schemaVersion: 1, id: "project:demo", revision: 7,
+      frameRate: { numerator: 30, denominator: 1 }, canvas: { width: 100, height: 100, background: "#000000" },
+      assets: [{ id: "asset", name: "media", source: path, kind, durationFrames: 90 }],
+      sequence: { id: "main", name: "Main", tracks: [{ id: "track", kind: kind === "audio" ? "audio" : "video", clips: ["first", "second"].map(id => ({
+        id, assetId: "asset", binding: { sourceFile: "index.html", domId: id }, startFrame: 0, durationFrames: 60, sourceInFrame: 0, muted: false, effects: [], parameterTracks: [],
+      })) }] },
+    });
+    const html = `<main data-composition-id="main"><${tag} id="first" src="${path}"></${tag}><${tag} id="second" src="${path}"></${tag}><div id="keep">Keep this</div></main>`;
+    const p = await project({ [path]: media, "index.html": html, ".studio/project.json": nativeSource });
+    expect((await p.request("DELETE", path, { transactionId: "ordinary" }))?.status).toBe(409);
+    expect(await readFile(join(p.root, "index.html"), "utf8")).toBe(html);
+    const response = await p.request("DELETE", path, { transactionId: "explicit", removeUsages: true });
+    expect(response?.status).toBe(200);
+    const { receipt } = await response!.json() as { receipt: DurableFileTransactionReceipt };
+    expect(await exists(join(p.root, path))).toBe(false);
+    const after = JSON.parse(await readFile(join(p.root, ".studio/project.json"), "utf8"));
+    expect(after.assets).toEqual([]);
+    expect(after.sequence.tracks[0].clips).toEqual([]);
+    expect(await readFile(join(p.root, "index.html"), "utf8")).toContain('id="keep"');
+    expect(await readFile(join(p.root, "index.html"), "utf8")).not.toContain('id="first"');
+    const undo = await p.transactions.handle({ method: "POST", pathname: "/projects/demo/file-transactions/commit",
+      body: JSON.stringify({ id: "undo-explicit", files: receipt.files.map(file => ({ path: file.path, expectedBefore: file.after, after: file.expectedBefore })),
+        moves: receipt.moves?.map(move => ({ from: move.to, to: move.from, expectedVersion: move.expectedVersion })),
+      }),
+    });
+    expect(undo?.status).toBe(200);
+    expect(await readFile(join(p.root, path))).toEqual(media);
+    expect(await readFile(join(p.root, "index.html"), "utf8")).toBe(html);
+    expect(await readFile(join(p.root, ".studio/project.json"), "utf8")).toBe(nativeSource);
+  });
+
+  it("does not partially delete placements when a style reference remains", async () => {
+    const p = await project({ "style.css": 'body { background: url("media/a.mov"); }' });
+    const response = await p.request("DELETE", "media/a.mov", { transactionId: "remaining-style", removeUsages: true });
+    expect(response?.status).toBe(409);
+    expect(await readFile(join(p.root, "index.html"), "utf8")).toBe(original);
+    expect(await readFile(join(p.root, "media/a.mov"))).toEqual(media);
+  });
+
   it("deletes an unused native asset record and undo restores its exact identity and source bytes", async () => {
     const nativeSource = JSON.stringify({
       schemaVersion: 1, id: "project:demo", revision: 7,

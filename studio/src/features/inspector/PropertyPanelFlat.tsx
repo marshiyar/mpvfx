@@ -19,6 +19,7 @@ import { FlatTextSection } from "./propertyPanelFlatTextSection";
 import { FlatStyleSection } from "./propertyPanelFlatStyleSections";
 import { FlatLayoutSection } from "./propertyPanelFlatLayoutSection";
 import { FlatMotionSection } from "./propertyPanelFlatMotionSection";
+import { NativeArcMotion } from "../animation/NativeArcMotion";
 import { AudioFxGroup } from "./propertyPanelAudioFxGroup.js";
 import { useVolumeAutomation } from "./useVolumeAutomation";
 import { useAudioFxRevealSection } from "./useAudioFxRevealSection";
@@ -104,6 +105,8 @@ export function PropertyPanelFlat({
   nativeProjectDocument,
   navKeyframes,
   currentTime,
+  nativePositionPath,
+  onSetNativePositionPath,
   currentFrame,
   animIdForProp,
   gsapRuntimeValues,
@@ -462,6 +465,14 @@ export function PropertyPanelFlat({
               previewIframeRef ?? { current: null },
             )}
           />
+          {nativePositionPath && onSetNativePositionPath && (
+            <div className="border-t border-panel-hairline pt-2">
+              <NativeArcMotion
+                path={nativePositionPath}
+                onChange={onSetNativePositionPath}
+              />
+            </div>
+          )}
           {focusedNativeTargets && (
             <section
               aria-label="Native keyframe interpolation"

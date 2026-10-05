@@ -1,4 +1,7 @@
 import { lstat, readFile, readdir } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { resolveNativeDomBinding, stabilizeNativeDomBindings } from "../../shared/project/nativeDomBinding";
+import { resolveMovePath } from "./fileMoves";
 import { join, posix } from "node:path";
 import { tokenizer } from "acorn";
 import { parseHTMLContent } from "@hyperframes/core/compiler";
@@ -7,6 +10,7 @@ import {
   parseNativeProjectDocument,
 } from "../../shared/project/nativeProjectDocument";
 import type { DurableFileTransactionChange } from "./fileTransaction";
+import { previewOriginForProject } from "../../shared/desktopPreviewOrigin";
 
 export interface MediaReferencePlan {
   files: DurableFileTransactionChange[];
@@ -47,11 +51,13 @@ function encodedPath(path: string): string {
 function reference(value: string, context: ReferenceContext): string | null {
   const text = value.trim();
   if (!text || text.startsWith("#") || text.startsWith("//")) return null;
-  const transport = /^(mpvfx:\/\/editor)?\/api\/projects\/([^/]+)\/preview\/([^?#]+)([?#].*)?$/.exec(text);
+  const transport = /^(mpvfx:\/\/[^/?#]+)?\/api\/projects\/([^/]+)\/preview\/([^?#]+)([?#].*)?$/.exec(text);
   let path: string;
   let suffix: string;
   try {
     if (transport) {
+      if (transport[1] && transport[1] !== "mpvfx://editor" &&
+          transport[1] !== previewOriginForProject(context.projectId)) return null;
       if (decodeURIComponent(transport[2]) !== context.projectId) return null;
       path = decodeURIComponent(transport[3]);
       suffix = transport[4] ?? "";
@@ -227,8 +233,10 @@ function htmlReferences(source: string, context: ReferenceContext): string {
   if (base !== undefined && base !== null) {
     try {
       const prefix = `/api/projects/${encodeURIComponent(context.projectId)}/preview/`;
-      const resolved = new URL(base, `mpvfx://editor${prefix}${encodedPath(context.owner)}`);
-      context.resolutionOwner = resolved.protocol === "mpvfx:" && resolved.host === "editor" && resolved.pathname.startsWith(prefix)
+      const resolved = new URL(base, `${previewOriginForProject(context.projectId)}${prefix}${encodedPath(context.owner)}`);
+      context.resolutionOwner = resolved.protocol === "mpvfx:" && !resolved.username && !resolved.password && !resolved.port &&
+        (resolved.host === "editor" || `mpvfx://${resolved.host}` === previewOriginForProject(context.projectId)) &&
+        resolved.pathname.startsWith(prefix)
         ? decodeURIComponent(resolved.pathname.slice(prefix.length)) + (resolved.pathname.endsWith("/") ? "__base__" : "")
         : null;
     } catch {
@@ -315,15 +323,40 @@ async function authoredFiles(root: string): Promise<string[]> {
   return files.sort();
 }
 
+/** Legacy canvas deletion could remove HTML while leaving bound native clips.
+ * Only repair a proven missing binding in an existing, readable source file.
+ * Native-only clips, missing source files and uncertain selectors remain in use.
+ */
+async function missingCompatibilityClip(root: string, clip: ReturnType<typeof parseNativeProjectDocument>["sequence"]["tracks"][number]["clips"][number], context: ReferenceContext): Promise<boolean> {
+  const binding = clip.binding;
+  if (!binding) return false;
+  try {
+    const path = await resolveMovePath(root, binding.sourceFile);
+    const source = await readFile(path, "utf8");
+    const usage = { ...context, owner: binding.sourceFile, referenced: false };
+    htmlReferences(source, usage);
+    if (usage.referenced) return false;
+    const document = parseHTMLContent(source);
+    if ([...document.querySelectorAll("[id], [data-hf-id]")].some(node =>
+      (binding.domId && node.getAttribute("id") === binding.domId) ||
+      (binding.hfId && node.getAttribute("data-hf-id") === binding.hfId))) return false;
+    if (binding.selector && document.querySelector(binding.selector)) return false;
+    return Boolean(binding.domId || binding.hfId || binding.selector);
+  } catch { return false; }
+}
+
 /** Plan owned reference changes without touching media, history, or any file. */
 export async function planMediaReferences(input: {
   projectRoot: string;
   projectId: string;
   oldPath: string;
   newPath?: string;
+  removeUsages?: boolean;
 }): Promise<MediaReferencePlan> {
   const files: DurableFileTransactionChange[] = [];
   const dependents = new Set<string>();
+  const removedBindings: Array<{ sourceFile: string; domId?: string; hfId?: string; selector?: string; selectorIndex?: number }> = [];
+  let retainedDocument: ReturnType<typeof parseNativeProjectDocument> | undefined;
   let nativeSource: string | undefined;
   try {
     for (const path of [".studio", NATIVE_PROJECT_DOCUMENT_PATH]) {
@@ -363,6 +396,18 @@ export async function planMediaReferences(input: {
       }
     }
     if (context.referenced) {
+      if (!input.newPath) {
+        for (const track of document.sequence.tracks) {
+          const retained = [];
+          for (const clip of track.clips) {
+            if (!matchedAssetIds.has(clip.assetId)) { retained.push(clip); continue; }
+            if (input.removeUsages) {
+              if (clip.binding) removedBindings.push(clip.binding);
+            } else if (!await missingCompatibilityClip(input.projectRoot, clip, context)) retained.push(clip);
+          }
+          track.clips = retained;
+        }
+      }
       const usedByClip = document.sequence.tracks.some(track =>
         track.clips.some(clip => matchedAssetIds.has(clip.assetId)),
       );
@@ -370,7 +415,9 @@ export async function planMediaReferences(input: {
       if (!input.newPath && !usedByClip) {
         // The asset registry is ownership, not usage. Deleting unused media
         // removes its entry in the same undoable transaction as the archive.
+        original.sequence = document.sequence;
         original.assets = rawAssets.filter(asset => !matchedAssetIds.has(asset.id as string));
+        retainedDocument = document;
       }
       if ((input.newPath && input.newPath !== input.oldPath) || (!input.newPath && !usedByClip)) {
         original.revision = document.revision + 1;
@@ -384,11 +431,55 @@ export async function planMediaReferences(input: {
     const context: ReferenceContext = { ...input, owner, referenced: false };
     const extension = posix.extname(owner).toLowerCase();
     let after = before;
-    if (extension === ".html") after = htmlReferences(before, context);
+    if (extension === ".html") {
+      if (input.removeUsages && !input.newPath) {
+        const document = parseHTMLContent(before);
+        const nodes = [...document.querySelectorAll("*")];
+        const bindings = removedBindings.filter(binding => binding.sourceFile === owner);
+        // Resolve against the original tree once, before removing any sibling.
+        const boundNodes = new Set(bindings.map(binding => resolveNativeDomBinding(
+          selector => [...document.querySelectorAll(selector)], binding,
+        )).filter(node => node !== null));
+        let changed = retainedDocument ? stabilizeNativeDomBindings(
+          retainedDocument, owner, selector => [...document.querySelectorAll(selector)], () => `hf-${randomUUID()}`,
+        ) : false;
+        // Resolve <base> once for the probes as well as the final reference scan.
+        const resolution = { ...context };
+        htmlReferences(before, resolution);
+        for (const node of nodes) {
+          if (node.hasAttribute("data-composition-id")) continue;
+          const bound = boundNodes.has(node);
+          const probe = { ...resolution, referenced: false };
+          const tag = node.tagName?.toLowerCase();
+          if (["video", "audio", "img", "source", "track"].includes(tag ?? "")) {
+            const src = node.getAttribute("src");
+            if (src) reference(src, probe);
+          }
+          if (bound || probe.referenced) {
+            node.remove(); changed = true;
+          } else if (node.hasAttribute("poster")) {
+            const poster = { ...resolution, referenced: false };
+            reference(node.getAttribute("poster")!, poster);
+            if (poster.referenced) { node.removeAttribute("poster"); changed = true; }
+          }
+        }
+        if (changed) after = document.toString();
+      }
+      after = htmlReferences(after, context);
+    }
     else if (extension === ".css") after = cssReferences(before, context);
     else scriptReferences(before, context);
     if (context.referenced) dependents.add(owner);
     if (after !== before) files.push({ path: owner, expectedBefore: before, after });
+  }
+  if (retainedDocument) {
+    const nativeChange = files.find(file => file.path === NATIVE_PROJECT_DOCUMENT_PATH);
+    if (nativeChange?.after) {
+      const next = JSON.parse(nativeChange.after);
+      next.sequence = retainedDocument.sequence;
+      parseNativeProjectDocument(next);
+      nativeChange.after = JSON.stringify(next, null, 2) + "\n";
+    }
   }
   return { files, dependents: [...dependents].sort() };
 }

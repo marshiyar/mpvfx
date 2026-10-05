@@ -3,8 +3,8 @@ import type { DraggedClipState } from "./useTimelineClipDrag";
 // Type-only: erased at runtime, so the timelineZMirror → timelineClipDragCommit
 // value-import edge stays acyclic.
 import type { ZMirrorLaneMove } from "./timelineZMirror";
-import { classifyZone, normalizeToZones } from "./timelineZones";
-import { computeStackingPatches, type StackingPatch } from "./timelineStackingSync";
+import { normalizeToZones } from "./timelineZones";
+import type { StackingPatch } from "./timelineStackingSync";
 import {
   canMoveTimelineElement as canMoveElement,
   resolveExpandedHostAlias,
@@ -17,6 +17,8 @@ import {
 import { runLaneZGesture } from "../../features/timeline/zLaneGesture";
 import { refreshAfterDurableLaneMove } from "./timelineLaneMoveRefresh";
 import { authoredTrackForLane, sameSourceFile } from "./timelineAuthoredTrack";
+import { resolveRigidGroupMove } from "./timelineRigidGroupMove";
+import { keyOf, syncStackingForEdit } from "./timelineClipStackingCommit";
 
 type StartTrack = Pick<TimelineElement, "start" | "track">;
 export interface TimelineMoveEdit {
@@ -79,7 +81,6 @@ export interface DragCommitDeps {
   refreshAfterLaneMove?: () => void;
 }
 
-const keyOf = (e: TimelineElement) => e.key ?? e.id;
 const round3 = (v: number) => Math.round(v * 1000) / 1000;
 // One deterministic coalesce key shared by both records in a lane-change gesture.
 let laneChangeGestureSeq = 0;
@@ -253,6 +254,65 @@ export function commitDraggedClipMove(drag: DraggedClipState, deps: DragCommitDe
   const aimTrack = drag.desiredTrack ?? drag.previewTrack;
   const isVertical = isInsert || aimTrack !== drag.element.track;
   const multi = resolveMultiSelection(drag, deps);
+
+  // A preview-marked formation owns its whole row change. Revalidate against
+  // the current elements at release: a late collision or locked member must
+  // never degrade into moving only the grabbed clip. One batch is one undo.
+  if (multi && drag.groupRowDelta !== undefined) {
+    const group = resolveRigidGroupMove({
+      elements, selectedKeys: deps.selectedKeys ?? new Set(), dragged: drag.element,
+      desiredTrack: drag.previewTrack, trackOrder: deps.trackOrder,
+      deltaSeconds: drag.previewStart - drag.element.start,
+    });
+    if (!group?.valid || group.rowDelta !== drag.groupRowDelta) return;
+    if (!deps.onMoveElements) {
+      console.warn("[Timeline] Group row move requires atomic batch persistence");
+      return;
+    }
+    const edits: TimelineMoveEdit[] = elements
+      .filter((element) => group.keys.has(keyOf(element)))
+      .map((element) => {
+        const row = deps.trackOrder.indexOf(element.track) + group.rowDelta;
+        const targetTrack = deps.trackOrder[row]!;
+        const start = multi.movedStart(element);
+        return {
+          element,
+          updates: { start, track: targetTrack },
+          ...(group.rowDelta === 0 ? {} : {
+            persistTrack: authoredTrackForLane(targetTrack, elements, element),
+            displayTrack: targetTrack,
+          }),
+        };
+      })
+      .filter((edit) => edit.updates.start !== edit.element.start || edit.updates.track !== edit.element.track);
+    if (edits.length === 0) return;
+    if (group.rowDelta === 0) {
+      void persistMoveEdits(edits, deps);
+      return;
+    }
+    const coalesceKey = `clip-lane-move:${laneChangeGestureSeq++}`;
+    const candidate = elements.map((element) => {
+      const edit = edits.find((change) => keyOf(change.element) === keyOf(element));
+      return edit ? { ...element, ...edit.updates } : element;
+    });
+    if (!deps.readZIndex || !deps.onStackingPatches) {
+      void refreshAfterDurableLaneMove(
+        persistMoveEdits(edits, deps, coalesceKey, "lane-reorder"), deps,
+      );
+      return;
+    }
+    void refreshAfterDurableLaneMove(
+      runLaneZGesture({
+        commitLane: () => persistMoveEdits(edits, deps, coalesceKey, "lane-reorder"),
+        commitZ: () => syncStackingForEdit(
+          candidate, dragKey, drag.element.track, drag.previewTrack,
+          group.keys, deps, coalesceKey,
+        ),
+      }),
+      deps,
+    ).catch(() => undefined);
+    return;
+  }
 
   // ── Pure time-move (dragged clip keeps its lane, no insert) ─────────────────
   if (!isInsert && !laneChanged) {
@@ -511,52 +571,4 @@ export function commitZMirrorLaneMove(
     persistMoveEdits(built.edits, deps, coalesceKey, "track-insert", coalesceMs),
     deps,
   );
-}
-
-/**
- * Compute + apply z-index patches for the edited clip(s) after a DELIBERATE
- * vertical lane change. Projects the drop-intent element set (`candidate`: the
- * dragged clip at its new / fractional-insert lane, others at their current tracks)
- * onto StackingElement using the caller-supplied live z-index reader, then
- * delegates the minimal-z resolution to computeStackingPatches — a clip on the
- * upper lane paints above every clip it time-overlaps. No-op unless both z-sync
- * deps are present, and never when the gesture aimed at the clip's OWN current
- * lane (`aimedLane === currentLane` — not a relocation).
- */
-function syncStackingForEdit(
-  candidate: TimelineElement[],
-  dragKey: string,
-  currentLane: number,
-  aimedLane: number,
-  multiKeys: ReadonlySet<string> | null,
-  deps: DragCommitDeps,
-  coalesceKey?: string,
-): Promise<void> {
-  const { readZIndex, onStackingPatches } = deps;
-  if (!readZIndex || !onStackingPatches) return Promise.resolve();
-
-  // Aiming at the clip's OWN current display lane is not a relocation — never
-  // touch z (guards the pure-time-move invariant even if a spurious topology call
-  // slips through). Every real lane-realization drop aims at a DIFFERENT lane.
-  if (aimedLane === currentLane) return Promise.resolve();
-
-  // Discovery order is DOM order, which breaks equal-z ties.
-  const stackingEls = candidate.map((el, domIndex) => ({
-    key: keyOf(el),
-    start: el.start,
-    duration: el.duration,
-    track: el.track,
-    zIndex: readZIndex(el),
-    isAudio: classifyZone(el) === "audio",
-    sourceFile: el.sourceFile,
-    domIndex,
-    stackingContextId: el.stackingContextId ?? null,
-  }));
-
-  const editedKeys = [dragKey];
-  if (multiKeys) for (const k of multiKeys) if (k !== dragKey) editedKeys.push(k);
-
-  const patches = computeStackingPatches(stackingEls, editedKeys);
-  if (patches.length === 0) return Promise.resolve();
-  return Promise.resolve(onStackingPatches(patches, coalesceKey)).then(() => undefined);
 }

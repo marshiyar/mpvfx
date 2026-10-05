@@ -65,6 +65,13 @@ function activate(host: HTMLElement, key: string) {
   return graph;
 }
 
+function typeNumber(input: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+  if (!setter) throw new Error("Expected native input setter");
+  setter.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
 describe("ColorCurves", () => {
   it.each(["Enter", " ", "Delete", "Backspace", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"])("keeps its handled %s key from bubbling into unrelated commands", (key) => {
     const { host, root } = renderCurves();
@@ -113,7 +120,7 @@ describe("ColorCurves", () => {
     act(() => root.unmount());
   });
 
-  it("treats points across the red seam as neighbors instead of adding a duplicate", () => {
+  it("selects points across the red seam without moving them or adding a duplicate", () => {
     const value: ColorCurveValues = {
       ...IDENTITY,
       hueCurves: {
@@ -147,9 +154,143 @@ describe("ColorCurves", () => {
       );
     });
 
-    const points = onCommit.mock.calls[0]?.[0]?.hueCurves.hueVsSaturation;
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(host.querySelectorAll('[data-color-curve-point]')).toHaveLength(3);
+    expect(host.querySelector<HTMLInputElement>('[aria-label="Curve point hue"]')?.value).toBe("359");
+    act(() => root.unmount());
+  });
+
+  it("selects a close-input RGB node even when the click is far above its output", () => {
+    const value: ColorCurveValues = {
+      ...IDENTITY,
+      curves: { ...IDENTITY.curves, master: [[0, 0], [0.39, 0.25], [1, 1]] },
+    };
+    const { host, root, onPreview, onCommit } = renderCurves(value);
+    const graph = activate(host, "master");
+    act(() => {
+      graph.dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true, pointerId: 14, clientX: 66, clientY: 12,
+      }));
+      graph.dispatchEvent(new PointerEvent("pointerup", {
+        bubbles: true, pointerId: 14, clientX: 66, clientY: 12,
+      }));
+    });
+    expect(onPreview).toHaveBeenCalledOnce();
+    expect(onPreview).toHaveBeenCalledWith(value);
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(host.querySelectorAll('[data-color-curve-point]')).toHaveLength(3);
+    expect(host.querySelector<HTMLInputElement>('[aria-label="Curve point input"]')?.value).toBe("0.39");
+    act(() => root.unmount());
+  });
+
+  it("keeps the grab offset when dragging a node picked by its input", () => {
+    const value: ColorCurveValues = {
+      ...IDENTITY,
+      curves: { ...IDENTITY.curves, master: [[0, 0], [0.39, 0.25], [1, 1]] },
+    };
+    const { host, root, onCommit } = renderCurves(value);
+    const graph = activate(host, "master");
+    act(() => {
+      graph.dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true, pointerId: 17, clientX: 66, clientY: 12,
+      }));
+      graph.dispatchEvent(new PointerEvent("pointermove", {
+        bubbles: true, pointerId: 17, clientX: 70, clientY: 16,
+      }));
+      graph.dispatchEvent(new PointerEvent("pointerup", {
+        bubbles: true, pointerId: 17, clientX: 70, clientY: 16,
+      }));
+    });
+    const moved = onCommit.mock.calls.at(-1)?.[0]?.curves.master[1];
+    expect(moved[0]).toBeCloseTo(0.39 + 4 / 144, 4);
+    expect(moved[1]).toBeCloseTo(0.25 - 4 / 144, 4);
+    act(() => root.unmount());
+  });
+
+  it("shows the constrained coordinate and then the selected close sibling", () => {
+    const value: ColorCurveValues = {
+      ...IDENTITY,
+      curves: { ...IDENTITY.curves, master: [[0, 0], [0.4, 0.25], [0.41, 0.75], [1, 1]] },
+    };
+    const { host, root, onCommit } = renderCurves(value);
+    const graph = activate(host, "master");
+    act(() => {
+      graph.dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true, pointerId: 18, clientX: 65.6, clientY: 116,
+      }));
+      graph.dispatchEvent(new PointerEvent("pointerup", {
+        bubbles: true, pointerId: 18, clientX: 65.6, clientY: 116,
+      }));
+    });
+    const input = host.querySelector<HTMLInputElement>('[aria-label="Curve point input"]');
+    if (!input) throw new Error("Expected selected curve input");
+    act(() => input.focus());
+    act(() => typeNumber(input, "0.99"));
+    act(() => input.blur());
+    expect(input.value).toBe("0.368");
+    expect(onCommit.mock.calls.at(-1)?.[0]?.curves.master).toEqual([
+      [0, 0], [0.3683333333333333, 0.25], [0.41, 0.75], [1, 1],
+    ]);
+    act(() => graph.dispatchEvent(new KeyboardEvent("keydown", {
+      key: "PageDown", bubbles: true, cancelable: true,
+    })));
+    expect(input.value).toBe("0.41");
+    act(() => root.unmount());
+  });
+
+  it("keeps RGB nodes pickable and ordered through rapid crossing drags", () => {
+    const value: ColorCurveValues = {
+      ...IDENTITY,
+      curves: { ...IDENTITY.curves, master: [[0, 0], [0.25, 0.8], [0.5, 0.2], [1, 1]] },
+    };
+    const { host, root, onCommit } = renderCurves(value);
+    const graph = activate(host, "master");
+    act(() => {
+      graph.dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true, pointerId: 15, clientX: 44, clientY: 37,
+      }));
+      graph.dispatchEvent(new PointerEvent("pointermove", {
+        bubbles: true, pointerId: 15, clientX: 100, clientY: 20,
+      }));
+      graph.dispatchEvent(new PointerEvent("pointermove", {
+        bubbles: true, pointerId: 15, clientX: 68, clientY: 30,
+      }));
+      graph.dispatchEvent(new PointerEvent("pointerup", {
+        bubbles: true, pointerId: 15, clientX: 100, clientY: 20,
+      }));
+    });
+    const points = onCommit.mock.calls.at(-1)?.[0]?.curves.master;
+    expect(points).toHaveLength(4);
+    expect(points[1][0]).toBeGreaterThanOrEqual(0.5 - 1 / 24);
+    expect(points[1][0]).toBeLessThan(points[2][0]);
+    expect(points.every(([x, y]: readonly [number, number]) => Number.isFinite(x) && Number.isFinite(y))).toBe(true);
+    act(() => root.unmount());
+  });
+
+  it("preserves circular hue order while dragging through the seam", () => {
+    const value: ColorCurveValues = {
+      ...IDENTITY,
+      hueCurves: { ...IDENTITY.hueCurves, hueVsHue: [[20, 0], [140, 60], [260, -60]] },
+    };
+    const { host, root, onCommit } = renderCurves(value);
+    const graph = activate(host, "hueVsHue");
+    act(() => {
+      graph.dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true, pointerId: 16, clientX: 16, clientY: 80,
+      }));
+      graph.dispatchEvent(new PointerEvent("pointermove", {
+        bubbles: true, pointerId: 16, clientX: 151, clientY: 80,
+      }));
+      graph.dispatchEvent(new PointerEvent("pointerup", {
+        bubbles: true, pointerId: 16, clientX: 151, clientY: 80,
+      }));
+    });
+    const points = onCommit.mock.calls.at(-1)?.[0]?.hueCurves.hueVsHue;
     expect(points).toHaveLength(3);
-    expect(points.some(([hue]: readonly [number, number]) => hue < 1)).toBe(true);
+    expect(points[2][0]).toBeGreaterThan(340);
+    expect(points[2][0]).toBeLessThan(360);
+    expect(points[0][0]).toBe(140);
+    expect(points[1][0]).toBe(260);
     act(() => root.unmount());
   });
 
@@ -174,7 +315,8 @@ describe("ColorCurves", () => {
         }),
       );
     });
-    expect(onPreview.mock.calls[0]?.[0]?.curves.master).toHaveLength(3);
+    expect(onPreview.mock.calls[0]?.[0]?.curves.master).toHaveLength(2);
+    expect(onPreview.mock.calls.at(-1)?.[0]?.curves.master).toHaveLength(3);
     expect(onPreview.mock.calls.at(-1)?.[0]).toEqual(onCommit.mock.calls[0]?.[0]);
     expect(onCommit).toHaveBeenCalledOnce();
     expect(host.querySelectorAll('[data-color-curve-point]')).toHaveLength(3);

@@ -1,17 +1,12 @@
 import { useCallback, useRef, type MutableRefObject } from "react";
-import { splitElementInHtml } from "@hyperframes/studio-server/source-mutation";
 import type { TimelineElement } from "../../player/index";
 import { usePlayerStore } from "../../player/index";
-import { getTimelineElementLabel } from "../../lib/studioHelpers";
 import { trackStudioRazorSplit } from "../../telemetry/events";
 import { canSplitElement, canSplitElementAt } from "./timelineElementSplit";
 import { buildAtomicCutIntents, runAtomicCutTransaction } from "./razorSplitTransaction";
-import { applyPatchByTarget } from "../legacy/sourcePatcher";
-import { splitAudioAutomationInHtml } from "./splitAudioAutomation";
 import {
   NATIVE_PROJECT_DOCUMENT_PATH,
   parseNativeProjectDocument,
-  type NativeClipDomBinding,
   type NativeProjectDocument,
 } from "../../../shared/project/nativeProjectDocument";
 import {
@@ -25,7 +20,7 @@ import {
 import { NativeProjectRevisionConflictError } from "../project/nativeProjectPersistence";
 import { synchronizeIncomingNativeDocument } from "../project/nativeDocumentRefSync";
 import type { RecordEditInput } from "./timelineEditingHelpers";
-import { playbackStartAttributeForElement } from "./timelineEditingHelpers";
+import { patchNativeTimelineSplitCompatibility } from "./nativeTimelineSplitCompatibility";
 import type { NativeTimelineEditingDependencies } from "./useTimelineEditingTypes";
 
 interface UseRazorSplitOptions {
@@ -58,7 +53,7 @@ const nativeSelectionForElement = (element: TimelineElement) => ({
 
 /**
  * Return null when an element is not native, otherwise apply the same exact
- * project-frame boundary and source-rate checks as the native transaction.
+ * project-frame boundary checks as the native transaction.
  */
 const canSplitNativeElementAt = (
   document: NativeProjectDocument | null,
@@ -84,47 +79,11 @@ const canSplitNativeElementAt = (
   }
   const clip = resolution.located.clip;
   const localFrame = splitFrame - clip.startFrame;
-  const rate = clip.playbackRate ?? { numerator: 1, denominator: 1 };
   return (
     Number.isSafeInteger(splitFrame) &&
     localFrame > 0 &&
-    localFrame < clip.durationFrames &&
-    (BigInt(localFrame) * BigInt(rate.numerator)) % BigInt(rate.denominator) === 0n
+    localFrame < clip.durationFrames
   );
-};
-
-const bindingTarget = (binding: Readonly<NativeClipDomBinding>) => ({
-  ...(binding.domId ? { id: binding.domId } : {}),
-  ...(binding.hfId ? { hfId: binding.hfId } : {}),
-  ...(binding.selector ? { selector: binding.selector } : {}),
-  ...(binding.selectorIndex == null ? {} : { selectorIndex: binding.selectorIndex }),
-});
-
-const frameSeconds = (frame: number, document: NativeProjectDocument): number =>
-  (frame * document.frameRate.denominator) / document.frameRate.numerator;
-
-const patchExactSplitAttributes = (
-  content: string,
-  target: ReturnType<typeof bindingTarget>,
-  values: { startFrame: number; durationFrames: number; sourceInFrame: number },
-  document: NativeProjectDocument,
-  playbackProperty: "media-start" | "playback-start",
-): string => {
-  let patched = applyPatchByTarget(content, target, {
-    type: "attribute",
-    property: "start",
-    value: String(frameSeconds(values.startFrame, document)),
-  });
-  patched = applyPatchByTarget(patched, target, {
-    type: "attribute",
-    property: "duration",
-    value: String(frameSeconds(values.durationFrames, document)),
-  });
-  return applyPatchByTarget(patched, target, {
-    type: "attribute",
-    property: playbackProperty,
-    value: String(frameSeconds(values.sourceInFrame, document)),
-  });
 };
 
 export function useRazorSplit({
@@ -194,13 +153,7 @@ export function useRazorSplit({
               document,
               nativeSelectionForElement(element),
             );
-            if (!resolution.ok || !resolution.located.clip.binding) {
-              throw new Error(
-                resolution.ok
-                  ? `Native clip ${resolution.located.clip.id} is missing its compatibility binding`
-                  : resolution.failure.message,
-              );
-            }
+            if (!resolution.ok) throw new Error(resolution.failure.message);
             return resolution.located.clip;
           });
 
@@ -217,69 +170,9 @@ export function useRazorSplit({
             patchCompatibilityContent: (
               content: string,
               edit: NativeTimelineSplitCompatibilityEdit,
-            ) => {
-              const element = elements[edit.requestIndex]!;
-              const clip = clips[edit.requestIndex]!;
-              const leftBinding = edit.leftBinding;
-              const baseId = `${leftBinding.domId ?? clip.id.replace(/[^a-zA-Z0-9_-]/g, "-")}-split`;
-              const rate = clip.playbackRate ?? { numerator: 1, denominator: 1 };
-              const split = splitElementInHtml(
-                content,
-                bindingTarget(leftBinding),
-                edit.compatibilitySplitSeconds,
-                baseId,
-                {
-                  start: frameSeconds(clip.startFrame, document),
-                  duration: frameSeconds(clip.durationFrames, document),
-                  playbackStart: frameSeconds(clip.sourceInFrame, document),
-                  playbackRate: rate.numerator / rate.denominator,
-                  stampPlaybackStart: true,
-                },
-              );
-              if (!split.matched || !split.newId) {
-                throw new Error(`Compatibility source did not match native clip ${clip.id}`);
-              }
-
-              const localFrames = edit.splitFrame - clip.startFrame;
-              const sourceDelta =
-                (localFrames * rate.numerator) / rate.denominator;
-              const playbackProperty = playbackStartAttributeForElement(element).slice(
-                "data-".length,
-              ) as "media-start" | "playback-start";
-              let patched = patchExactSplitAttributes(
-                split.html,
-                bindingTarget(leftBinding),
-                {
-                  startFrame: clip.startFrame,
-                  durationFrames: localFrames,
-                  sourceInFrame: clip.sourceInFrame,
-                },
-                document,
-                playbackProperty,
-              );
-              const rightBinding: NativeClipDomBinding = {
-                sourceFile: edit.sourceFile,
-                domId: split.newId,
-              };
-              patched = splitAudioAutomationInHtml(
-                patched,
-                bindingTarget(leftBinding),
-                bindingTarget(rightBinding),
-                frameSeconds(localFrames, document),
-              );
-              patched = patchExactSplitAttributes(
-                patched,
-                bindingTarget(rightBinding),
-                {
-                  startFrame: edit.splitFrame,
-                  durationFrames: clip.durationFrames - localFrames,
-                  sourceInFrame: clip.sourceInFrame + sourceDelta,
-                },
-                document,
-                playbackProperty,
-              );
-              return { content: patched, rightBinding };
-            },
+            ) => patchNativeTimelineSplitCompatibility(
+              content, edit, clips[edit.requestIndex]!, document, elements[edit.requestIndex]!,
+            ),
             onCommitted: (committed) => {
               nativeDocumentRef.current = committed;
               dependencies.onNativeDocumentCommitted(committed);
@@ -404,7 +297,6 @@ export function useRazorSplit({
         const result = await runCut([element], splitTime, "single");
         if (!result) return;
         if (result.syncFailed) return;
-        showToast(`Split ${getTimelineElementLabel(element)} at ${splitTime.toFixed(2)}s`, "info");
       } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to split timeline clip";
         showToast(message, "error");
@@ -412,6 +304,17 @@ export function useRazorSplit({
     },
     [isRecordingRef, nativeDocumentRef, runCut, showToast],
   );
+
+  const splitForSilence = useCallback(async (element: TimelineElement, splitTime: number) => {
+    if (isRecordingRef?.current) throw new Error("Cannot edit timeline while recording");
+    if (!canSplitElement(element)) throw new Error("The selected video can no longer be split");
+    const nativeValidity = canSplitNativeElementAt(nativeDocumentRef.current, element, splitTime);
+    if (!(nativeValidity ?? canSplitElementAt(element, splitTime))) {
+      throw new Error("The silence boundary is too close to a clip edge");
+    }
+    const result = await runCut([element], splitTime, "single");
+    if (!result || result.syncFailed) throw new Error("Clip split did not synchronize with the timeline");
+  }, [isRecordingRef, nativeDocumentRef, runCut]);
 
   const handleRazorSplitAll = useCallback(
     async (splitTime: number) => {
@@ -433,7 +336,6 @@ export function useRazorSplit({
         const result = await runCut(splittable, splitTime, "all");
         if (!result) return;
         if (result.syncFailed) return;
-        showToast(`Split ${result.splitCount} clips at ${splitTime.toFixed(2)}s`, "info");
       } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to split clips";
         showToast(message, "error");
@@ -442,5 +344,5 @@ export function useRazorSplit({
     [isRecordingRef, nativeDocumentRef, runCut, showToast],
   );
 
-  return { handleRazorSplit, handleRazorSplitAll };
+  return { handleRazorSplit, handleRazorSplitAll, splitForSilence };
 }

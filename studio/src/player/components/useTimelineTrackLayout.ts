@@ -1,6 +1,7 @@
 import { useMemo, useRef } from "react";
 import type { GsapAnimation } from "@hyperframes/core/gsap-parser";
-import { animationLaneGroups } from "./TimelinePropertyLanes";
+import { getTimelinePropertyLanes } from "./TimelinePropertyLanes";
+import { clipTimingStart } from "../../features/animation/GSAP/gsapShared";
 import { isAudioTimelineElement } from "../../features/timeline/timelineInspector";
 import { elementAutomationLanes, groupAutomationLanes } from "./automationLaneData";
 import { usePlayerStore, type TimelineElement } from "../store/playerStore";
@@ -127,13 +128,20 @@ export function resolveTrackKeyframeClip(
 export function mergeTimelineLaneCounts(
   gsapAnimations: ReadonlyMap<string, readonly GsapAnimation[]>,
   nativeLaneProjections: ReadonlyMap<string, NativeTimelineElementLaneProjection>,
+  elements: readonly TimelineElement[],
 ): ReadonlyMap<string, number> {
+  const elementsById = new Map(elements.map((element) => [element.key ?? element.id, element]));
   const clipIds = new Set([...gsapAnimations.keys(), ...nativeLaneProjections.keys()]);
   return new Map(
     [...clipIds].map((clipId) => {
       const groups = new Set<string>();
-      for (const animation of gsapAnimations.get(clipId) ?? []) {
-        for (const group of animationLaneGroups(animation)) groups.add(group);
+      const element = elementsById.get(clipId);
+      if (element) {
+        for (const lane of getTimelinePropertyLanes(
+          gsapAnimations.get(clipId) ?? [],
+          clipTimingStart(element),
+          element.duration,
+        )) groups.add(lane.group);
       }
       for (const lane of nativeLaneProjections.get(clipId)?.lanes ?? []) {
         groups.add(lane.propertyGroup);
@@ -143,8 +151,7 @@ export function mergeTimelineLaneCounts(
   );
 }
 
-/** Lanes per clip: the count of distinct property groups whose tween contributes
- *  a lane (real keyframes or a synthesizable flat tween). */
+/** Lanes per clip: count only property groups with drawn keyframes. */
 function computeLaneCounts(
   tracks: [number, TimelineElement[]][],
   gsapAnimations: Map<string, GsapAnimation[]>,
@@ -159,13 +166,13 @@ function computeLaneCounts(
         laneCounts.set(clipId, nativeCount);
         continue;
       }
-      const propertyGroups = new Set<string>();
-      for (const animation of gsapAnimations.get(clipId) ?? []) {
-        // Same helper the rendered lanes count through, so a reserved row and a
-        // drawn lane can never disagree.
-        for (const group of animationLaneGroups(animation)) propertyGroups.add(group);
-      }
-      laneCounts.set(clipId, propertyGroups.size);
+      // Flat tweens can route inspector edits, but draw no authored diamonds.
+      // Count the actual clip-local lanes so they reserve no empty row.
+      laneCounts.set(clipId, getTimelinePropertyLanes(
+        gsapAnimations.get(clipId) ?? [],
+        clipTimingStart(element),
+        element.duration,
+      ).length);
     }
   }
   return laneCounts;

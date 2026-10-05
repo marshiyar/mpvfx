@@ -28,4 +28,14 @@ describe("getTimelineElementIndexes", () => {
     expect(getTimelineElementIndexes(elements)).toBe(getTimelineElementIndexes(elements));
     expect(getTimelineElementIndexes([...elements])).not.toBe(getTimelineElementIndexes(elements));
   });
+
+  it("selects the longest eligible imported audio when no music role is authored", () => {
+    const generic: TimelineElement[] = [
+      { id: "short", tag: "audio", src: "short.wav", start: 0, duration: 3, track: 1 },
+      { id: "voice", tag: "audio", src: "voice.wav", start: 0, duration: 20, track: 2, timelineRole: "voiceover" },
+      { id: "long", tag: "audio", src: "long.wav", start: 0, duration: 12, track: 3 },
+    ];
+    expect(getTimelineElementIndexes(generic).musicElement).toBe(generic[2]);
+    expect(getTimelineElementIndexes([...generic, ...elements]).musicElement).toBe(elements[1]);
+  });
 });

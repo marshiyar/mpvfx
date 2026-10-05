@@ -7,15 +7,19 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.http import MediaFileUpload
 import google.auth.exceptions
 
+CONFIG_DIR = os.environ.get("MPVFX_CROSSPOST_CONFIG_DIR", ".")
+TOKEN_FILE = os.path.join(CONFIG_DIR, "token.json")
+CLIENT_SECRETS_FILE = os.path.join(CONFIG_DIR, "client_secrets.json")
+
 # YouTube upload scope
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 
 def authenticate_youtube():
     """Authenticates the user and caches the token locally."""
     creds = None
-    
-    if os.path.exists("token.json"):
-        creds = Credentials.from_authorized_user_file("token.json", SCOPES)
+
+    if os.path.exists(TOKEN_FILE):
+        creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
@@ -23,23 +27,23 @@ def authenticate_youtube():
                 creds.refresh(Request())
             except google.auth.exceptions.RefreshError:
                 print("Token expired or revoked. Re-authenticating via browser...")
-                os.remove("token.json")
+                os.remove(TOKEN_FILE)
                 creds = None
 
         if not creds:
             flow = google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file(
-                "client_secrets.json", SCOPES
+                CLIENT_SECRETS_FILE, SCOPES
             )
             creds = flow.run_local_server(port=8080)
-            
-        with open("token.json", "w") as token:
+
+        with open(TOKEN_FILE, "w") as token:
             token.write(creds.to_json())
 
     return googleapiclient.discovery.build("youtube", "v3", credentials=creds)
 
 def get_user_input():
-    print("\n--- Video Metadata Configuration ---") # User input video info for youtube  
-    
+    print("\n--- Video Metadata Configuration ---") # User input video info for youtube
+
     # Video file path
     while True:
         video_path = input("Enter video file name or path [default: test.mp4]: ").strip()
@@ -60,7 +64,7 @@ def get_user_input():
     # Tags
     raw_tags = input("Enter tags separated by commas (e.g., test, python, dev): ").strip()
     tags = [t.strip() for t in raw_tags.split(",") if t.strip()] if raw_tags else ["test", "api"]
-    
+
     # Privacy status
     print("\nPrivacy Status: [1] unlisted (recommended for tests), [2] private, [3] public")
     choice = input("Select choice [1-3, default: 1]: ").strip()
@@ -69,7 +73,7 @@ def get_user_input():
 
     return video_path, title, desc, tags, privacy_status
 
-def upload_video(youtube, file_path, title, description, tags, privacy_status, progress_callback=None): 
+def upload_video(youtube, file_path, title, description, tags, privacy_status, progress_callback=None):
     body = {
         "snippet": {
             "title": title,
@@ -89,8 +93,8 @@ def upload_video(youtube, file_path, title, description, tags, privacy_status, p
         body=body,
         media_body=media
     )
-    
-    
+
+
 
     print(f"\nUploading '{file_path}' ({privacy_status})...")
     response = None
@@ -118,7 +122,7 @@ def upload_video(youtube, file_path, title, description, tags, privacy_status, p
 def set_video_thumbnail(youtube, video_id, image_path):
     """Sets a custom thumbnail for an existing uploaded video."""
     media = MediaFileUpload(image_path, mimetype="image/jpeg", resumable=False)
-    
+
     request = youtube.thumbnails().set(
         videoId=video_id,
         media_body=media
@@ -127,7 +131,7 @@ def set_video_thumbnail(youtube, video_id, image_path):
     return response
 
 if __name__ == "__main__":
-    if not os.path.exists("client_secrets.json"):
+    if not os.path.exists(CLIENT_SECRETS_FILE):
         print("[ERROR] 'client_secrets.json' was not found.")
     else:
         file_path, title, desc, tags, privacy_status = get_user_input()

@@ -71,7 +71,9 @@ afterEach(() => {
 });
 
 describe("useTimelineDeleteOps native-canonical integration", () => {
-  it("deletes a multi-file native selection as one undoable operation without legacy mutation requests", async () => {
+  it.each([false, true])("deletes and restores native selection with omitted UI source paths=%s", async (omitSources) => {
+    const selectedA = omitSources ? { ...clipA, sourceFile: undefined } : clipA;
+    const selectedB = omitSources ? { ...clipB, sourceFile: undefined } : clipB;
     const native = nativeDeleteProject();
     const nativeBefore = serializeNativeProjectDocument(native);
     const indexBefore = '<main data-composition-id="main" data-duration="4"><video class="clip" id="clip-a" data-hf-id="hf-a" data-start="0" data-duration="2"></video><div class="clip" id="keep" data-start="0" data-duration="1"></div></main>';
@@ -98,7 +100,7 @@ describe("useTimelineDeleteOps native-canonical integration", () => {
     usePlayerStore.getState().setDuration(4);
     const nativeDocumentRef = { current: native as NativeProjectDocument | null };
     let suppliedDocument = native;
-    let removeMany: ((selection: TimelineElement[]) => Promise<void>) | undefined;
+    let removeMany: ReturnType<typeof useTimelineDeleteOps>["handleTimelineElementsDelete"] | undefined;
 
     function Harness() {
       removeMany = useTimelineDeleteOps({
@@ -124,7 +126,7 @@ describe("useTimelineDeleteOps native-canonical integration", () => {
 
     const root = mountProbe(Harness);
     await act(async () => {
-      await removeMany!([clipA, clipB]);
+      await removeMany!([selectedA, selectedB]);
     });
 
     expect(fetchMock).not.toHaveBeenCalled();
@@ -171,8 +173,9 @@ describe("useTimelineDeleteOps native-canonical integration", () => {
     await act(async () => {
       root.render(<Harness />);
     });
+    showToast.mockClear();
     await act(async () => {
-      await removeMany!([clipA]);
+      await removeMany!([selectedA], { suppressSuccessToast: true });
     });
 
     expect(fetchMock).not.toHaveBeenCalled();
@@ -184,6 +187,7 @@ describe("useTimelineDeleteOps native-canonical integration", () => {
       .toEqual(["native:b"]);
     expect(recordEdit).toHaveBeenCalledTimes(2);
     expect(onNativeDocumentCommitted).toHaveBeenCalledTimes(2);
+    expect(showToast).not.toHaveBeenCalled();
 
     act(() => root.unmount());
   });

@@ -1,5 +1,8 @@
 import { applyNativeGestureDraft } from "./nativeGestureDraft";
+import { nativeCropPivotCorrection } from "./nativeCropPivot";
+import type { NativeCropPivotSegment } from "../../../shared/project/nativeProjectDocumentTypes";
 import { evaluateNativeParameterTrack } from "../../../shared/project/nativeKeyframeEvaluator";
+import { vkfEngine } from "../../../shared/engine/vkfEngine";
 import type {
   NativeParameterTrack,
   NativeParameterValue,
@@ -16,6 +19,7 @@ export interface NativeClipFrameBinding {
   /** Non-animated parameter base values. Animated tracks take precedence. */
   readonly staticParameters?: Readonly<Record<string, NativeParameterValue>>;
   readonly parameterTracks: readonly NativeParameterTrack[];
+  readonly cropPivotSegments?: readonly NativeCropPivotSegment[];
 }
 
 export interface NativeFrameApplicationResult {
@@ -36,6 +40,45 @@ interface NativeVisualState {
   width: number | null;
   height: number | null;
   ownedParameters: string[];
+  /** Transform components with a native value; the rest stay with the page. */
+  ownedComponents: Set<TransformComponent>;
+  /** Auto-rotate turn, added on top of whichever rotation is in effect. */
+  autoRotateDegrees: number;
+}
+
+type TransformComponent =
+  | "x" | "y" | "z" | "rotation" | "rotationX" | "rotationY"
+  | "scaleX" | "scaleY" | "scaleZ" | "perspective";
+
+// GSAP property read for each component the native renderer does not own.
+// GSAP 3 has no scaleZ transform component, so it is never read back.
+const GSAP_TRANSFORM_PROPERTIES: readonly (readonly [TransformComponent, string])[] = [
+  ["x", "x"], ["y", "y"], ["z", "z"],
+  ["rotation", "rotation"], ["rotationX", "rotationX"], ["rotationY", "rotationY"],
+  ["scaleX", "scaleX"], ["scaleY", "scaleY"],
+  ["perspective", "transformPerspective"],
+];
+
+/**
+ * Transform values the page's GSAP last applied to this element, read from
+ * GSAP's own cache (never re-parsed from the style the native renderer
+ * writes). Native writes the element's whole transform, so a component it has
+ * no value for keeps GSAP's instead of being reset. Null when GSAP never
+ * touched the element.
+ */
+function gsapTransform(element: HTMLElement): Partial<Record<TransformComponent, number>> | null {
+  if (!("_gsap" in element)) return null;
+  const view = element.ownerDocument.defaultView as
+    | { gsap?: { getProperty?: (target: Element, property: string) => unknown } }
+    | null;
+  const getProperty = view?.gsap?.getProperty;
+  if (typeof getProperty !== "function") return null;
+  const values: Partial<Record<TransformComponent, number>> = {};
+  for (const [component, property] of GSAP_TRANSFORM_PROPERTIES) {
+    const value = Number(getProperty(element, property));
+    if (Number.isFinite(value)) values[component] = value;
+  }
+  return values;
 }
 
 const PARAMETER_ORDER = [
@@ -98,6 +141,8 @@ function defaultVisualState(): NativeVisualState {
     width: null,
     height: null,
     ownedParameters: [],
+    ownedComponents: new Set(),
+    autoRotateDegrees: 0,
   };
 }
 
@@ -132,6 +177,15 @@ function evaluateVisualState(
   if (typeof positionZ === "number") state.depth = positionZ;
   const rotation = values.get("transform.rotation");
   if (typeof rotation === "number") state.rotation = rotation;
+  // Auto-rotate: the layer also turns to face its direction of motion along
+  // the position path (the engine reports it; y down, so clockwise positive).
+  const positionTrack = tracks.find(
+    (track) => track.parameterId === "transform.position" && track.autoRotate,
+  );
+  if (positionTrack) {
+    const angle = vkfEngine().tangentAngle(positionTrack, localFrame);
+    if (Number.isFinite(angle)) state.autoRotateDegrees = (angle * 180) / Math.PI;
+  }
   const rotationX = values.get("transform.rotationX");
   const rotationY = values.get("transform.rotationY");
   if (typeof rotationX === "number") state.rotationX = rotationX;
@@ -160,10 +214,30 @@ function evaluateVisualState(
   if (typeof width === "number") state.width = Math.max(0, width);
   if (typeof height === "number") state.height = Math.max(0, height);
   state.ownedParameters = PARAMETER_ORDER.filter((parameterId) => values.has(parameterId));
+  const owns = (...parameterIds: string[]) => parameterIds.some((id) => values.has(id));
+  const components: [TransformComponent, boolean][] = [
+    ["x", owns("transform.position", "transform.position.x")],
+    ["y", owns("transform.position", "transform.position.y")],
+    ["z", owns("transform.position.z")],
+    ["rotation", owns("transform.rotation")],
+    ["rotationX", owns("transform.rotationX")],
+    ["rotationY", owns("transform.rotationY")],
+    ["scaleX", owns("transform.scale", "transform.scaleX")],
+    ["scaleY", owns("transform.scale", "transform.scaleY")],
+    ["scaleZ", owns("transform.scaleZ")],
+    ["perspective", owns("transform.perspective")],
+  ];
+  state.ownedComponents = new Set(components.filter(([, owned]) => owned).map(([component]) => component));
   return state;
 }
 
-function findClipElement(document: Document, clipId: string): HTMLElement | null {
+/**
+ * The one element carrying this clip's identity. Two elements claiming the
+ * same clip are ambiguous: neither is styled (never guess), in preview and
+ * export alike.
+ */
+export function findClipElement(document: Document, clipId: string): HTMLElement | null {
+  let found: HTMLElement | null = null;
   for (const candidate of document.querySelectorAll(`[${NATIVE_CLIP_ID_ATTRIBUTE}]`)) {
     // `iframe.contentWindow` is a WindowProxy. During soft navigation its
     // exposed HTMLElement constructor can advance to the new realm before the
@@ -171,10 +245,11 @@ function findClipElement(document: Document, clipId: string): HTMLElement | null
     // `instanceof document.defaultView.HTMLElement`. The selector already
     // guarantees an Element; use the exact attribute identity instead.
     if (candidate.getAttribute(NATIVE_CLIP_ID_ATTRIBUTE) === clipId) {
-      return candidate as HTMLElement;
+      if (found) return null;
+      found = candidate as HTMLElement;
     }
   }
-  return null;
+  return found;
 }
 
 function applyVisualState(element: HTMLElement, state: NativeVisualState): void {
@@ -185,8 +260,20 @@ function applyVisualState(element: HTMLElement, state: NativeVisualState): void 
   );
   const ownsTransform = state.ownedParameters.some((id) => TRANSFORM_PARAMETERS.has(id));
   const ownedTransformBefore = [...previousOwned].some((id) => TRANSFORM_PARAMETERS.has(id));
-  const { position, depth, rotation, rotationX, rotationY, scale, scaleZ, perspective } = state;
   if (ownsTransform || ownedTransformBefore) {
+    const legacy = gsapTransform(element);
+    const pick = (component: TransformComponent, native: number, fallback: number): number =>
+      state.ownedComponents.has(component) ? native : legacy?.[component] ?? fallback;
+    const x = pick("x", state.position.x, 0);
+    const y = pick("y", state.position.y, 0);
+    const depth = pick("z", state.depth, 0);
+    const rotation = pick("rotation", state.rotation, 0) + state.autoRotateDegrees;
+    const rotationX = pick("rotationX", state.rotationX, 0);
+    const rotationY = pick("rotationY", state.rotationY, 0);
+    const scaleX = pick("scaleX", state.scale.x, 1);
+    const scaleY = pick("scaleY", state.scale.y, 1);
+    const scaleZ = pick("scaleZ", state.scaleZ, 1);
+    const perspective = Math.max(0, pick("perspective", state.perspective, 0));
     const owns3d = state.ownedParameters.some((id) =>
       id === "transform.position.z" ||
       id === "transform.rotationX" ||
@@ -199,17 +286,17 @@ function applyVisualState(element: HTMLElement, state: NativeVisualState): void 
       id === "transform.rotationY" ||
       id === "transform.scaleZ" ||
       id === "transform.perspective",
-    );
+    ) || depth !== 0 || rotationX !== 0 || rotationY !== 0 || scaleZ !== 1 || perspective > 0;
     element.style.transform = owns3d
       ? `${perspective > 0 ? `perspective(${formatCssNumber(perspective)}px) ` : ""}` +
-        `translate3d(${formatCssNumber(position.x)}px, ${formatCssNumber(position.y)}px, ${formatCssNumber(depth)}px) ` +
+        `translate3d(${formatCssNumber(x)}px, ${formatCssNumber(y)}px, ${formatCssNumber(depth)}px) ` +
         `rotateX(${formatCssNumber(rotationX)}deg) ` +
         `rotateY(${formatCssNumber(rotationY)}deg) ` +
         `rotate(${formatCssNumber(rotation)}deg) ` +
-        `scale3d(${formatCssNumber(scale.x)}, ${formatCssNumber(scale.y)}, ${formatCssNumber(scaleZ)})`
-      : `translate3d(${formatCssNumber(position.x)}px, ${formatCssNumber(position.y)}px, 0px) ` +
+        `scale3d(${formatCssNumber(scaleX)}, ${formatCssNumber(scaleY)}, ${formatCssNumber(scaleZ)})`
+      : `translate3d(${formatCssNumber(x)}px, ${formatCssNumber(y)}px, 0px) ` +
         `rotate(${formatCssNumber(rotation)}deg) ` +
-        `scale(${formatCssNumber(scale.x)}, ${formatCssNumber(scale.y)})`;
+        `scale(${formatCssNumber(scaleX)}, ${formatCssNumber(scaleY)})`;
   }
   const ownsOpacity = state.ownedParameters.some((id) => OPACITY_PARAMETERS.has(id));
   const ownedOpacityBefore = [...previousOwned].some((id) => OPACITY_PARAMETERS.has(id));
@@ -266,6 +353,21 @@ export function applyNativeFrameToDocument(
     element.style.visibility = visible ? "visible" : "hidden";
     if (!visible) continue;
     const state = evaluateVisualState(clip.staticParameters, clip.parameterTracks, localFrame);
+    const cropPivot = state.ownedComponents.has("x") && state.ownedComponents.has("y")
+      ? nativeCropPivotCorrection({
+          element, segments: clip.cropPivotSegments, tracks: clip.parameterTracks,
+          frame: localFrame, pose: state,
+          evaluateAt: (frame) => evaluateVisualState(clip.staticParameters, clip.parameterTracks, frame),
+          evaluateReferenceAt: (segment, frame) => evaluateVisualState(
+            segment.reference?.staticParameters,
+            segment.reference?.parameterTracks ?? clip.parameterTracks,
+            frame,
+          ),
+        }) : null;
+    if (cropPivot) state.position = {
+      x: state.position.x + cropPivot.x,
+      y: state.position.y + cropPivot.y,
+    };
     // A sidecar may include legacy-owned clips only to preserve timeline/media
     // structure. Do not claim their picture properties unless this revision has
     // native tracks, or an earlier revision already claimed them and now needs a reset.

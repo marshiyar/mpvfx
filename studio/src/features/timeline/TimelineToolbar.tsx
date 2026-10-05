@@ -1,26 +1,13 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect } from "react";
 import {
   Magnet,
   MagnifyingGlassMinus,
   MagnifyingGlassPlus,
   Waveform,
 } from "@phosphor-icons/react";
-import {
-  useEnableKeyframes,
-  nativeToolbarPosition,
-  isPlayheadWithinTween,
-  type EnableKeyframesSession,
-} from "../animation/Keyframe/useEnableKeyframes";
-import {
-  keyframeIsAtOutputTime,
-  resolveEditableTweenDuration,
-} from "../animation/GSAP/gsapShared";
-import { resolveTweenStart } from "../legacy/globalTimeCompiler";
+import { nativeToolbarPosition } from "../animation/Keyframe/useEnableKeyframes";
 import { useKeyframeKeyboard } from "../animation/Keyframe/useKeyframeKeyboard";
-import {
-  nudgeSelectedKeyframes,
-  type NudgeSelectedKeyframesSession,
-} from "../animation/Keyframe/nudgeSelectedKeyframes";
+import { nudgeSelectedKeyframes } from "../animation/Keyframe/nudgeSelectedKeyframes";
 import {
   getNextTimelineZoomPercent,
   getTimelineZoomPercent,
@@ -31,168 +18,19 @@ import { useTimelineZoom } from "../../player/components/useTimelineZoom";
 import { usePlayerStore, type TimelineElement } from "../../player/index";
 import { Tooltip } from "../../ui/index";
 import { Scissors } from "../../icons/SystemIcons";
-import type { GsapAnimation } from "@hyperframes/core/gsap-parser";
-import type { DomEditSelection } from "../canvas/domEditingTypes";
-import type { NativeProjectDocument } from "../../../shared/project/nativeProjectDocument";
-import type { NativeKeyframeProjectCommit } from "../../player/components/deleteSelectedKeyframes";
 import { timelineKeyframeTargetFromSelectionKey } from "../../player/components/timelineKeyframeIdentity";
 import { canSplitElement } from "./timelineElementSplit";
+import { useKeyframeToggle, type DomEditSessionSlice } from "./timelineToolbarKeyframeToggle";
 import {
   canAddBeatAt,
   addBeatAtCompositionTime,
 } from "../media/beatEditActions";
-
-interface DomEditSessionSlice extends EnableKeyframesSession {
-  domEditSelection: DomEditSelection | null;
-  selectedGsapAnimations: GsapAnimation[];
-  handleGsapMoveKeyframes?: NudgeSelectedKeyframesSession["handleGsapMoveKeyframes"];
-  nativeDocument?: NativeProjectDocument | null;
-  commitNativeProject?: (
-    commit: NativeKeyframeProjectCommit,
-  ) => Promise<boolean>;
-}
 
 interface TimelineToolbarProps {
   domEditSession?: DomEditSessionSlice;
   onSplitElement?: (element: TimelineElement, splitTime: number) => void;
   onRemoveSilence?: (element: TimelineElement) => void | Promise<void>;
   isRemovingSilence?: boolean;
-}
-
-interface KeyframeToggleState {
-  state: "active" | "inactive" | "none";
-  isMotionPath: boolean;
-  pathEndpoint: boolean;
-  willExtend: boolean;
-}
-
-const NO_KEYFRAME_TOGGLE: KeyframeToggleState = {
-  state: "none",
-  isMotionPath: false,
-  pathEndpoint: false,
-  willExtend: false,
-};
-
-function isMotionPathEndpoint(
-  animation: GsapAnimation | undefined,
-  currentTime: number,
-  selection: DomEditSelection,
-): boolean {
-  if (!animation?.keyframes) return false;
-  const keyframes = animation.keyframes.keyframes;
-  const duration = resolveEditableTweenDuration(animation, selection);
-  const start = resolveTweenStart(animation) ?? 0;
-  return (
-    (keyframes[0] !== undefined &&
-      keyframeIsAtOutputTime(keyframes[0].percentage, currentTime, {
-        start,
-        duration,
-      })) ||
-    (keyframes.at(-1) !== undefined &&
-      keyframeIsAtOutputTime(keyframes.at(-1)!.percentage, currentTime, {
-        start,
-        duration,
-      }))
-  );
-}
-
-function resolveKeyframeToggleState(
-  session: DomEditSessionSlice | undefined,
-  currentTime: number,
-): KeyframeToggleState {
-  if (!session?.domEditSelection) return NO_KEYFRAME_TOGGLE;
-  const native = nativeToolbarPosition(session, currentTime);
-  if (native)
-    return {
-      state: native.active ? "active" : "inactive",
-      isMotionPath: false,
-      pathEndpoint: false,
-      willExtend: false,
-    };
-  const arcAnimation = session.selectedGsapAnimations.find(
-    (animation) => animation.arcPath && animation.keyframes,
-  );
-  const animation =
-    arcAnimation ??
-    session.selectedGsapAnimations.find(
-      (candidate) => candidate.keyframes && !candidate.arcPath,
-    );
-  if (!animation?.keyframes) return NO_KEYFRAME_TOGGLE;
-
-  const isMotionPath = Boolean(arcAnimation);
-  if (
-    !isPlayheadWithinTween(animation, currentTime, session.domEditSelection)
-  ) {
-    return {
-      state: "inactive",
-      isMotionPath,
-      pathEndpoint: false,
-      willExtend: true,
-    };
-  }
-
-  const duration = resolveEditableTweenDuration(
-    animation,
-    session.domEditSelection,
-  );
-  const start = resolveTweenStart(animation) ?? 0;
-  const pathEndpoint = isMotionPathEndpoint(
-    arcAnimation,
-    currentTime,
-    session.domEditSelection,
-  );
-  const active = animation.keyframes.keyframes.some((keyframe) =>
-    keyframeIsAtOutputTime(keyframe.percentage, currentTime, {
-      start,
-      duration,
-    }),
-  );
-  return {
-    state: pathEndpoint ? "none" : active ? "active" : "inactive",
-    isMotionPath,
-    pathEndpoint,
-    willExtend: false,
-  };
-}
-
-/**
- * Can this element be keyframed at all?
- *
- * An audio clip cannot. It has no box on the canvas, so there is nothing to move,
- * scale or fade — and "add a keyframe" on one seeds a tween from the position
- * properties, which produced a position lane on a track that has no position. Audio
- * is automated instead: volume and effect parameters, on their own lanes.
- */
-function isKeyframeable(element: TimelineElement | undefined): boolean {
-  return element?.tag !== "audio";
-}
-
-function useKeyframeToggle(session?: DomEditSessionSlice) {
-  const currentTime = usePlayerStore((s) => s.currentTime);
-  const selectedElementId = usePlayerStore((s) => s.selectedElementId);
-  const elements = usePlayerStore((s) => s.elements);
-  const sessionRef = useRef(session);
-  sessionRef.current = session;
-
-  const onToggle = useEnableKeyframes(
-    sessionRef as React.RefObject<EnableKeyframesSession | undefined>,
-  );
-
-  const selected = elements.find(
-    (element) => (element.key ?? element.id) === selectedElementId,
-  );
-  if (!isKeyframeable(selected))
-    return { ...NO_KEYFRAME_TOGGLE, onToggle: undefined };
-
-  const toggleState = resolveKeyframeToggleState(session, currentTime);
-
-  return {
-    ...toggleState,
-    onToggle:
-      session?.domEditSelection && !toggleState.pathEndpoint
-        ? onToggle
-        : undefined,
-  };
 }
 
 // fallow-ignore-next-line complexity
@@ -534,7 +372,7 @@ export function TimelineToolbar({
                 : null;
               const canRemove =
                 !isRemovingSilence &&
-                selected?.tag.toLowerCase() === "video" &&
+                (selected?.tag.toLowerCase() === "video" || selected?.tag.toLowerCase() === "audio") &&
                 Boolean(selected.src) &&
                 canSplitElement(selected);
               return (
@@ -543,8 +381,8 @@ export function TimelineToolbar({
                     isRemovingSilence
                       ? "Removing silence…"
                       : canRemove
-                        ? "Remove silence from selected video"
-                        : "Select an editable video clip"
+                        ? "Remove silence from selected audio or video"
+                        : "Select an editable audio or video clip"
                   }
                 >
                   <button

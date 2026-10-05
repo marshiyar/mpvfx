@@ -1,3 +1,4 @@
+import { routedPosition } from "./nativeProjectKeyframeCommands";
 import {
   validateRationalFrameRate,
   type RationalFrameRate,
@@ -206,7 +207,15 @@ export const resolveNativeClipSelection = (
       );
     }
     const explicitMatches = findClip(document, explicitClipId);
-    if (explicitMatches.length === 1) return { ok: true, located: explicitMatches[0] };
+    if (explicitMatches.length === 1) {
+      const located = explicitMatches[0]!;
+      const binding = located.clip.binding;
+      if (binding && (
+        (selectedElement.sourceFile && selectedElement.sourceFile !== binding.sourceFile) ||
+        (selectedElement.hfId && binding.hfId && selectedElement.hfId !== binding.hfId)
+      )) return resolutionFailure("clip-not-found", "The selected element's native identity belongs to a different source element");
+      return { ok: true, located };
+    }
     if (explicitMatches.length > 1) {
       return resolutionFailure(
         "ambiguous-clip",
@@ -450,6 +459,26 @@ export const planNativePropertyEdit = (
       continue;
     }
 
+    const routed = parameterTrack ? null : routedPosition(located.clip, definition.parameterId);
+    if (routed) {
+      // Position is one animated 2D track: author the value at this frame
+      // (commands route x/y onto it), never a static that would override it.
+      const component = routed.component;
+      const atFrame = routed.track.keyframes.find((keyframe) => keyframe.frame === clipLocalFrame);
+      commands.push(
+        atFrame
+          ? { type: "update-value", address, frame: clipLocalFrame, value }
+          : {
+              type: "upsert",
+              address,
+              valueType: "number",
+              frame: clipLocalFrame,
+              value,
+              baselineValue: routed.track.keyframes[0]!.value[component],
+            },
+      );
+      continue;
+    }
     if (!parameterTrack) {
       commands.push({ type: "set-static", address, value });
       continue;

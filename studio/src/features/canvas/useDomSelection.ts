@@ -20,6 +20,7 @@ import {
 import { reapplyPositionEditsAfterSeek } from "./manualEdits";
 import { useStudioTestHooks } from "../../app/useStudioTestHooks";
 import { logSelect } from "../../lib/selectDebug";
+import { useRemotePreviewSelection } from "./useRemotePreviewSelection";
 import { announceTimelineSelection as announceSelectionToTimeline } from "./domSelectionTimelineMirror";
 import type {
   ApplyDomSelectionOptions,
@@ -65,6 +66,10 @@ export function useDomSelection({
   const domEditGroupSelectionsRef = useRef<DomEditSelection[]>(domEditGroupSelections);
   const domEditHoverSelectionRef = useRef<DomEditSelection | null>(domEditHoverSelection);
   const activeGroupElementRef = useRef<HTMLElement | null>(activeGroupElement);
+  const { remoteSelection, setRemoteSelection } = useRemotePreviewSelection({
+    previewIframeRef, setDomEditSelection, setDomEditGroupSelections,
+    domEditSelectionRef, domEditGroupSelectionsRef, setRightCollapsed,
+  });
   const compositionIdentityRef = useRef({ activeCompPath, projectId });
   // Monotonic token so a rapid A->B timeline-clip select can't let A's slower async
   // resolution land after B and restore the wrong selection.
@@ -113,6 +118,7 @@ export function useDomSelection({
   const applyDomSelection = useCallback(
     // fallow-ignore-next-line complexity
     (selection: DomEditSelection | null, options?: ApplyDomSelectionOptions) => {
+      setRemoteSelection(null);
       if (!selection) {
         logSelect("clear", { hadGroup: domEditGroupSelectionsRef.current.length });
         domEditSelectionRef.current = null;
@@ -181,11 +187,11 @@ export function useDomSelection({
         if (options?.revealPanel !== false) {
           setRightCollapsed(false);
         }
-        announceTimelineSelection(nextGroup, nextSelection);
+        if (options?.announce !== false) announceTimelineSelection(nextGroup, nextSelection);
         return;
       }
 
-      announceTimelineSelection([], null);
+      if (options?.announce !== false) announceTimelineSelection([], null);
     },
     [announceTimelineSelection, setRightCollapsed],
   );
@@ -328,7 +334,7 @@ export function useDomSelection({
     async (element: TimelineElement | null) => {
       const seq = ++timelineSelectSeqRef.current;
       if (!element) {
-        applyDomSelection(null, { revealPanel: false });
+        applyDomSelection(null, { revealPanel: false, announce: false });
         return;
       }
 
@@ -336,7 +342,7 @@ export function useDomSelection({
       // A newer selection superseded this one while we were resolving — drop the stale result.
       if (seq !== timelineSelectSeqRef.current) return;
       if (selection) {
-        applyDomSelection(selection);
+        applyDomSelection(selection, { announce: false });
         return;
       }
       // No canvas node (audio, a comp that is not the active one). Leaving the
@@ -409,7 +415,7 @@ export function useDomSelection({
           await refreshDomEditGroupSelectionsFromPreviewRef.current(group);
           return;
         }
-        applyDomSelection(null, { revealPanel: false });
+        applyDomSelection(null, { revealPanel: false, announce: false });
         return;
       }
 
@@ -419,6 +425,7 @@ export function useDomSelection({
         applyDomSelection(nextSelection, {
           revealPanel: false,
           preserveGroup: true,
+          announce: false,
         });
       }
     },
@@ -459,9 +466,10 @@ export function useDomSelection({
       setDomEditSelection(nextSelection);
       setDomEditGroupSelections(nextGroup);
 
-      announceTimelineSelection(nextGroup, nextSelection);
+      // Refreshing a replaced iframe node must not rewrite the user's timeline
+      // selection; it only repairs the canvas representation.
     },
-    [activeCompPath, announceTimelineSelection, beginSelectionRefresh, buildDomSelectionFromTarget],
+    [activeCompPath, beginSelectionRefresh, buildDomSelectionFromTarget],
   );
 
   // ── Effects ──
@@ -517,10 +525,10 @@ export function useDomSelection({
 
   const applyMarqueeSelection = useCallback(
     // fallow-ignore-next-line complexity
-    (selections: DomEditSelection[], additive: boolean) => {
+    (selections: DomEditSelection[], additive: boolean, options?: { announce?: boolean }) => {
       logSelect("marquee", { hits: selections.length, additive });
       if (selections.length === 0) {
-        if (!additive) applyDomSelection(null, { revealPanel: false });
+        if (!additive) applyDomSelection(null, { revealPanel: false, announce: options?.announce });
         return;
       }
       const current = domEditSelectionRef.current;
@@ -543,7 +551,7 @@ export function useDomSelection({
       domEditGroupSelectionsRef.current = nextGroup;
       setDomEditSelection(nextSelection);
       setDomEditGroupSelections(nextGroup);
-      announceTimelineSelection(nextGroup, nextSelection);
+      if (options?.announce !== false) announceTimelineSelection(nextGroup, nextSelection);
     },
     [applyDomSelection, announceTimelineSelection],
   );
@@ -551,6 +559,7 @@ export function useDomSelection({
   return {
     // State
     domEditSelection,
+    remoteSelection,
     domEditGroupSelections,
     domEditHoverSelection,
     activeGroupElement,

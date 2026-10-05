@@ -1,3 +1,4 @@
+import { safeLocalStorage } from "../lib/safeStorage";
 import { desktopRequest } from "../lib/desktopClient";
 import { useEffect, useState } from "react";
 import { buildProjectHash, parseProjectIdFromHash } from "./projectRouting";
@@ -16,7 +17,7 @@ export function useDesktopProject(): DesktopProjectState {
   const [waitingForRuntime, setWaitingForRuntime] = useState(false);
 
   useMountEffect(() => {
-    const hashProjectId = parseProjectIdFromHash(window.location.hash);
+    const hashProjectId = parseProjectIdFromHash(window.location.hash) ?? safeLocalStorage()?.getItem("mpvfx-active-project");
     let cancelled = false;
     // Explicitly `number` (the DOM return of window.setTimeout) rather than
     // ReturnType<typeof window.setTimeout> — with @types/node present, that infers
@@ -33,8 +34,9 @@ export function useDesktopProject(): DesktopProjectState {
         .then((r) => r.json())
         .then((data) => {
           if (cancelled) return;
-          if (hashProjectId) {
+          if (hashProjectId && (data.projects ?? []).some((p: {id: string}) => p.id === hashProjectId)) {
             setProjectId(hashProjectId);
+            window.location.hash = buildProjectHash(hashProjectId);
             setWaitingForRuntime(false);
           } else {
             const first = (data.projects ?? [])[0];

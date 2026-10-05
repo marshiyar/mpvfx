@@ -438,8 +438,8 @@ describe("FlatMediaSection — volume/rate/media-start", () => {
   });
 });
 
-describe("FlatMediaSection — loop/muted/has-audio", () => {
-  it("toggles loop via onSetHtmlAttribute and shows has-audio-track for video", () => {
+describe("FlatMediaSection — video sound", () => {
+  it("toggles loop and shows one video sound control", () => {
     const onSetHtmlAttribute = vi.fn();
     const onSetAttribute = vi.fn();
     const element = makeVideoElement({ dataAttributes: { "has-audio": "true" } });
@@ -464,71 +464,15 @@ describe("FlatMediaSection — loop/muted/has-audio", () => {
     act(() => loopToggle?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     expect(onSetHtmlAttribute).toHaveBeenCalledWith("loop", "true");
 
-    const hasAudioToggle = host.querySelector<HTMLButtonElement>(
-      '[data-flat-toggle="true"][aria-label="Has audio track"]',
+    const soundToggle = host.querySelector<HTMLButtonElement>(
+      '[data-flat-toggle="true"][aria-label="Play video sound"]',
     );
-    expect(hasAudioToggle?.getAttribute("aria-checked")).toBe("true");
+    expect(soundToggle?.getAttribute("aria-checked")).toBe("true");
+    expect(host.querySelector('[aria-label="Muted"]')).toBeNull();
     act(() => root.unmount());
   });
 
-  it("toggles muted via onSetHtmlAttribute", () => {
-    const onSetHtmlAttribute = vi.fn();
-    const onSetAttribute = vi.fn();
-    const element = makeVideoElement();
-    const host = document.createElement("div");
-    document.body.append(host);
-    const root = createRoot(host);
-    act(() => {
-      root.render(
-        <FlatMediaSection
-          projectDir={null}
-          element={element}
-          styles={{}}
-          onSetStyle={vi.fn()}
-          onSetAttribute={onSetAttribute}
-          onSetHtmlAttribute={onSetHtmlAttribute}
-        />,
-      );
-    });
-    const mutedToggle = host.querySelector<HTMLButtonElement>(
-      '[data-flat-toggle="true"][aria-label="Muted"]',
-    );
-    expect(mutedToggle?.getAttribute("aria-checked")).toBe("false");
-    act(() => mutedToggle?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    expect(onSetHtmlAttribute).toHaveBeenCalledWith("muted", "true");
-    act(() => root.unmount());
-  });
-
-  it("enables has-audio-track and clears muted on click", () => {
-    const onSetHtmlAttribute = vi.fn();
-    const onSetAttribute = vi.fn();
-    const element = makeVideoElement();
-    const host = document.createElement("div");
-    document.body.append(host);
-    const root = createRoot(host);
-    act(() => {
-      root.render(
-        <FlatMediaSection
-          projectDir={null}
-          element={element}
-          styles={{}}
-          onSetStyle={vi.fn()}
-          onSetAttribute={onSetAttribute}
-          onSetHtmlAttribute={onSetHtmlAttribute}
-        />,
-      );
-    });
-    const hasAudioToggle = host.querySelector<HTMLButtonElement>(
-      '[data-flat-toggle="true"][aria-label="Has audio track"]',
-    );
-    expect(hasAudioToggle?.getAttribute("aria-checked")).toBe("false");
-    act(() => hasAudioToggle?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    expect(onSetAttribute).toHaveBeenCalledWith("has-audio", "true");
-    expect(onSetHtmlAttribute).toHaveBeenCalledWith("muted", null);
-    act(() => root.unmount());
-  });
-
-  it("disables has-audio-track and sets muted on click", () => {
+  it("mutes a video without discarding its source audio flag", () => {
     const onSetHtmlAttribute = vi.fn();
     const onSetAttribute = vi.fn();
     const element = makeVideoElement({ dataAttributes: { "has-audio": "true" } });
@@ -547,12 +491,70 @@ describe("FlatMediaSection — loop/muted/has-audio", () => {
         />,
       );
     });
-    const hasAudioToggle = host.querySelector<HTMLButtonElement>(
-      '[data-flat-toggle="true"][aria-label="Has audio track"]',
+    const soundToggle = host.querySelector<HTMLButtonElement>(
+      '[data-flat-toggle="true"][aria-label="Play video sound"]',
     );
-    expect(hasAudioToggle?.getAttribute("aria-checked")).toBe("true");
-    act(() => hasAudioToggle?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    expect(onSetAttribute).toHaveBeenCalledWith("has-audio", "");
+    expect(soundToggle?.getAttribute("aria-checked")).toBe("true");
+    act(() => soundToggle?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(onSetHtmlAttribute).toHaveBeenCalledWith("muted", "true");
+    expect(onSetAttribute).not.toHaveBeenCalled();
+    act(() => root.unmount());
+  });
+
+  it("enables video sound when source audio was not detected", () => {
+    const onSetHtmlAttribute = vi.fn();
+    const onSetAttribute = vi.fn();
+    const element = makeVideoElement();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    act(() => {
+      root.render(
+        <FlatMediaSection
+          projectDir={null}
+          element={element}
+          styles={{}}
+          onSetStyle={vi.fn()}
+          onSetAttribute={onSetAttribute}
+          onSetHtmlAttribute={onSetHtmlAttribute}
+        />,
+      );
+    });
+    const soundToggle = host.querySelector<HTMLButtonElement>(
+      '[data-flat-toggle="true"][aria-label="Play video sound"]',
+    );
+    expect(soundToggle?.getAttribute("aria-checked")).toBe("false");
+    act(() => soundToggle?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(onSetAttribute).toHaveBeenCalledWith("has-audio", "true");
+    expect(onSetHtmlAttribute).toHaveBeenCalledWith("muted", null);
+    act(() => root.unmount());
+  });
+
+  it("turns off video sound without losing the authored source audio fact", () => {
+    const onSetHtmlAttribute = vi.fn();
+    const onSetAttribute = vi.fn();
+    const element = makeVideoElement({ dataAttributes: { "has-audio": "true" } });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    act(() => {
+      root.render(
+        <FlatMediaSection
+          projectDir={null}
+          element={element}
+          styles={{}}
+          onSetStyle={vi.fn()}
+          onSetAttribute={onSetAttribute}
+          onSetHtmlAttribute={onSetHtmlAttribute}
+        />,
+      );
+    });
+    const soundToggle = host.querySelector<HTMLButtonElement>(
+      '[data-flat-toggle="true"][aria-label="Play video sound"]',
+    );
+    expect(soundToggle?.getAttribute("aria-checked")).toBe("true");
+    act(() => soundToggle?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(onSetAttribute).not.toHaveBeenCalled();
     expect(onSetHtmlAttribute).toHaveBeenCalledWith("muted", "true");
     act(() => root.unmount());
   });
@@ -686,12 +688,11 @@ describe("FlatMediaSection — explicit resets", () => {
     act(() => root.unmount());
   });
 
-  it("resets enabled media toggles while preserving has-audio disable semantics", () => {
+  it("resets loop and video sound without changing source audio metadata", () => {
     const onSetAttribute = vi.fn();
     const onSetHtmlAttribute = vi.fn();
     const element = makeVideoElement({ dataAttributes: { "has-audio": "true" } });
     element.element.setAttribute("loop", "");
-    element.element.setAttribute("muted", "");
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
@@ -716,13 +717,11 @@ describe("FlatMediaSection — explicit resets", () => {
       act(() => button?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     };
     reset("Loop");
-    reset("Muted");
-    reset("Has audio track");
+    reset("Play video sound");
 
     expect(onSetHtmlAttribute).toHaveBeenNthCalledWith(1, "loop", null);
-    expect(onSetHtmlAttribute).toHaveBeenNthCalledWith(2, "muted", null);
-    expect(onSetAttribute).toHaveBeenCalledWith("has-audio", "");
-    expect(onSetHtmlAttribute).toHaveBeenNthCalledWith(3, "muted", "true");
+    expect(onSetAttribute).not.toHaveBeenCalled();
+    expect(onSetHtmlAttribute).toHaveBeenNthCalledWith(2, "muted", "true");
     act(() => root.unmount());
   });
 

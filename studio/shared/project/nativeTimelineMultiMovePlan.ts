@@ -34,8 +34,8 @@ export interface NativeTimelineMultiMoveDestination extends NativeProjectTrackLa
 
 export interface NativeTimelineMultiMovePlannedMove {
   readonly address: NativeProjectClipAddress;
-  readonly sourceFile: string;
-  readonly binding: Readonly<NativeClipDomBinding>;
+  readonly sourceFile: string | null;
+  readonly binding: Readonly<NativeClipDomBinding> | null;
   readonly startFrame: number;
   readonly compatibilityStartSeconds: number;
   readonly destination: NativeTimelineMultiMoveDestination;
@@ -145,14 +145,8 @@ export function planNativeTimelineMultiMove(
         changeIndex,
       );
     }
-    if (!clip.binding) {
-      return fail(
-        "unbound-clip",
-        `Native clip ${clip.id} has no compatibility source binding`,
-        changeIndex,
-      );
-    }
     if (
+      clip.binding &&
       typeof change.element.sourceFile === "string" &&
       change.element.sourceFile.length > 0 &&
       change.element.sourceFile !== clip.binding.sourceFile
@@ -242,8 +236,8 @@ export function planNativeTimelineMultiMove(
     };
     planned.push({
       address,
-      sourceFile: clip.binding.sourceFile,
-      binding: { ...clip.binding },
+      sourceFile: clip.binding?.sourceFile ?? null,
+      binding: clip.binding ? { ...clip.binding } : null,
       startFrame,
       compatibilityStartSeconds:
         (startFrame * input.document.frameRate.denominator) /
@@ -268,6 +262,6 @@ export function planNativeTimelineMultiMove(
     ok: true,
     document: command.document,
     moves: planned,
-    sourceFiles: [...new Set(planned.map((move) => move.sourceFile))].sort(),
+    sourceFiles: [...new Set(planned.flatMap((move) => move.sourceFile === null ? [] : [move.sourceFile]))].sort(),
   };
 }

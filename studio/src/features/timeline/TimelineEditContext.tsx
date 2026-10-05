@@ -34,6 +34,7 @@ export function TimelineEditProvider({
     // so consumers don't re-render when unrelated parent state changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
+      value.onNativeAudioAction,
       value.onMoveElement,
       value.onMoveElements,
       value.onResizeElement,

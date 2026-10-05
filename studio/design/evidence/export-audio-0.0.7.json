@@ -1,0 +1,63 @@
+{
+  "root": "<isolated-test-root>",
+  "response": {
+    "jobId": "AudioRegression_2026-09-27_17-44-03",
+    "status": "rendering"
+  },
+  "final": {
+    "progress": 100,
+    "status": "complete",
+    "stage": "Render complete"
+  },
+  "streamFacts": [
+    {
+      "name": "source-with-audio.mp4",
+      "status": 200,
+      "body": "{\"duration\":10.005,\"hasVideo\":true,\"hasAudio\":true}"
+    },
+    {
+      "name": "source-without-audio-1.mp4",
+      "status": 200,
+      "body": "{\"duration\":5.016667,\"hasVideo\":true,\"hasAudio\":false}"
+    },
+    {
+      "name": "source-without-audio-2.mp4",
+      "status": 200,
+      "body": "{\"duration\":5.208333,\"hasVideo\":true,\"hasAudio\":false}"
+    }
+  ],
+  "sourceUnchanged": true,
+  "output": "<isolated-test-root>/data/renders/AudioRegression_2026-09-27_17-44-03.mp4",
+  "probe": {
+    "programs": [],
+    "stream_groups": [],
+    "streams": [
+      {
+        "codec_type": "video",
+        "width": 1920,
+        "height": 1080,
+        "avg_frame_rate": "30/1",
+        "nb_frames": "594",
+        "side_data_list": [
+          {}
+        ]
+      },
+      {
+        "codec_type": "audio",
+        "avg_frame_rate": "0/0",
+        "nb_frames": "930"
+      }
+    ],
+    "format": {
+      "duration": "19.800000"
+    }
+  },
+  "audioRmsDbfs": {
+    "1": -15.608140954922145,
+    "6": -16.17996213016161,
+    "11": -120,
+    "16": -120
+  },
+  "packagedApp": "0.0.7",
+  "verifiedOutput": "<local-verification-output>/project-export.mp4"
+}

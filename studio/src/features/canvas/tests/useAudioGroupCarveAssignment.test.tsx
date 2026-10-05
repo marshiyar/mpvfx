@@ -136,4 +136,23 @@ describe("useAudioGroupCarveAssignment", () => {
     expect(showToast).toHaveBeenCalledWith(expect.stringContaining("voice-gone"));
     act(() => root.unmount());
   });
+
+  it("refuses a partial video track before writing any group", async () => {
+    const video = (domId: string): TimelineElement => ({
+      ...audio({ domId }), tag: "video", track: 0,
+    });
+    usePlayerStore.getState().setElements([video("voice-1"), video("voice-2"), video("voice-3")]);
+    const writeProjectFile = vi.fn(async () => {});
+    const { assign, showToast, root } = renderAssign(writeProjectFile);
+
+    await act(async () => {
+      await expect(assign(["voice-1", "voice-2"], "dialogue")).rejects.toThrow(
+        "Select every clip on a video track",
+      );
+    });
+
+    expect(writeProjectFile).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalledWith(expect.stringContaining("every clip"));
+    act(() => root.unmount());
+  });
 });

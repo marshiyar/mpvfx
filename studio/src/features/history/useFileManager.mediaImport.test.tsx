@@ -46,6 +46,23 @@ describe("useFileManager media imports", () => {
     vi.unstubAllGlobals();
   });
 
+  it("uses the Electron file import bridge without sending a multipart request", async () => {
+    const importFiles = vi.fn(async () => ({ files: ["large.mov"], invalid: [] }));
+    const previous = window.mpvfx;
+    Object.defineProperty(window, "mpvfx", { configurable: true, value: { ...previous, importFiles } });
+    try {
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      const { manager, root } = await mount("project");
+      const file = mediaFile("mov");
+      expect(await manager.uploadProjectFiles([file])).toEqual(["large.mov"]);
+      expect(importFiles).toHaveBeenCalledWith("project", [file], undefined);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(refreshFileTree).toHaveBeenCalledOnce();
+      await act(async () => root.unmount());
+    } finally { Object.defineProperty(window, "mpvfx", { configurable: true, value: previous }); }
+  });
+
   it("sends every supported media, font, and LUT extension through the upload workflow", async () => {
     const allExtensions = Object.values(SUPPORTED_MEDIA_IMPORT_EXTENSIONS).flat();
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
@@ -130,7 +147,7 @@ describe("useFileManager media imports", () => {
     await expect(manager.uploadProjectFiles([mediaFile("mov")])).resolves.toEqual(["good.mov"]);
 
     expect(showToast).toHaveBeenCalledWith("Skipped (too large): huge.mxf");
-    expect(showToast).toHaveBeenCalledWith("Unsupported media skipped: fake.mov");
+    expect(showToast).toHaveBeenCalledWith("Media not imported: fake.mov (no supported video stream found)");
     await act(async () => root.unmount());
   });
 

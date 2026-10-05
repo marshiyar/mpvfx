@@ -14,6 +14,8 @@ import type { TimelineElement } from "../store/playerStore";
 import type { PlaybackAdapter, IframeWindow } from "../lib/playbackTypes";
 import { readTimelineDurationFromDocument } from "../lib/timelineDOM";
 import { buildMissingCompositionElements } from "../lib/timelineIframeHelpers";
+import { previewAgentForIframe } from "../../features/preview/previewAgentClient";
+import { hydrateIsolatedCompositionChildren, hydrateIsolatedTimelineElements, isolatedRootDuration } from "../lib/isolatedTimelineHydration";
 import {
   acceptedRuntimeMessageFps,
   acceptedRuntimeMessageFrameRate,
@@ -117,6 +119,50 @@ export function useTimelineSyncCallbacks({
   const readinessCleanupRef = useRef<(() => void) | null>(null);
   useEffect(() => () => readinessCleanupRef.current?.(), []);
 
+  const hydrateIsolatedTimeline = useCallback(() => {
+    const iframe = iframeRef.current;
+    if (!iframe || safeContentDocument(iframe)) return;
+    const client = previewAgentForIframe(iframe);
+    if (!client?.isReady) return;
+    const clips = usePlayerStore.getState().clipManifest;
+    if (!clips?.length) return;
+    void (async () => {
+      const states = [];
+      for (let offset = 0; offset < 3000; offset += 300) {
+        const page = await client.request({ kind: "snapshot", offset, limit: 300 });
+        if (!Array.isArray(page)) return;
+        states.push(...page);
+        if (page.length < 300) break;
+      }
+      if (iframeRef.current !== iframe || !client.isReady) return;
+      const clipCompositionIds = new Set(clips.map(clip => clip.compositionId).filter(Boolean));
+      const visibleClips = clips.filter(clip =>
+        !clip.parentCompositionId || !clipCompositionIds.has(clip.parentCompositionId));
+      const base = buildTimelineElementsFromClips(visibleClips, null);
+      const nested = hydrateIsolatedCompositionChildren(clips, states);
+      usePlayerStore.getState().setClipParentMap(nested.parentMap);
+      usePlayerStore.getState().setDomClipChildren(nested.domChildren);
+      usePlayerStore.getState().setSubCompositionHostState(nested.hostState);
+      syncTimelineElements(hydrateIsolatedTimelineElements(base, states),
+        Math.max(usePlayerStore.getState().duration, isolatedRootDuration(states)));
+    })().catch(() => { /* A navigation revokes the snapshot; the next ready event retries. */ });
+  }, [iframeRef, syncTimelineElements]);
+
+  useEffect(() => {
+    let unsubscribe: (() => void) | null = null;
+    const attach = (iframe: HTMLIFrameElement | null) => {
+      unsubscribe?.();
+      const client = previewAgentForIframe(iframe);
+      unsubscribe = client?.onReady(hydrateIsolatedTimeline) ?? null;
+    };
+    const onAttached = (event: Event) => {
+      if ((event as CustomEvent).detail === iframeRef.current) attach(iframeRef.current);
+    };
+    window.addEventListener("mpvfx-preview-agent-attached", onAttached);
+    attach(iframeRef.current);
+    return () => { unsubscribe?.(); window.removeEventListener("mpvfx-preview-agent-attached", onAttached); };
+  }, [hydrateIsolatedTimeline, iframeRef]);
+
   // Convert a runtime timeline message (from iframe postMessage) into TimelineElements
   const processTimelineMessage = useCallback(
     (data: RuntimeTimelineMessage) => {
@@ -126,6 +172,7 @@ export function useTimelineSyncCallbacks({
 
       usePlayerStore.getState().setClipManifest(data.clips);
       usePlayerStore.getState().setTimelineFrameRate(acceptedRuntimeMessageFrameRate(data));
+      hydrateIsolatedTimeline();
 
       // Show root-level clips: no parentCompositionId, OR parent is a "phantom wrapper"
       const clipCompositionIds = new Set(data.clips.map((c) => c.compositionId).filter(Boolean));
@@ -166,7 +213,7 @@ export function useTimelineSyncCallbacks({
         syncTimelineElements(timelineEls, newDuration > 0 ? newDuration : undefined);
       }
     },
-    [iframeRef, syncTimelineElements],
+    [hydrateIsolatedTimeline, iframeRef, syncTimelineElements],
   );
 
   const enrichMissingCompositions = useCallback(() => {

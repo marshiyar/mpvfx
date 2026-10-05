@@ -77,6 +77,7 @@ export const TimelineCanvas = memo(function TimelineCanvas(props: TimelineCanvas
           draggedKey: draggedElementIdentity,
           draggedOriginStart: draggedElement.start,
           draggedPreviewStart: draggedClip.previewStart,
+          groupRowDelta: draggedClip.groupRowDelta,
           selectedKeys: selectedElementIds,
         }
       : null;
@@ -128,9 +129,7 @@ export const TimelineCanvas = memo(function TimelineCanvas(props: TimelineCanvas
         onRazorSplitAll={onRazorSplitAll}
       />
 
-      {/* Breathing room below the last track lane (~1.5 track heights) — a real
-          scrollable surface, so a clip can be dragged into the void to create a
-          new bottom track comfortably (see TRACKS_BOTTOM_PAD / getTimelineCanvasHeight). */}
+      {/* Small scrollable drop target below the last track for creating a new row. */}
       <div aria-hidden="true" style={{ height: props.rowsVirtualized ? 0 : TRACKS_BOTTOM_PAD }} />
 
       {/* Gap strips — loud dashed fill for the gap(s) a hovered "Close gap(s)"

@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { useMountEffect } from "../../app/useMountEffect";
 import type { CompositionDimensions } from "../export/RenderQueue";
 import { acceptStudioRuntimeMessage } from "../../player/lib/runtimeProtocol";
+import { isExpectedPreviewMessage } from "../../player/lib/previewUrl";
 
 function readCompositionSizeMessage(data: unknown): CompositionDimensions | null {
   if (!isStageSizeMessage(data)) return null;
@@ -43,8 +44,7 @@ export function useCompositionDimensions(
   useMountEffect(() => {
     const handleMessage = (e: MessageEvent) => {
       if (sourceFrameRef) {
-        const expectedSource = sourceFrameRef.current?.contentWindow;
-        if (!expectedSource || e.source !== expectedSource) return;
+        if (!isExpectedPreviewMessage(e, sourceFrameRef.current)) return;
       }
       const dimensions = readCompositionSizeMessage(e.data);
       if (!dimensions) return;

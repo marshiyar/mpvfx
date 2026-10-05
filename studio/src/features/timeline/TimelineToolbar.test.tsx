@@ -78,17 +78,17 @@ describe("TimelineToolbar — adaptive thumbnails", () => {
 });
 
 describe("TimelineToolbar — remove silence", () => {
-  it("runs for the selected video and disables while processing", () => {
+  it.each(["video", "audio"])("runs for selected %s and disables while processing", tag => {
     const clip = {
-      id: "video-1",
-      domId: "video-1",
-      tag: "video",
-      src: "assets/clip.mp4",
+      id: "media-1",
+      domId: "media-1",
+      tag,
+      src: `assets/clip.${tag === "audio" ? "wav" : "mp4"}`,
       start: 0,
       duration: 4,
       track: 0,
     };
-    usePlayerStore.setState({ elements: [clip], selectedElementId: "video-1" });
+    usePlayerStore.setState({ elements: [clip], selectedElementId: "media-1" });
     const onRemoveSilence = vi.fn();
     const host = document.createElement("div");
     document.body.append(host);
@@ -164,14 +164,11 @@ describe("TimelineToolbar — motion path endpoints", () => {
     const session = {
       domEditSelection: makeSelection("Element", element),
       selectedGsapAnimations: [animation],
-      handleGsapAddAnimation: vi.fn(),
-      handleGsapConvertToKeyframes: vi.fn(),
-      handleGsapRemoveKeyframe: vi.fn(),
     } satisfies NonNullable<React.ComponentProps<typeof TimelineToolbar>["domEditSession"]>;
 
     const { host, root } = renderToolbar(session);
     const button = host.querySelector<HTMLButtonElement>(
-      'button[aria-label="Motion path endpoint"]',
+      'button[aria-label="Add keyframe at playhead"]',
     );
     expect(button?.disabled).toBe(true);
     act(() => root.unmount());
@@ -196,9 +193,6 @@ describe("TimelineToolbar — keyframes on audio tracks", () => {
     return {
       domEditSelection: makeSelection("Element", element),
       selectedGsapAnimations: [],
-      handleGsapAddAnimation: vi.fn(),
-      handleGsapConvertToKeyframes: vi.fn(),
-      handleGsapRemoveKeyframe: vi.fn(),
     } satisfies NonNullable<React.ComponentProps<typeof TimelineToolbar>["domEditSession"]>;
   }
 
@@ -214,12 +208,12 @@ describe("TimelineToolbar — keyframes on audio tracks", () => {
     act(() => root.unmount());
   });
 
-  it("still offers it for a visual clip", () => {
+  it("keeps an unresolved visual clip disabled until native bootstrap is available", () => {
     const { host, root } = renderToolbar(sessionFor("div"));
     const button = host.querySelector<HTMLButtonElement>(
       'button[aria-label="Add keyframe at playhead"]',
     );
-    expect(button?.disabled).toBe(false);
+    expect(button?.disabled).toBe(true);
     act(() => root.unmount());
   });
 });
@@ -263,9 +257,6 @@ describe("TimelineToolbar — selected keyframe nudging", () => {
     const session = {
       domEditSelection,
       selectedGsapAnimations: [animation],
-      handleGsapAddAnimation: vi.fn(),
-      handleGsapConvertToKeyframes: vi.fn(),
-      handleGsapRemoveKeyframe: vi.fn(),
       handleGsapMoveKeyframes,
     } satisfies NonNullable<React.ComponentProps<typeof TimelineToolbar>["domEditSession"]>;
     const { root } = renderToolbar(session);

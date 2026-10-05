@@ -3,6 +3,8 @@ import type { TimelineElement } from "../store/playerStore";
 import { usePlayerStore } from "../store/playerStore";
 import type { TimelineTheme } from "./timelineTheme";
 import type { TimelineEditCallbacks } from "./timelineCallbacks";
+import { resolveNativeClipSelection } from "../../../shared/project/nativePropertyEditPlan";
+import type { NativeProjectDocument } from "../../../shared/project/nativeProjectDocument";
 import {
   KeyframeDiamondContextMenu,
   type KeyframeDiamondContextMenuState,
@@ -46,6 +48,8 @@ interface TimelineOverlaysProps {
   currentTime: number;
   onSplitElement: TimelineEditCallbacks["onSplitElement"];
   onSetElementAttributeQuiet?: TimelineEditCallbacks["onSetElementAttributeQuiet"];
+  onNativeAudioAction?: TimelineEditCallbacks["onNativeAudioAction"];
+  nativeProjectDocument?: NativeProjectDocument | null;
   pinZoomBeforeEdit: () => void;
   onDeleteElement?: (element: TimelineElement) => Promise<void> | void;
   gapContextMenu: TrackGapContextMenuState | null;
@@ -108,6 +112,8 @@ export function TimelineOverlays({
   currentTime,
   onSplitElement,
   onSetElementAttributeQuiet,
+  onNativeAudioAction,
+  nativeProjectDocument,
   pinZoomBeforeEdit,
   onDeleteElement,
   gapContextMenu,
@@ -138,6 +144,21 @@ export function TimelineOverlays({
         elements,
       })
     : null;
+  const nativeAudioState = (() => {
+    if (!clipElement || !nativeProjectDocument || !onNativeAudioAction) return undefined;
+    const resolution = resolveNativeClipSelection(nativeProjectDocument, {
+      id: clipElement.id, hfId: clipElement.hfId, sourceFile: clipElement.sourceFile,
+      selector: clipElement.selector, selectorIndex: clipElement.selectorIndex,
+    });
+    if (!resolution.ok) return undefined;
+    const clip = resolution.located.clip;
+    const asset = nativeProjectDocument.assets.find(candidate => candidate.id === clip.assetId);
+    if (asset?.kind === "audio" && clip.audioDetachedFrom) return { action: "reattach" as const, muteAvailable: true };
+    if (asset?.kind !== "video" || !asset.source || !clip.binding) return undefined;
+    const alreadyDetached = nativeProjectDocument.sequence.tracks.some(track =>
+      track.clips.some(candidate => candidate.audioDetachedFrom === clip.id));
+    return { action: alreadyDetached ? undefined : "detach" as const, muteAvailable: !alreadyDetached };
+  })();
   const readCurrentElement = (element: TimelineElement, targetSessionEpoch: number | undefined) =>
     readTimelineContextElement(element, targetSessionEpoch, elementsRef.current);
 
@@ -241,6 +262,12 @@ export function TimelineOverlays({
           y={clipContextMenu.y}
           element={clipElement}
           currentTime={currentTime}
+          nativeAudioAction={nativeAudioState?.action}
+          muteAvailable={nativeAudioState?.muteAvailable}
+          onNativeAudioAction={(_element, action) => {
+            const current = readCurrentElement(clipElement, clipTargetSessionEpoch);
+            if (current) void onNativeAudioAction?.(current, action);
+          }}
           onClose={() => setClipContextMenu(null)}
           onSplit={(_element, time) => {
             const element = readCurrentElement(clipElement, clipTargetSessionEpoch);

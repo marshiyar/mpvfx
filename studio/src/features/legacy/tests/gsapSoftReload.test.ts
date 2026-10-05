@@ -71,6 +71,12 @@ function buildMockIframe(overrides: Record<string, unknown> = {}) {
 }
 
 describe("applySoftReload", () => {
+  it("fails closed when an isolated preview denies document access", () => {
+    const iframe = Object.defineProperty({}, "contentDocument", {
+      get: () => { throw new DOMException("cross origin", "SecurityError"); },
+    }) as HTMLIFrameElement;
+    expect(applySoftReload(iframe, SCRIPT_TEXT)).toBe("cannot-soft-reload");
+  });
   it("extracts a sibling source script without creating a native media document", () => {
     const parse = vi.spyOn(DOMParser.prototype, "parseFromString").mockImplementation(() => {
       throw new Error("Native source parsing creates retained media documents");
@@ -305,6 +311,15 @@ describe("applySoftReload", () => {
 // ── Finalization-only path: seek → rebind → manual edits, with NO script
 // execution — the flashless sync for timing edits that changed no script.
 describe("applySoftReloadFinalization", () => {
+  it("asks for a full reload when an isolated preview denies runtime access", () => {
+    const iframe = {
+      contentDocument: document,
+      contentWindow: Object.defineProperty({}, "__hfForceTimelineRebind", {
+        get: () => { throw new DOMException("cross origin", "SecurityError"); },
+      }),
+    } as HTMLIFrameElement;
+    expect(applySoftReloadFinalization(iframe, 2)).toBe(false);
+  });
   it("seeks, rebinds, and reapplies manual edits without touching any script", () => {
     const { iframe, contentWindow, container, mockTimeline } = buildMockIframe();
     const scriptsBefore = container.querySelectorAll("script").length;
@@ -383,6 +398,12 @@ function buildBootstrapIframe(overrides: Record<string, unknown> = {}) {
 }
 
 describe("ensureMotionPathPluginLoaded", () => {
+  it("does not inject a plugin across the isolated preview boundary", () => {
+    const iframe = Object.defineProperty({}, "contentDocument", {
+      get: () => { throw new DOMException("cross origin", "SecurityError"); },
+    }) as HTMLIFrameElement;
+    expect(() => ensureMotionPathPluginLoaded(iframe)).not.toThrow();
+  });
   it("no-ops when the iframe is null", () => {
     expect(() => ensureMotionPathPluginLoaded(null)).not.toThrow();
   });

@@ -6,14 +6,21 @@
  * these mirror and had reached the 600-line studio ceiling.
  */
 
-import { useCallback } from "react";
+import { useCallback, type MutableRefObject } from "react";
 import { usePlayerStore, type TimelineElement } from "../../player/index";
 import { useExpandedTimelineElements } from "../../player/hooks/useExpandedTimelineElements";
 import { saveProjectFilesWithHistory } from "../history/studioFileHistory";
+import { commitNativeTimelineAudioGroup } from "../project/nativeTimelineAudioGroupTransaction";
+import { resolveNativeClipSelection } from "../../../shared/project/nativePropertyEditPlan";
+import {
+  NATIVE_PROJECT_DOCUMENT_PATH,
+  type NativeProjectDocument,
+} from "../../../shared/project/nativeProjectDocument";
+import type { NativeTimelineEditingDependencies } from "./useTimelineEditingTypes";
 import { HF_AUDIO_GROUP_ATTR, HF_AUDIO_GROUP_TAG } from "@hyperframes/core/audio-groups";
 import { runtimeAudioId } from "../../player/lib/timelineElementHelpers";
 import { invalidateGroupInfoCache } from "../../player/lib/timelineGroupInfo";
-import { readTagSnippetByTarget, type PatchOperation } from "../legacy/sourcePatcher";
+import { readTagSnippetByTarget } from "../legacy/sourcePatcher";
 import {
   applyPatchByTarget,
   buildPatchTarget,
@@ -27,6 +34,7 @@ import {
   type MutableRef,
   type UseTimelineElementVisibilityEditingInput,
 } from "./timelineTrackVisibility";
+import { reloadIsolatedGroupPreview } from "./reloadIsolatedGroupPreview";
 
 /**
  * Assign (or restore) `data-audio-group` across a set of members.
@@ -115,6 +123,42 @@ function insertGroupElement(html: string, groupId: string, label?: string): stri
   return `${html.slice(0, closeBody)}  ${tag}\n  ${html.slice(closeBody)}`;
 }
 
+const videoHasSound = (snippet: string): boolean =>
+  /^<\s*video\b/i.test(snippet) && /\sdata-has-audio\s*=\s*(?:"true"|'true'|true)(?=\s|\/?>|$)/i.test(snippet);
+
+function patchGroupMembership(
+  content: string,
+  elements: readonly TimelineElement[],
+  groupId: string,
+  path: string,
+  allowVideo: boolean,
+): string {
+  let patched = content;
+  for (const element of elements) {
+    if (!runtimeAudioId(element)) throw new Error(`Clip ${element.id} needs a DOM id to join an audio group`);
+    const target = buildPatchTarget(element);
+    const snippet = target ? readTagSnippetByTarget(patched, target) : undefined;
+    if (!snippet) throw new Error(`Unable to patch timeline element ${element.id} in ${path}`);
+    const sourceIsVideo = /^<\s*video\b/i.test(snippet);
+    const sourceIsAudio = /^<\s*audio\b/i.test(snippet);
+    if (sourceIsVideo && !allowVideo) {
+      throw new Error("Video audio grouping needs a saved native project for every clip");
+    }
+    if (sourceIsVideo && !videoHasSound(snippet)) {
+      throw new Error(`Video clip ${element.id} has no confirmed audio stream`);
+    }
+    if (!sourceIsAudio && !sourceIsVideo) {
+      throw new Error(`Clip ${element.id} is not an audio or video clip`);
+    }
+    patched = applyPatchByTarget(patched, target!, {
+      type: "attribute",
+      property: HF_AUDIO_GROUP_ATTR,
+      value: groupId,
+    });
+  }
+  return patched;
+}
+
 /** The same element in the live preview, so the group is editable before the
  *  next reload. Returns true when it created one (only then may the unwind
  *  remove it — a pre-existing group element is not ours to delete). */
@@ -141,10 +185,13 @@ interface CreateAudioGroupAndAssignMembersInput {
   /** The author's name for it, from the naming dialog (groups doc §5). */
   groupLabel?: string;
   previewIframe: HTMLIFrameElement | null;
-  writeProjectFile: (path: string, content: string) => Promise<void>;
+  writeProjectFile: (path: string, content: string, expectedContent?: string) => Promise<void>;
   recordEdit: (input: RecordEditInput) => Promise<void>;
   domEditSaveTimestampRef: MutableRef<number>;
   pendingTimelineEditPathRef: MutableRef<Set<string>>;
+  nativeProjectEditing?: NativeTimelineEditingDependencies;
+  nativeDocumentRef?: MutableRefObject<NativeProjectDocument | null>;
+  reloadPreview?: () => void;
 }
 
 /**
@@ -166,6 +213,9 @@ export async function createAudioGroupAndAssignMembers({
   recordEdit,
   domEditSaveTimestampRef,
   pendingTimelineEditPathRef,
+  nativeProjectEditing,
+  nativeDocumentRef,
+  reloadPreview,
 }: CreateAudioGroupAndAssignMembersInput): Promise<string[]> {
   // Throws rather than returning empty: the carve's auto-group awaits this and
   // then persists `sources: [groupId]` on success, so a quiet no-op leaves the
@@ -177,40 +227,86 @@ export async function createAudioGroupAndAssignMembers({
     throw new Error(`Invalid audio group id ${JSON.stringify(groupId)}`);
   }
 
+  const byPath = groupElementsByTargetPath(elements, activeCompPath);
+  const groupPath = activeCompPath || "index.html";
+  const nativeDocument = nativeDocumentRef?.current ?? nativeProjectEditing?.nativeDocument ?? null;
+  const nativeMatches = nativeDocument?.sequence
+    ? elements.map((element) => resolveNativeClipSelection(nativeDocument, {
+        id: element.id,
+        hfId: element.hfId,
+        sourceFile: element.sourceFile,
+        selector: element.selector,
+        selectorIndex: element.selectorIndex,
+      }).ok)
+    : [];
+  const anyNative = nativeMatches.some(Boolean);
+  const allNative = nativeMatches.length === elements.length && nativeMatches.every(Boolean);
+  if (anyNative && !allNative) throw new Error("Cannot group native and legacy clips together");
+  if (allNative && !nativeProjectEditing) {
+    throw new Error("Native audio group persistence is unavailable");
+  }
+  if (elements.some((element) => element.tag.toLowerCase() === "video") && !allNative) {
+    throw new Error("Video audio grouping needs a saved native project for every clip");
+  }
+
+  if (allNative && nativeProjectEditing && nativeDocument) {
+    await commitNativeTimelineAudioGroup({
+      expectedRevision: nativeDocument.revision,
+      members: elements.map((element) => ({
+        id: element.id,
+        hfId: element.hfId,
+        sourceFile: element.sourceFile,
+        selector: element.selector,
+        selectorIndex: element.selectorIndex,
+      })),
+      groupId,
+      groupLabel,
+      groupPath,
+      readOptionalProjectFile: nativeProjectEditing.readOptionalProjectFile,
+      writeProjectFile,
+      recordEdit,
+      commitFileTransaction: nativeProjectEditing.commitFileTransaction,
+      patchCompatibilityFile: (path, before) => {
+        const members = byPath.get(path) ?? [];
+        const patched = patchGroupMembership(before, members, groupId, path, true);
+        return path === groupPath ? insertGroupElement(patched, groupId, groupLabel) : patched;
+      },
+      onCommitted: (document) => {
+        if (nativeDocumentRef) nativeDocumentRef.current = document;
+        nativeProjectEditing.onNativeDocumentCommitted(document);
+      },
+    });
+    domEditSaveTimestampRef.current = Date.now();
+    const changedPaths = [...new Set([NATIVE_PROJECT_DOCUMENT_PATH, ...byPath.keys(), groupPath])];
+    for (const path of changedPaths) pendingTimelineEditPathRef.current.add(path);
+    patchLiveAudioGroupState(previewIframe, elements, groupId, activeCompPath);
+    patchLiveGroupElement(previewIframe, groupId, groupLabel);
+    reseekPreviewRuntime(previewIframe);
+    for (const element of elements) {
+      usePlayerStore.getState().updateElement(element.key ?? element.id, { audioGroup: groupId });
+    }
+    reloadIsolatedGroupPreview(previewIframe, reloadPreview);
+    return changedPaths;
+  }
+
   const priorGroups = captureAudioGroupState(previewIframe, elements, activeCompPath);
   patchLiveAudioGroupState(previewIframe, elements, groupId, activeCompPath);
   const createdLiveGroupElement = patchLiveGroupElement(previewIframe, groupId, groupLabel);
   reseekPreviewRuntime(previewIframe);
 
-  const groupOperation: PatchOperation = {
-    type: "attribute",
-    property: HF_AUDIO_GROUP_ATTR,
-    value: groupId,
-  };
   const originalByPath = new Map<string, string>();
   const files: Record<string, string> = {};
 
   try {
-    for (const [targetPath, fileElements] of groupElementsByTargetPath(elements, activeCompPath)) {
+    for (const [targetPath, fileElements] of byPath) {
       let patchedContent = await readFileContent(projectId, targetPath);
       originalByPath.set(targetPath, patchedContent);
-
-      for (const element of fileElements) {
-        const patchTarget = buildPatchTarget(element);
-        if (!patchTarget) {
-          throw new Error(`Timeline element ${element.id} is missing a patchable target`);
-        }
-        if (readTagSnippetByTarget(patchedContent, patchTarget) === undefined) {
-          throw new Error(`Unable to patch timeline element ${element.id} in ${targetPath}`);
-        }
-        patchedContent = applyPatchByTarget(patchedContent, patchTarget, groupOperation);
-      }
+      patchedContent = patchGroupMembership(patchedContent, fileElements, groupId, targetPath, false);
 
       files[targetPath] = patchedContent;
       pendingTimelineEditPathRef.current.add(targetPath);
     }
 
-    const groupPath = activeCompPath || "index.html";
     let groupContent = files[groupPath];
     if (groupContent === undefined) {
       groupContent = await readFileContent(projectId, groupPath);
@@ -242,6 +338,7 @@ export async function createAudioGroupAndAssignMembers({
     for (const element of elements) {
       usePlayerStore.getState().updateElement(element.key ?? element.id, { audioGroup: groupId });
     }
+    reloadIsolatedGroupPreview(previewIframe, reloadPreview);
     return changedPaths;
   } catch (error) {
     // Mirrors setElementsHidden's failure path: the optimistic live patch
@@ -262,6 +359,14 @@ export async function createAudioGroupAndAssignMembers({
  * expanded-rows resolution as element-visibility, for the same reason — a
  * nested sub-composition child has no entry in the raw store list.
  */
+interface UseAudioGroupCarveAssignmentInput extends Omit<UseTimelineElementVisibilityEditingInput, "writeProjectFile"> {
+  writeProjectFile: (path: string, content: string, expectedContent?: string) => Promise<void>;
+  nativeProjectEditing?: NativeTimelineEditingDependencies;
+  nativeDocumentRef?: MutableRefObject<NativeProjectDocument | null>;
+  editQueueRef?: MutableRefObject<Promise<unknown>>;
+  reloadPreview?: () => void;
+}
+
 export function useAudioGroupCarveAssignment({
   projectIdRef,
   activeCompPath,
@@ -272,7 +377,11 @@ export function useAudioGroupCarveAssignment({
   previewIframeRef,
   pendingTimelineEditPathRef,
   isRecordingRef,
-}: UseTimelineElementVisibilityEditingInput): (
+  nativeProjectEditing,
+  nativeDocumentRef,
+  editQueueRef,
+  reloadPreview,
+}: UseAudioGroupCarveAssignmentInput): (
   clipIds: readonly string[],
   groupId: string,
   groupLabel?: string,
@@ -305,7 +414,18 @@ export function useAudioGroupCarveAssignment({
           );
           throw new Error(`Cannot group: no timeline clip for ${missing.join(", ")}`);
         }
-        await createAudioGroupAndAssignMembers({
+        if (elements.some((item) => item.tag.toLowerCase() === "video")) {
+          const videoTracks = new Set(
+            elements.filter((item) => item.tag.toLowerCase() === "video").map((item) => item.track),
+          );
+          const omitted = expandedElements.find(
+            (item) => videoTracks.has(item.track) && !wanted.has(runtimeAudioId(item) ?? ""),
+          );
+          if (omitted) {
+            throw new Error("Select every clip on a video track before grouping its audio");
+          }
+        }
+        const create = () => createAudioGroupAndAssignMembers({
           groupLabel,
           projectId: pid,
           activeCompPath,
@@ -316,7 +436,17 @@ export function useAudioGroupCarveAssignment({
           recordEdit,
           domEditSaveTimestampRef,
           pendingTimelineEditPathRef,
+          nativeProjectEditing,
+          nativeDocumentRef,
+          reloadPreview,
         });
+        if (editQueueRef) {
+          const operation = editQueueRef.current.then(create);
+          editQueueRef.current = operation.catch(() => undefined);
+          await operation;
+        } else {
+          await create();
+        }
       } catch (error) {
         console.error("[Timeline] Failed to group voice clips", error);
         const message = error instanceof Error ? error.message : "Failed to group voice clips";
@@ -340,6 +470,10 @@ export function useAudioGroupCarveAssignment({
       isRecordingRef,
       showToast,
       projectIdRef,
+      nativeProjectEditing,
+      nativeDocumentRef,
+      editQueueRef,
+      reloadPreview,
     ],
   );
 }

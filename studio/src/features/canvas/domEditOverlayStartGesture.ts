@@ -42,6 +42,7 @@ import {
   resetDragMoveLog,
 } from "../../lib/dragDebug";
 import { readElementCropInsets } from "./domEditOverlayCrop";
+import { captureNativeGestureDraft } from "../project/nativeGestureDraft";
 
 export function startGroupDrag(
   e: React.PointerEvent<HTMLElement>,
@@ -121,6 +122,9 @@ export function startGroupDrag(
     members,
     snapContext,
   };
+  // A previous save may still be installing when this token takes over. Seed
+  // every new native draft before the next frame can repaint the old revision.
+  for (const member of members) captureNativeGestureDraft(member.element);
   return true;
 }
 
@@ -213,6 +217,16 @@ export function startGesture(
   let initialPathOffset = captureStudioPathOffset(sel.element);
   let manualEditDragToken: string | undefined;
   let pathOffsetMember: ManualOffsetDragMember | undefined;
+  const rotationCrop = kind === "rotate" ? readElementCropInsets(sel.element) : null;
+  const hasRotationCrop = Boolean(rotationCrop &&
+    (rotationCrop.top > 0 || rotationCrop.right > 0 ||
+      rotationCrop.bottom > 0 || rotationCrop.left > 0));
+  // A cropped rotation changes position as well as angle. If this target cannot
+  // write a position draft, do not offer a misleading source-center rotation.
+  if (hasRotationCrop && !sel.capabilities.canApplyManualOffset) {
+    opts.onBlockedMoveRef.current(sel);
+    return false;
+  }
 
   if (kind === "drag") {
     opts.onManualDragStartRef.current?.();
@@ -237,7 +251,8 @@ export function startGesture(
     // its center per frame (the memberless else-branch is only a defensive fallback
     // if member creation fails, e.g. the element can't take a manual offset).
     const needsAnchorOffset =
-      kind === "resize" && sel.capabilities.canApplyManualOffset;
+      (kind === "resize" || (kind === "rotate" && hasRotationCrop)) &&
+      sel.capabilities.canApplyManualOffset;
     if (needsAnchorOffset) {
       const result = createManualOffsetDragMember({
         key: selectionCacheKey(sel),
@@ -250,6 +265,10 @@ export function startGesture(
         initialPathOffset = result.member.initialPathOffset;
         manualEditDragToken = result.member.gestureToken;
       } else {
+        if (kind === "rotate" && hasRotationCrop) {
+          opts.onBlockedMoveRef.current(result.selection);
+          return false;
+        }
         manualEditDragToken = beginStudioManualEditGesture(sel.element);
       }
     } else {
@@ -337,6 +356,12 @@ export function startGesture(
     initialRotation: captureStudioRotation(sel.element),
     initialBoxSize: captureStudioBoxSize(sel.element),
     pathOffsetMember,
+    rotationVisibleOffset: kind === "rotate" && hasRotationCrop && pathOffsetMember
+      ? {
+          x: interactionRect.left + interactionRect.width / 2 - (rect.left + rect.width / 2),
+          y: interactionRect.top + interactionRect.height / 2 - (rect.top + rect.height / 2),
+        }
+      : undefined,
     originLeft: rect.left,
     originTop: rect.top,
     originWidth: rect.width,
@@ -356,6 +381,9 @@ export function startGesture(
     resizeFixedCenterStart,
     resizeCrop,
   };
+  // The first pointer move may arrive after a native/GSAP frame. Capture the
+  // visible starting pose under this token now, including a prior unsaved resize.
+  captureNativeGestureDraft(sel.element);
   if (kind === "resize") {
     resetResizeMoveLog();
     logResize("start", {

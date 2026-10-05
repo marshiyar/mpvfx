@@ -1,4 +1,5 @@
-import type { NativeProjectDocument } from "./nativeProjectDocument";
+import { sourceFrameValue } from "./nativeSourceTime";
+import type { NativePlaybackRate, NativeProjectDocument } from "./nativeProjectDocument";
 import {
   applyNativeProjectClipCommand,
   type NativeProjectClipAddress,
@@ -36,7 +37,7 @@ export type NativeTimelineRangeEditPlanFailureCode =
   | "missing-selection-id"
   | "clip-not-found"
   | "ambiguous-clip"
-  | "unbound-clip"
+  | "binding-source-mismatch"
   | "native-command-rejected";
 
 export type NativeTimelineRangeEditPlanResult =
@@ -45,11 +46,12 @@ export type NativeTimelineRangeEditPlanResult =
       readonly kind: NativeTimelineRangeEditKind;
       readonly document: NativeProjectDocument;
       readonly address: NativeProjectClipAddress;
-      readonly sourceFile: string;
+      readonly sourceFile: string | null;
       readonly startFrame: number;
       readonly durationFrames: number;
       readonly endFrameExclusive: number;
       readonly sourceInFrame: number;
+      readonly sourceInFraction?: NativePlaybackRate;
       readonly compatibility: NativeTimelineCompatibilityRange;
     }
   | {
@@ -129,8 +131,8 @@ export function planNativeTimelineRangeEdit(
 
   const { clip, trackId } = resolution.located;
   const binding = clip.binding;
-  if (!binding || !input.element.sourceFile || binding.sourceFile !== input.element.sourceFile) {
-    return fail("unbound-clip", `Native clip ${clip.id} has no exact compatibility binding`);
+  if (binding && input.element.sourceFile && binding.sourceFile !== input.element.sourceFile) {
+    return fail("binding-source-mismatch", `Native clip ${clip.id} has no exact compatibility binding`);
   }
 
   const oldEndFrameExclusive = clip.startFrame + clip.durationFrames;
@@ -173,15 +175,16 @@ export function planNativeTimelineRangeEdit(
     kind,
     document: command.document,
     address,
-    sourceFile: binding.sourceFile,
+    sourceFile: binding?.sourceFile ?? null,
     startFrame: updatedClip.startFrame,
     durationFrames: updatedClip.durationFrames,
     endFrameExclusive: updatedEndFrameExclusive,
     sourceInFrame: updatedClip.sourceInFrame,
+    ...(updatedClip.sourceInFraction ? { sourceInFraction: { ...updatedClip.sourceInFraction } } : {}),
     compatibility: {
       start: compatibilitySeconds(updatedClip.startFrame, input.document.frameRate),
       duration: compatibilitySeconds(updatedClip.durationFrames, input.document.frameRate),
-      sourceOffset: compatibilitySeconds(updatedClip.sourceInFrame, input.document.frameRate),
+      sourceOffset: compatibilitySeconds(sourceFrameValue(updatedClip), input.document.frameRate),
     },
   };
 }

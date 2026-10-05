@@ -3,6 +3,7 @@ import { nativeMediaAssetId, nativeMediaSource } from "./nativeMediaSource";
 import {
   parseNativeProjectDocument,
   type NativeClipDomBinding,
+  type NativeMediaAssetKind,
   type NativeProjectAssetKind,
   type NativeProjectClip,
   type NativeProjectDocument,
@@ -13,7 +14,7 @@ import {
 export interface NativeTimelineAssetInsertion {
   readonly assetPath: string;
   readonly assetName?: string;
-  readonly kind: NativeProjectAssetKind;
+  readonly kind: NativeMediaAssetKind;
   readonly sourceFile: string;
   /** The exact identity returned by the compatibility insertion adapter. */
   readonly binding: Readonly<NativeClipDomBinding>;

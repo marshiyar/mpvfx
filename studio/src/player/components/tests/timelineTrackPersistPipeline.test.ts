@@ -95,23 +95,22 @@ describe("track persist pipeline (manifest → factory → lanes → drag commit
   });
 
   it("a lane change on a sparse file persists the AUTHORED target track, not the display lane", () => {
-    // normalizeToZones packs visual tracks {3, 7} onto display lanes {0, 1} and
-    // the audio track 5 onto lane 2, preserving the factory-set authoredTrack.
+    // Sparse authored tracks remain stable through normalization and drag commits.
     const elements = normalizeToZones(fromManifest(sparseManifest));
     const byId = new Map(elements.map((e) => [e.id, e]));
-    expect(byId.get("v")).toMatchObject({ track: 0, authoredTrack: 3 });
-    expect(byId.get("g")).toMatchObject({ track: 1, authoredTrack: 7 });
-    expect(byId.get("m")).toMatchObject({ track: 2, authoredTrack: 5 });
+    expect(byId.get("v")).toMatchObject({ track: 3, authoredTrack: 3 });
+    expect(byId.get("g")).toMatchObject({ track: 7, authoredTrack: 7 });
+    expect(byId.get("m")).toMatchObject({ track: 5, authoredTrack: 5 });
 
-    // Drag the video (lane 0) onto the div's lane (display 1, authored 7).
-    const down = commitLaneChange(byId.get("v")!, 1, elements, [0, 1, 2]);
+    // Drag the video from track 3 onto the div's track 7.
+    const down = commitLaneChange(byId.get("v")!, 7, elements, [3, 7, 5]);
     expect(down).toHaveLength(1);
-    expect(down[0].updates.track).toBe(7); // authored, NOT display lane 1
+    expect(down[0].updates.track).toBe(7);
     expect(down[0].updates.track).not.toBe(1);
 
-    // And the reverse: the div (lane 1) onto the video's lane (display 0, authored 3).
-    const up = commitLaneChange(byId.get("g")!, 0, elements, [0, 1, 2]);
-    expect(up[0].updates.track).toBe(3); // authored, NOT display lane 0
+    // And the reverse: the div from track 7 onto the video's track 3.
+    const up = commitLaneChange(byId.get("g")!, 3, elements, [3, 7, 5]);
+    expect(up[0].updates.track).toBe(3);
   });
 
   it("an expanded sub-comp child's lane change persists the sibling's authored track from ITS file", () => {

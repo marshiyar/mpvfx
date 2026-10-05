@@ -1,5 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { setPreviewMediaMuted } from "../../player/lib/timelineIframeHelpers";
+import { acceptedRuntimeMessageFps, postRuntimeControlMessage } from "../../player/lib/runtimeProtocol";
+import { isExpectedPreviewMessage, previewOriginFromIframe, resolvePreviewUrl } from "../../player/lib/previewUrl";
 import { buildCompositionThumbnailUrl } from "../../player/components/CompositionThumbnail";
 import { TIMELINE_COMPOSITION_MIME } from "../timeline/timelineCompositionDrop";
 import { Tooltip } from "../../ui/Tooltip";
@@ -21,15 +23,6 @@ const CARD_W = 80;
 const CARD_H = 45;
 const THUMBNAIL_SEEK_TIME_SECONDS = 3;
 const THUMBNAIL_PLAYBACK_SYNC_ATTEMPTS = 10;
-
-type PreviewWindow = Window & {
-  __player?: {
-    play?: () => void;
-    pause?: () => void;
-    seek?: (time: number) => void;
-    getDuration?: () => number;
-  };
-};
 
 export function resolveCompositionPreviewScale(input: {
   cardWidth: number;
@@ -63,49 +56,25 @@ export function resolveThumbnailSeekTime(durationSeconds: number | null | undefi
   return THUMBNAIL_SEEK_TIME_SECONDS;
 }
 
-function parsePositiveNumber(value: string | null): number | null {
-  if (value == null) return null;
-  const parsed = Number.parseFloat(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-// fallow-ignore-next-line complexity
-function resolveIframeDuration(iframe: HTMLIFrameElement | null): number | null {
+export function syncIframePlayback(
+  iframe: HTMLIFrameElement | null,
+  shouldPlay: boolean,
+  durationSeconds?: number | null,
+): boolean {
+  if (!iframe) return false;
   try {
-    const win = iframe?.contentWindow as PreviewWindow | null;
-    const playerDuration = win?.__player?.getDuration?.();
-    if (Number.isFinite(playerDuration) && playerDuration != null && playerDuration > 0) {
-      return playerDuration;
-    }
-  } catch {
-    /* cross-origin iframe */
-  }
-
-  try {
-    const doc = iframe?.contentDocument;
-    const root = doc?.querySelector("[data-composition-id]") ?? doc?.documentElement ?? null;
-    return (
-      parsePositiveNumber(root?.getAttribute("data-composition-duration") ?? null) ??
-      parsePositiveNumber(root?.getAttribute("data-duration") ?? null)
-    );
-  } catch {
-    return null;
-  }
-}
-
-export function syncIframePlayback(iframe: HTMLIFrameElement | null, shouldPlay: boolean): boolean {
-  try {
-    const player = (iframe?.contentWindow as PreviewWindow | null)?.__player;
-    if (!player) return false;
-
+    const origin = previewOriginFromIframe(iframe);
+    const win = iframe.contentWindow;
+    if (!origin || !win) return false;
     if (shouldPlay) {
       setPreviewMediaMuted(iframe, true);
-      player.play?.();
-      return true;
+      postRuntimeControlMessage(win, "play", {}, 30, origin);
+    } else {
+      postRuntimeControlMessage(win, "pause", {}, 30, origin);
+      postRuntimeControlMessage(win, "seek", {
+        timeSeconds: resolveThumbnailSeekTime(durationSeconds),
+      }, 30, origin);
     }
-
-    player.pause?.();
-    player.seek?.(resolveThumbnailSeekTime(resolveIframeDuration(iframe)));
     return true;
   } catch {
     return false;
@@ -133,6 +102,7 @@ function CompCard({
 }) {
   const [hovered, setHovered] = useState(false);
   const [stageSize, setStageSize] = useState(DEFAULT_PREVIEW_STAGE);
+  const [previewDuration, setPreviewDuration] = useState<number | null>(null);
   const [livePreviewLoaded, setLivePreviewLoaded] = useState(false);
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -147,13 +117,13 @@ function CompCard({
     }
 
     const sync = (remainingAttempts: number) => {
-      if (syncIframePlayback(iframeRef.current, shouldPlay) || remainingAttempts <= 0) return;
+      if (syncIframePlayback(iframeRef.current, shouldPlay, previewDuration) || remainingAttempts <= 0) return;
 
       syncTimer.current = setTimeout(() => sync(remainingAttempts - 1), 100);
     };
 
     sync(THUMBNAIL_PLAYBACK_SYNC_ATTEMPTS);
-  }, []);
+  }, [previewDuration]);
 
   const handleEnter = () => {
     hoverTimer.current = setTimeout(() => setHovered(true), 300);
@@ -171,7 +141,8 @@ function CompCard({
     setLivePreviewLoaded(false);
   };
   const name = comp.replace(/^compositions\//, "").replace(/\.html$/, "");
-  const previewUrl = `/api/projects/${projectId}/preview/comp/${comp}`;
+  const previewUrl = `/api/projects/${encodeURIComponent(projectId)}/preview/comp/${comp}`;
+  const isolatedPreviewUrl = resolvePreviewUrl(projectId, previewUrl, window.location.origin);
   const thumbnailUrl = buildCompositionThumbnailUrl({
     previewUrl,
     seekTime: THUMBNAIL_SEEK_TIME_SECONDS,
@@ -189,6 +160,30 @@ function CompCard({
 
   useEffect(() => {
     if (hovered) requestIframePlaybackSync(true);
+  }, [hovered, requestIframePlaybackSync]);
+
+  useEffect(() => {
+    if (!hovered) return;
+    const onMessage = (event: MessageEvent) => {
+      if (!isExpectedPreviewMessage(event, iframeRef.current)) return;
+      const data = event.data;
+      if (data?.source !== "hf-preview") return;
+      if (data.type === "ready") requestIframePlaybackSync(true);
+      if (data.type === "timeline") {
+        const width = Number(data.compositionWidth);
+        const height = Number(data.compositionHeight);
+        if (width > 0 && height > 0 && Number.isFinite(width) && Number.isFinite(height)) {
+          setStageSize({ width, height });
+        }
+        const fps = acceptedRuntimeMessageFps(data);
+        const frames = Number(data.durationInFrames);
+        if (Number.isFinite(fps) && fps > 0 && Number.isFinite(frames) && frames > 0) {
+          setPreviewDuration(frames / fps);
+        }
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
   }, [hovered, requestIframePlaybackSync]);
 
   useEffect(() => {
@@ -260,7 +255,8 @@ function CompCard({
         {hovered && (
           <iframe
             ref={iframeRef}
-            src={previewUrl}
+            src={isolatedPreviewUrl}
+            allow="autoplay"
             sandbox="allow-scripts allow-same-origin"
             className="absolute border-none pointer-events-none"
             style={{
@@ -272,19 +268,8 @@ function CompCard({
               transform: `scale(${previewScale})`,
             }}
             onLoad={(e) => {
-              try {
-                const iframe = e.currentTarget;
-                const root = iframe.contentDocument?.querySelector("[data-composition-id]");
-                const width =
-                  Number(root?.getAttribute("data-width")) || DEFAULT_PREVIEW_STAGE.width;
-                const height =
-                  Number(root?.getAttribute("data-height")) || DEFAULT_PREVIEW_STAGE.height;
-                setStageSize({ width, height });
-                setLivePreviewLoaded(true);
-                requestIframePlaybackSync(true);
-              } catch {
-                setStageSize(DEFAULT_PREVIEW_STAGE);
-              }
+              setLivePreviewLoaded(true);
+              requestIframePlaybackSync(true);
             }}
             title={`${name} preview`}
             tabIndex={-1}

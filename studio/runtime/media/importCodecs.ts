@@ -87,7 +87,7 @@ function probeContainerName(absolutePath: string): Promise<string | null> {
   });
 }
 
-async function probeImportedVideo(absolutePath: string): Promise<ImportedVideoProbeFacts | null> {
+export async function probeImportedVideo(absolutePath: string): Promise<ImportedVideoProbeFacts | null> {
   const [codecFacts, containerName] = await Promise.all([
     probeAssetCodec(absolutePath).catch(() => null),
     probeContainerName(absolutePath),

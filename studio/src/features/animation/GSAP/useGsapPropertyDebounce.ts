@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
+import { addStudioPendingEditFlushListener, trackStudioPendingEdit } from "../../history/studioPendingEdits";
 import type { Composition } from "@hyperframes/sdk";
 import { parseGsapScriptAcorn } from "@hyperframes/core/gsap-parser-acorn";
 import type { DomEditSelection } from "../../canvas/domEditingTypes";
@@ -43,6 +44,7 @@ export function mergeTweenProperties(
 }
 
 interface SdkPropertyDeps {
+  persistMutation?: SafeGsapCommitMutation;
   sdkSession?: Composition | null;
   sdkDeps?: CutoverDeps | null;
   activeCompPath?: string | null;
@@ -58,86 +60,76 @@ export function useGsapPropertyDebounce(
   commitMutationSafely: SafeGsapCommitMutation,
   sdk?: SdkPropertyDeps,
 ) {
-  const pendingPropertyEditRef = useRef<{
+  interface PendingEdit {
     selection: DomEditSelection;
     animationId: string;
     property: string;
     value: number | string;
-  } | null>(null);
+    sdk: SdkPropertyDeps | undefined;
+    persist: SafeGsapCommitMutation;
+  }
+  const pendingRef = useRef(new Map<string, PendingEdit>());
+  const persistenceScopes = useRef(new WeakMap<SafeGsapCommitMutation, number>());
+  const nextPersistenceScope = useRef(0);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // The caller passes `sdk` as a fresh object literal every render. Keying any
-  // callback's deps on it (esp. flushPendingPropertyEdit, whose identity drives
-  // the unmount-flush cleanup effect) re-fires the cleanup on EVERY parent
-  // re-render — so a playhead tick mid-slider-drag would flush + record an undo
-  // entry per render. Hold the latest value in a ref instead so every callback
-  // reads current deps without re-subscribing on identity churn.
+  const inFlightRef = useRef<Promise<void> | null>(null);
   const sdkRef = useRef(sdk);
   sdkRef.current = sdk;
 
-  // fallow-ignore-next-line complexity
-  const flushPendingPropertyEdit = useCallback(async () => {
-    const pending = pendingPropertyEditRef.current;
-    if (!pending) return;
-    pendingPropertyEditRef.current = null;
-    const { selection, animationId, property, value } = pending;
-    const mutation = { type: "update-property", animationId, property, value };
-    const label = `Edit GSAP ${property}`;
-    try {
-      // fallow-ignore-next-line code-duplication
-      const { sdkSession, sdkDeps, activeCompPath } = sdkRef.current ?? {};
-      if (sdkSession && sdkDeps) {
-        const targetPath = selection.sourceFile || activeCompPath || "index.html";
-        const handled = await sdkGsapTweenPersist(
-          targetPath,
-          {
-            kind: "set",
-            animationId,
-            properties: {
-              properties: mergeTweenProperties(
-                sdkSession,
-                animationId,
-                { [property]: value },
-                "to",
-              ),
-            },
-          },
-          sdkSession,
-          sdkDeps,
-          { label, coalesceKey: `gsap:${animationId}:${property}` },
-        );
-        if (cutoverCommittedOrThrow(handled)) return;
+  const flushPendingPropertyEdit = useCallback((): Promise<void> => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = null;
+    if (inFlightRef.current) return inFlightRef.current;
+    const operation = (async () => {
+      while (pendingRef.current.size) {
+        const [key, pending] = pendingRef.current.entries().next().value!;
+        const { selection, animationId, property, value } = pending;
+        const mutation = { type: "update-property", animationId, property, value };
+        const label = `Edit GSAP ${property}`;
+        try {
+          const { sdkSession, sdkDeps, activeCompPath } = pending.sdk ?? {};
+          let handled = false;
+          if (sdkSession && sdkDeps) {
+            handled = cutoverCommittedOrThrow(await sdkGsapTweenPersist(
+              selection.sourceFile || activeCompPath || "index.html",
+              { kind: "set", animationId, properties: { properties: mergeTweenProperties(sdkSession, animationId, { [property]: value }, "to") } },
+              sdkSession, sdkDeps, { label, coalesceKey: `gsap:${animationId}:${property}` },
+            ));
+          }
+          if (!handled) await pending.persist(selection, mutation, { label, coalesceKey: `gsap:${animationId}:${property}`, softReload: true });
+          if (pendingRef.current.get(key) === pending) pendingRef.current.delete(key);
+        } catch (error) {
+          pending.sdk?.onFlushError?.(error, selection, mutation, label);
+          throw error;
+        }
       }
-      await commitMutationSafely(selection, mutation, {
-        label,
-        coalesceKey: `gsap:${animationId}:${property}`,
-        softReload: true,
-      });
-    } catch (error) {
-      sdkRef.current?.onFlushError?.(error, selection, mutation, label);
-    }
-  }, [commitMutationSafely]);
+    })();
+    inFlightRef.current = operation;
+    const clear = () => { if (inFlightRef.current === operation) inFlightRef.current = null; };
+    void operation.then(clear, clear);
+    trackStudioPendingEdit(operation);
+    return operation;
+  }, []);
 
-  const updateGsapProperty = useCallback(
-    (
-      selection: DomEditSelection,
-      animationId: string,
-      property: string,
-      value: number | string,
-    ) => {
-      pendingPropertyEditRef.current = { selection, animationId, property, value };
-      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-      debounceTimerRef.current = setTimeout(() => {
-        void flushPendingPropertyEdit();
-      }, DEBOUNCE_MS);
-    },
-    [flushPendingPropertyEdit],
-  );
+  const updateGsapProperty = useCallback((selection: DomEditSelection, animationId: string, property: string, value: number | string) => {
+    const currentSdk = sdkRef.current;
+    const persist = currentSdk?.persistMutation ?? commitMutationSafely;
+    let scope = persistenceScopes.current.get(persist);
+    if (scope === undefined) {
+      scope = ++nextPersistenceScope.current;
+      persistenceScopes.current.set(persist, scope);
+    }
+    const key = JSON.stringify([scope, selection.sourceFile ?? currentSdk?.activeCompPath, animationId, property]);
+    pendingRef.current.set(key, { selection, animationId, property, value, sdk: currentSdk, persist });
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => { void flushPendingPropertyEdit().catch(() => {}); }, DEBOUNCE_MS);
+  }, [commitMutationSafely, flushPendingPropertyEdit]);
 
   useEffect(() => {
+    const removeFlush = addStudioPendingEditFlushListener(flushPendingPropertyEdit);
     return () => {
-      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-      void flushPendingPropertyEdit();
+      removeFlush();
+      void flushPendingPropertyEdit().catch(() => {});
     };
   }, [flushPendingPropertyEdit]);
 

@@ -1,3 +1,7 @@
+import { parseHTML } from "linkedom";
+import { resolveNativeDomBinding } from "../../../shared/project/nativeDomBinding";
+import { discoverNativeTimelineSources } from "./nativeTimelineSources";
+import { stabilizeNativeBindingSource } from "./nativeBindingSource";
 import type { RecordEditInput } from "../history/studioFileHistory";
 import { serializeStudioFileMutations } from "../history/studioFileMutationCoordinator";
 import {
@@ -77,20 +81,26 @@ const throwIfAborted = (signal?: AbortSignal): void => {
   throw new DOMException("The native multi-clip move was aborted", "AbortError");
 };
 
-const sourcePathsFromChanges = (
-  changes: readonly NativeTimelineMultiMoveChange[],
-): string[] | null => {
-  const paths: string[] = [];
-  for (const change of changes) {
-    const path = change.element.sourceFile;
-    if (typeof path !== "string" || path.length === 0) return null;
-    paths.push(path);
-  }
-  return [...new Set(paths)].sort();
-};
 
 const plannedMoveKey = (move: NativeTimelineMultiMovePlannedMove): string =>
   JSON.stringify([move.sourceFile, move.address.sequenceId, move.address.trackId, move.address.clipId]);
+
+/** A string-identical patch is valid only for an already-satisfied move. */
+function isVerifiedNoop(
+  current: NativeProjectDocument,
+  move: NativeTimelineMultiMovePlannedMove,
+  source: string,
+): boolean {
+  if (!move.binding || move.destination.trackId !== move.address.trackId) return false;
+  const track = current.sequence.tracks.find(candidate => candidate.id === move.address.trackId);
+  const clip = track?.clips.find(candidate => candidate.id === move.address.clipId);
+  if (!clip || clip.startFrame !== move.startFrame) return false;
+  const { document } = parseHTML(source);
+  const node = resolveNativeDomBinding(
+    selector => [...document.querySelectorAll(selector)], move.binding,
+  );
+  return node?.getAttribute("data-start") === String(move.compatibilityStartSeconds);
+}
 
 /**
  * Persist a native group move and every transitional compatibility source as
@@ -101,10 +111,9 @@ export async function commitNativeTimelineMultiMove(
   input: CommitNativeTimelineMultiMoveInput,
 ): Promise<CommitNativeTimelineMultiMoveResult> {
   throwIfAborted(input.signal);
-  const requestedSourcePaths = sourcePathsFromChanges(input.changes);
-  if (!requestedSourcePaths) {
-    return { committed: false, reason: "unbound-clip" };
-  }
+  const discovery = await discoverNativeTimelineSources(input, input.changes.map(item => item.element));
+  if (!discovery.ok) return { committed: false, reason: discovery.reason };
+  const requestedSourcePaths = discovery.sourceFiles;
 
   const result = await serializeStudioFileMutations(
     input.writeProjectFile,
@@ -144,12 +153,16 @@ export async function commitNativeTimelineMultiMove(
         compatibilityBefore[sourceFile] = content;
       }
 
-      const compatibilityAfter: Record<string, string> = { ...compatibilityBefore };
+      const compatibilityAfter: Record<string, string> = {};
+      for (const sourceFile of plan.sourceFiles) {
+        compatibilityAfter[sourceFile] = stabilizeNativeBindingSource(current, sourceFile, compatibilityBefore[sourceFile]!);
+      }
       const orderedMoves = [...plan.moves].sort((left, right) =>
         plannedMoveKey(left).localeCompare(plannedMoveKey(right)),
       );
       for (const move of orderedMoves) {
         throwIfAborted(input.signal);
+        if (move.sourceFile === null || move.binding === null) continue;
         const beforePatch = compatibilityAfter[move.sourceFile]!;
         const afterPatch = input.patchCompatibilityContent(
           beforePatch,
@@ -162,6 +175,7 @@ export async function commitNativeTimelineMultiMove(
           move.sourceFile,
         );
         if (afterPatch === beforePatch) {
+          if (isVerifiedNoop(current, move, beforePatch)) continue;
           throw new NativeTimelineMultiMoveCompatibilityError(
             `Compatibility source ${move.sourceFile} did not accept the patch for native clip ${move.address.clipId}`,
           );

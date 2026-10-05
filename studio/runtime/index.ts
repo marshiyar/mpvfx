@@ -3,3 +3,5 @@ export { createStudioRuntime } from "./service";
 export type { StudioRuntime, StudioRuntimeOptions } from "./service";
 export type { StudioServerHost } from "./adapter";
 export { closeSharedBrowser } from "./preview/browser";
+
+export { LibraryService } from "./library/libraryService";

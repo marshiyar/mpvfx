@@ -24,5 +24,5 @@ license requires retaining this notice and the permission terms with copies of t
 
 Model source and license: https://github.com/snakers4/silero-vad
 
-The JavaScript VAD package is ISC-licensed. ONNX Runtime Web 1.22.0 is MIT-licensed; its license
+The JavaScript VAD package is ISC-licensed. ONNX Runtime Web 1.30.0 is MIT-licensed; its license
 and copyright notice are distributed with the package.

@@ -13,8 +13,8 @@ import type { DomEditSelection } from "../../canvas/domEditingTypes";
 import {
   POSITION_CHANNELS,
   tryGsapDragIntercept,
-  tryGsapRotationIntercept,
 } from "./gsapRuntimeBridge";
+import { useGsapAwareRotationCommit } from "./useGsapAwareRotationCommit";
 import { tryGsapResizeIntercept } from "./gsapResizeIntercept";
 import { computeDraggedGsapPosition } from "./draggedGsapPosition";
 import { readGsapPositionFromIframe } from "./gsapPositionDetection";
@@ -22,8 +22,9 @@ import { selectorFromSelection } from "./gsapShared";
 import { useAnimatedPropertyCommit } from "../useAnimatedPropertyCommit";
 import {
   useProjectAnimatedPropertyCommit,
-  type UseProjectAnimatedPropertyCommitOptions,
 } from "../useProjectAnimatedPropertyCommit";
+import type { UseGsapAwareEditingParams } from "./gsapAwareEditingContract";
+export type { UseGsapAwareEditingParams } from "./gsapAwareEditingContract";
 import {
   useGsapSaveFailureTelemetry,
   useSafeGsapCommitMutation,
@@ -39,7 +40,6 @@ import type { DomEditGroupPathOffsetCommit } from "../../canvas/DomEditOverlay";
 import { runGestureTransaction } from "../../canvas/gestureTransaction";
 import { hasNonHoldTweenForElement } from "./gsapRuntimeKeyframes";
 import { assertGsapEditPersisted } from "./gsapEditOutcome";
-import type { GsapAnimationFetchOptions } from "./useGsapAnimationFetchFallback";
 import { usePlayerStore } from "../../../player/store/playerStore";
 
 // Distinct coalesceKey per group drag so consecutive group drags don't fold
@@ -56,66 +56,6 @@ function firstPreflightFailure(
     if (selection) return { error: result.reason, selection };
   }
   return null;
-}
-
-export interface UseGsapAwareEditingParams {
-  domEditSelection: DomEditSelection | null;
-  selectedGsapAnimations: GsapAnimation[];
-  gsapCommitMutation: CommitMutation | null;
-  previewIframeRef: React.RefObject<HTMLIFrameElement | null>;
-  showToast: (message: string, tone?: "error" | "info") => void;
-  bumpGsapCache: () => void;
-  makeFetchFallback: (
-    selection: DomEditSelection,
-    options?: GsapAnimationFetchOptions,
-  ) => () => Promise<GsapAnimation[]>;
-  trackGsapInteractionFailure: (
-    error: unknown,
-    selection: DomEditSelection | null,
-    mutationType: string,
-    label: string,
-  ) => void;
-  // DOM fallbacks (from useDomEditCommits)
-  handleDomBoxSizeCommit: (
-    selection: DomEditSelection,
-    next: { width: number; height: number },
-    offset?: { x: number; y: number },
-  ) => Promise<void>;
-  // GSAP script commit ops (from useGsapScriptCommits)
-  addGsapAnimation: (
-    sel: DomEditSelection,
-    method: "to" | "from" | "set" | "fromTo",
-    time?: number,
-  ) => Promise<void>;
-  convertToKeyframes: (sel: DomEditSelection, animId: string) => void;
-  setArcPath: (
-    sel: DomEditSelection,
-    animId: string,
-    config: {
-      enabled: boolean;
-      autoRotate?: boolean | number;
-      segments?: Array<{
-        curviness: number;
-        cp1?: { x: number; y: number };
-        cp2?: { x: number; y: number };
-      }>;
-    },
-  ) => void;
-  updateArcSegment: (
-    sel: DomEditSelection,
-    animId: string,
-    segmentIndex: number,
-    update: {
-      curviness?: number;
-      cp1?: { x: number; y: number };
-      cp2?: { x: number; y: number };
-    },
-  ) => void;
-  /** Native project authority. Omitted mounts preserve the exact legacy route. */
-  nativeProjectEditing?: Omit<
-    UseProjectAnimatedPropertyCommitOptions,
-    "legacyCommitProperties"
-  >;
 }
 
 const noNativeRead = async (): Promise<null> => null;
@@ -231,8 +171,38 @@ export function useGsapAwareEditing({
   // elements are no longer blocked in a group. No CSS fallback: with no GSAP
   // composition there's nothing to write (a no-op, exactly like the single-drag path).
   const handleGsapAwareGroupPathOffsetCommit = useCallback(
-    async (updates: DomEditGroupPathOffsetCommit[]) => {
-      if (!gsapCommitMutation || updates.length === 0) return;
+    async (allUpdates: DomEditGroupPathOffsetCommit[]) => {
+      // Native-owned members move in one native save (one undo step); only
+      // layers the native project cannot address go through the GSAP writer.
+      const nativeUpdates = allUpdates.filter(({ selection }) => projectPropertyCommit.isNativeSelection(selection));
+      const updates = allUpdates.filter((update) => !nativeUpdates.includes(update));
+      if (nativeUpdates.length > 0 && updates.length > 0) {
+        // These routes have separate file transactions and history writers.
+        // Reject before either side saves so a failed second write cannot
+        // leave half the selection moved or require two undos for one drag.
+        const message = "Move native and authored layers separately; a mixed group move cannot be saved as one undoable edit";
+        showToast(message, "error");
+        throw new Error(message);
+      }
+      const commitNativeMembers = async () => {
+        if (nativeUpdates.length === 0) return;
+        try {
+          await projectPropertyCommit.commitNativeGroupProperties(
+            nativeUpdates.map(({ selection, next }) => {
+              const { newX, newY } = computeDraggedGsapPosition(selection.element, next, { x: 0, y: 0 });
+              return { selection, properties: { x: newX, y: newY } };
+            }),
+            "Move layers",
+          );
+        } catch (error) {
+          trackGsapInteractionFailure(error, nativeUpdates[0]!.selection, "drag", "Move animated layer (group)");
+          throw error;
+        }
+      };
+      if (updates.length === 0) return commitNativeMembers();
+      if (!gsapCommitMutation) {
+        throw new Error("Some selected layers cannot be moved: they are not part of the native project");
+      }
       // A group drag is ONE user action: fold every member's position write into
       // a single undo entry by forcing a shared coalesceKey (infinite window, so
       // it survives the N sequential server round-trips) onto each commit —
@@ -310,6 +280,7 @@ export function useGsapAwareEditing({
         );
         throw preflightFailure.error;
       }
+      await commitNativeMembers();
       for (const [index, { selection, next }] of updates.entries()) {
         renderOnCommit = index === updates.length - 1;
         try {
@@ -343,7 +314,7 @@ export function useGsapAwareEditing({
         throw error;
       }
     },
-    [gsapCommitMutation, previewIframeRef, makeFetchFallback, trackGsapInteractionFailure],
+    [gsapCommitMutation, previewIframeRef, makeFetchFallback, trackGsapInteractionFailure, projectPropertyCommit, showToast],
   );
 
   const handleGsapAwareBoxSizeCommit = useCallback(
@@ -473,52 +444,14 @@ export function useGsapAwareEditing({
     ],
   );
 
-  const handleGsapAwareRotationCommit = useCallback(
-    async (selection: DomEditSelection, next: { angle: number }) => {
-      if (projectPropertyCommit.isNativeSelection(selection)) {
-        try {
-          await projectPropertyCommit.commitAnimatedProperty(
-            selection,
-            "rotation",
-            next.angle,
-            { intent: "edit" },
-          );
-          return;
-        } catch (error) {
-          trackGsapInteractionFailure(error, selection, "rotation", "Rotate animated layer");
-          throw error;
-        }
-      }
-      if (gsapCommitMutation) {
-        try {
-          // Single source of truth for rotation too: tryGsapRotationIntercept handles
-          // tweened elements (keyframes) and static ones (a tl.set), so there's no
-          // CSS-var fallback. Selectorless/computed source rejects so the gesture
-          // transaction can restore its draft instead of reporting a false success.
-          const outcome = await tryGsapRotationIntercept(
-            selection,
-            next.angle,
-            selectedGsapAnimations,
-            previewIframeRef.current,
-            gsapCommitMutation,
-            makeFetchFallback(selection),
-          );
-          assertGsapEditPersisted(outcome);
-        } catch (error) {
-          trackGsapInteractionFailure(error, selection, "rotation", "Rotate animated layer");
-          throw error;
-        }
-      }
-    },
-    [
-      selectedGsapAnimations,
-      gsapCommitMutation,
-      previewIframeRef,
-      makeFetchFallback,
-      trackGsapInteractionFailure,
-      projectPropertyCommit,
-    ],
-  );
+  const handleGsapAwareRotationCommit = useGsapAwareRotationCommit({
+    selectedGsapAnimations,
+    gsapCommitMutation,
+    previewIframeRef,
+    makeFetchFallback,
+    trackGsapInteractionFailure,
+    projectPropertyCommit,
+  });
 
   // ── Animated property commit ──
 

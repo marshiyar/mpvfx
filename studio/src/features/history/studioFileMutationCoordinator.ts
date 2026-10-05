@@ -1,3 +1,5 @@
+import { trackStudioPendingEdit } from "./studioPendingEdits";
+
 export type StudioProjectFileWriter = (path: string, content: string) => Promise<void>;
 
 // A writer is bound to one project (see useFileManager), so writer identity plus
@@ -18,6 +20,7 @@ export function serializeStudioFileMutation<T>(
   }
   const prior = queues.get(targetPath) ?? Promise.resolve();
   const next = prior.then(task, task);
+  trackStudioPendingEdit(next);
   queues.set(targetPath, next);
   void next.then(
     () => {

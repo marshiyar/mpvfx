@@ -67,7 +67,7 @@ describe("timeline motion styles", () => {
     expect(clipTransition).not.toMatch(/\b(?:all|left|width|top|bottom|transform)\b/);
   });
 
-  it("keeps track strips borderless until the white selection outline is active", () => {
+  it("keeps inactive strips borderless and gives selected, active and focused clips distinct edges", () => {
     const baseTimelineClipRule = expectRule(studioCss, ".timeline-clip");
     const audioTimelineClipRule = expectRule(studioCss, ".timeline-clip.is-audio");
     const selectedTimelineClipRule = expectRule(studioCss, ".timeline-clip.is-selected");
@@ -76,8 +76,13 @@ describe("timeline motion styles", () => {
     expect(baseTimelineClipRule).toContain("border: 0");
     expect(audioTimelineClipRule).not.toContain("border");
     expect(selectedTimelineClipRule).toContain(
-      "outline: 1.5px solid rgba(255, 255, 255, 0.85)",
+      "outline: 2px solid rgba(255, 255, 255, 0.98)",
     );
+    expect(selectedTimelineClipRule).toContain("outline-offset: 2px");
+    expect(expectRule(studioCss, ".timeline-clip.is-selected[data-active]")).toContain("outline: 2px solid #60a5fa");
+    expect(expectRule(studioCss, ".timeline-clip.is-selected[data-active]")).toContain("outline-offset: 2px");
+    expect(expectRule(studioCss, ".timeline-clip.is-selected.is-dragging")).toContain("outline-offset: 2px");
+    expect(expectRule(studioCss, ".timeline-clip:focus-visible")).toContain("outline: 2px solid #fbbf24");
     expect(studioCss).not.toContain(".timeline-clip[data-active] {");
     expect(studioCss).not.toContain(".timeline-clip[data-active].is-hovered");
     expect(studioCss).not.toContain(".timeline-clip::before");

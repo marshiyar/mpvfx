@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import { DESKTOP_CHANNELS } from "../../shared/desktopBridge";
+import { previewOriginForProject } from "../../shared/desktopPreviewOrigin";
 
 const transport = vi.hoisted(() => ({
   handlers: new Map<string, (...args: any[]) => any>(),
@@ -23,7 +24,7 @@ vi.mock("electron", () => ({
     unhandle: () => { transport.resource = undefined; },
   },
 }));
-import { startEditorRuntime } from "../editorRuntime";
+import { isEditorDocument, startEditorRuntime } from "../editorRuntime";
 import { resolveInstalledMediaBinaryPaths } from "../installedMediaBinaries";
 
 const contents = Object.assign(new EventEmitter(), {
@@ -62,6 +63,13 @@ afterEach(async () => {
 });
 
 describe("desktop IPC and resources", () => {
+  it("recognizes only the editor entry document for main-frame IPC", () => {
+    expect(isEditorDocument("mpvfx://editor/#project/MpVFX")).toBe(true);
+    for (const url of ["mpvfx://other@editor/", "mpvfx://editor:123/", "mpvfx://editor/api/projects/MpVFX/preview"]) {
+      expect(isEditorDocument(url)).toBe(false);
+    }
+  });
+
   it("decodes ProRes through native IPC without reading or rewriting a composition", async () => {
     const root = temporaryRoot("mpvfx-native-decode-");
     const { ffmpegPath, ffprobePath } = resolveInstalledMediaBinaryPaths();
@@ -150,14 +158,15 @@ describe("desktop IPC and resources", () => {
       new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
     );
 
-    const preview = await resource(`${server.origin.slice(0, -1)}/api/projects/MpVFX/preview`);
+    const previewOrigin = previewOriginForProject("MpVFX");
+    const preview = await resource(`${previewOrigin}/api/projects/MpVFX/preview`);
     expect(preview.status).toBe(200);
     expect(await preview.text()).toContain('/api/runtime.js');
-    const runtime = await resource(`${server.origin.slice(0, -1)}/api/runtime.js`);
+    const runtime = await resource(`${previewOrigin}/api/runtime.js`);
     expect(runtime.status).toBe(200);
     expect(runtime.headers.get("content-type")).toContain("text/javascript");
     expect(await runtime.text()).toContain("__studioNativePlayer?.reapplyFrame?.()");
-    const motionPathPlugin = await resource(`${server.origin.slice(0, -1)}/api/motion-path-plugin.js`);
+    const motionPathPlugin = await resource(`${previewOrigin}/api/motion-path-plugin.js`);
     expect(motionPathPlugin.status).toBe(200);
     expect(await motionPathPlugin.text()).toContain("MotionPathPlugin");
 
@@ -171,6 +180,36 @@ describe("desktop IPC and resources", () => {
     expect(media.status).toBe(206);
     expect(media.headers.get("content-type")).toContain("video/mp4");
     expect(Array.from(new Uint8Array(await media.arrayBuffer()))).toEqual([2, 3, 4]);
+
+    // A second project's hostname cannot read this project's preview tree.
+    expect((await resource(`${previewOriginForProject("other")}/api/projects/MpVFX/preview`)).status).toBe(403);
+    expect((await resource(`${previewOrigin}/api/projects/other/preview`)).status).toBe(403);
+    expect((await resource(`${previewOrigin}/assets/app.js`)).status).toBe(403);
+    expect((await resource(`${server.origin}api/runtime.js`)).status).toBe(403);
+    expect((await resource(`${server.origin}api/motion-path-plugin.js`)).status).toBe(403);
+    expect((await resource(`${server.origin}api/fonts/file`)).status).toBe(403);
+    expect((await resource(`${server.origin}api/projects/MpVFX/preview`)).status).toBe(403);
+    expect((await resource(`${server.origin}api/projects/MpVFX/preview/index.html`)).status).toBe(403);
+    expect((await resource(`${server.origin}api/projects/MpVFX/preview/assets/still.png`)).status).toBe(200);
+
+    writeFileSync(join(projectsDir, "MpVFX", "nested.html"), '<script>top.mpvfx.request({})</script>');
+    writeFileSync(join(projectsDir, "MpVFX", "active.svg"), '<svg xmlns="http://www.w3.org/2000/svg"><script>top.mpvfx</script></svg>');
+    writeFileSync(join(projectsDir, "MpVFX", "active.js"), "top.mpvfx.request({})");
+    for (const name of ["nested.html", "active.svg", "active.js"]) {
+      expect((await resource(`${server.origin}api/projects/MpVFX/preview/${name}`)).status).toBe(403);
+      expect((await resource(`${previewOrigin}/api/projects/MpVFX/preview/${name}`)).status).toBe(200);
+    }
+    const passive = await resource(`${server.origin}api/projects/MpVFX/preview/assets/still.png`);
+    expect(passive.headers.get("content-security-policy")).toContain("sandbox");
+    expect(passive.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
+    expect(passive.headers.get("x-content-type-options")).toBe("nosniff");
+
+    // The upstream render-file route labels unknown extensions as video/mp4.
+    // Route validation must reject those files before MIME filtering.
+    mkdirSync(join(root, "renders"), { recursive: true });
+    writeFileSync(join(root, "renders", "malicious.html"), '<script>top.mpvfx.request({})</script>');
+    const renderFile = await resource(`${server.origin}api/projects/MpVFX/renders/file/malicious.html`);
+    expect(renderFile.status).toBe(403);
   });
 
   it("does not expose files outside the renderer build", async () => {

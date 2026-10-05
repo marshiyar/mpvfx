@@ -7,12 +7,26 @@ import { invalidateGroupInfoCache } from "../../player/lib/timelineGroupInfo";
 import {
   buildPatchTarget,
   persistElementAttribute,
+  readFileContent,
   type RecordEditInput,
 } from "./timelineEditingHelpers";
+import { commitNativeTimelineAudioAttribute } from "../project/nativeTimelineAudioAttributeTransaction";
+import { NativeProjectRevisionConflictError } from "../project/nativeProjectPersistence";
+import { NATIVE_PROJECT_DOCUMENT_PATH, parseNativeProjectDocument, type NativeProjectDocument } from "../../../shared/project/nativeProjectDocument";
+import type { NativeTimelineEditingDependencies } from "./useTimelineEditingTypes";
 import type {
   MutableRef,
   UseTimelineElementVisibilityEditingInput,
 } from "./timelineTrackVisibility";
+import { reloadIsolatedGroupPreview } from "./reloadIsolatedGroupPreview";
+import { previewAgentForIframe } from "../preview/previewAgentClient";
+import type { PreviewAgentCommand } from "../../../shared/preview/agentProtocol";
+import { parseHTML } from "linkedom";
+
+type AudioGroupPreviewCommand = Extract<PreviewAgentCommand, { kind: "previewAudioGroup" }>;
+const PREVIEW_GROUP_ATTRIBUTES = new Set<AudioGroupPreviewCommand["attribute"]>([
+  "data-volume", "data-hidden", "data-fx-chain", "data-automation", "data-label",
+]);
 
 /** Direct DOM write on the group element for the gesture in progress — no
  *  file write, no history entry (mirrors FxParamRow's live/commit split). */
@@ -133,6 +147,50 @@ export function resolveGroupSourceFile(groupEl: Element | null): string | undefi
   return undefined;
 }
 
+function groupSourceCandidates(
+  activeCompPath: string | null,
+  groupId: string,
+  native: NativeProjectDocument | null,
+  liveGroup: Element | null,
+): string[] {
+  const store = usePlayerStore.getState();
+  const candidates = [activeCompPath || "index.html", resolveGroupSourceFile(liveGroup),
+    ...(store.clipManifest ?? []).map(clip => clip.compositionSrc),
+    ...store.elements.filter(element => element.audioGroup === groupId).map(element => element.sourceFile),
+    ...(native?.sequence.tracks.flatMap(track => track.clips
+      .filter(clip => clip.audioGroupId === groupId).map(clip => clip.binding?.sourceFile)) ?? []),
+  ];
+  const safePaths = [...new Set(candidates.filter((path): path is string =>
+    typeof path === "string" && path.length > 0 && path.length <= 512 &&
+    !path.startsWith("/") && !path.includes("\\") && !path.includes("\0") &&
+    !path.includes("?") && !path.includes("#") &&
+    path.split("/").every(part => part && part !== "." && part !== "..") &&
+    path.toLowerCase().endsWith(".html")))];
+  if (safePaths.length > 128) throw new Error("Too many audio group source candidates");
+  return safePaths;
+}
+
+/** Source bytes, not an authored-frame observation, decide which file owns a bus. */
+export async function resolveUniqueAudioGroupSourceFile(
+  groupId: string,
+  candidates: readonly string[],
+  read: (path: string) => Promise<string | null | undefined>,
+): Promise<string> {
+  let found: string | null = null;
+  for (const path of candidates) {
+    const content = await read(path);
+    if (content == null) continue;
+    const matches = [...parseHTML(content).document.querySelectorAll("hf-audio-group[id]")]
+      .filter(element => element.id === groupId);
+    if (matches.length > 1 || (matches.length === 1 && found)) {
+      throw new Error(`Audio group ${groupId} has an ambiguous source`);
+    }
+    if (matches.length === 1) found = path;
+  }
+  if (!found) throw new Error(`Audio group ${groupId} has no unique source file`);
+  return found;
+}
+
 interface SetAudioGroupAttributeInput {
   projectId: string;
   activeCompPath: string | null;
@@ -175,7 +233,9 @@ async function setAudioGroupAttribute({
   // FX preset throws "Unable to patch element in index.html". Every sibling
   // timeline writer already routes `element.sourceFile || activeCompPath`.
   const groupEl = previewIframe?.contentDocument?.getElementById(groupId) ?? null;
-  const targetPath = resolveGroupSourceFile(groupEl) || activeCompPath || "index.html";
+  const targetPath = await resolveUniqueAudioGroupSourceFile(groupId,
+    groupSourceCandidates(activeCompPath, groupId, null, groupEl),
+    path => readFileContent(projectId, path).catch(() => null));
   const patchTarget = buildPatchTarget({ domId: groupId });
   if (!patchTarget) return [];
 
@@ -211,13 +271,31 @@ export function useSetAudioGroupAttribute({
   previewIframeRef,
   pendingTimelineEditPathRef,
   isRecordingRef,
-}: UseTimelineElementVisibilityEditingInput): {
+  nativeProjectEditing,
+  nativeDocumentRef,
+  editQueueRef,
+  reloadPreview,
+}: UseTimelineElementVisibilityEditingInput & {
+  nativeProjectEditing?: NativeTimelineEditingDependencies;
+  nativeDocumentRef?: MutableRef<NativeProjectDocument | null>;
+  editQueueRef?: MutableRef<Promise<unknown>>;
+  reloadPreview?: () => void;
+}): {
   setLive: (groupId: string, attr: string, value: string | null) => void;
   setQuiet: (groupId: string, attr: string, value: string | null, label: string) => Promise<void>;
 } {
   const setLive = useCallback(
     (groupId: string, attr: string, value: string | null) => {
-      patchLiveGroupAttribute(previewIframeRef.current, groupId, attr, value);
+      const iframe = previewIframeRef.current;
+      patchLiveGroupAttribute(iframe, groupId, attr, value);
+      const agent = iframe ? previewAgentForIframe(iframe) : null;
+      if (agent?.isReady && PREVIEW_GROUP_ATTRIBUTES.has(attr as AudioGroupPreviewCommand["attribute"])) {
+        void agent.request({ kind: "previewAudioGroup", groupId,
+          attribute: attr as AudioGroupPreviewCommand["attribute"], value }).catch(() => {
+          // Navigation can retire a live preview request; the durable release
+          // transaction still saves the group and reloads the isolated frame.
+        });
+      }
       // Live too, not just on commit: a fader drag is `setLive` per frame and
       // `setQuiet` once on release, so without this the strip's own readout
       // fights the drag.
@@ -233,6 +311,61 @@ export function useSetAudioGroupAttribute({
       }
       const pid = projectIdRef.current;
       if (!pid) return;
+      const native = nativeDocumentRef?.current;
+      const nativeGroup = native?.sequence.audioGroups?.find(group => group.id === groupId);
+      const liveGroup = previewIframeRef.current?.contentDocument?.getElementById(groupId) ?? null;
+      if (native && nativeGroup && nativeProjectEditing && editQueueRef) {
+        const previous = attr === "data-volume" ? (nativeGroup.volume == null ? null : String(nativeGroup.volume))
+          : attr === "data-hidden" ? (nativeGroup.muted ? "" : null)
+          : attr === "data-fx-chain" ? nativeGroup.fxChain ?? null
+          : attr === "data-automation" ? nativeGroup.automation ?? null
+          : attr === "data-label" ? nativeGroup.label ?? null : null;
+        const operation = editQueueRef.current.then(async () => {
+          const commitAgainst = async (document: NativeProjectDocument) => {
+            const sourceFile = await resolveUniqueAudioGroupSourceFile(groupId,
+              groupSourceCandidates(activeCompPath, groupId, document, liveGroup),
+              nativeProjectEditing.readOptionalProjectFile);
+            await commitNativeTimelineAudioAttribute({
+              expectedRevision: document.revision,
+              target: { kind: "group", id: groupId, sourceFile }, attr, value, label,
+              readOptionalProjectFile: nativeProjectEditing.readOptionalProjectFile,
+              writeProjectFile, recordEdit,
+              commitFileTransaction: nativeProjectEditing.commitFileTransaction,
+              onCommitted: next => {
+                nativeDocumentRef.current = next;
+                nativeProjectEditing.onNativeDocumentCommitted(next);
+              },
+            });
+            return sourceFile;
+          };
+          let sourceFile: string;
+          try { sourceFile = await commitAgainst(nativeDocumentRef.current ?? native); }
+          catch (error) {
+            if (!(error instanceof NativeProjectRevisionConflictError)) throw error;
+            const content = await nativeProjectEditing.readOptionalProjectFile(NATIVE_PROJECT_DOCUMENT_PATH);
+            if (!content) throw error;
+            const latest = parseNativeProjectDocument(JSON.parse(content));
+            nativeDocumentRef.current = latest;
+            sourceFile = await commitAgainst(latest);
+          }
+          return sourceFile;
+        });
+        editQueueRef.current = operation.catch(() => undefined);
+        try {
+          const sourceFile = await operation;
+          domEditSaveTimestampRef.current = Date.now();
+          pendingTimelineEditPathRef.current.add(sourceFile);
+          pendingTimelineEditPathRef.current.add(NATIVE_PROJECT_DOCUMENT_PATH);
+          patchLiveGroupAttribute(previewIframeRef.current, groupId, attr, value);
+          syncStoredGroupAttribute(groupId, attr, value);
+          reloadIsolatedGroupPreview(previewIframeRef.current, reloadPreview);
+        } catch (error) {
+          patchLiveGroupAttribute(previewIframeRef.current, groupId, attr, previous);
+          syncStoredGroupAttribute(groupId, attr, previous);
+          showToast(error instanceof Error ? error.message : "Failed to update group", "error");
+        }
+        return;
+      }
       try {
         await setAudioGroupAttribute({
           projectId: pid,
@@ -248,6 +381,7 @@ export function useSetAudioGroupAttribute({
           pendingTimelineEditPathRef,
         });
         syncStoredGroupAttribute(groupId, attr, value);
+        reloadIsolatedGroupPreview(previewIframeRef.current, reloadPreview);
       } catch (error) {
         // `persistElementAttribute` leaves the live DOM at the previous value
         // however it failed — it unwinds a failed save, and an unresolvable
@@ -274,6 +408,10 @@ export function useSetAudioGroupAttribute({
       isRecordingRef,
       showToast,
       projectIdRef,
+      nativeProjectEditing,
+      nativeDocumentRef,
+      editQueueRef,
+      reloadPreview,
     ],
   );
   return { setLive, setQuiet };

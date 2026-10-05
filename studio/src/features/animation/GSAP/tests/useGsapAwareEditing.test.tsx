@@ -12,6 +12,7 @@ import { mountReactHarness } from "../../../canvas/domSelectionTestHarness";
 const mocks = vi.hoisted(() => ({
   resize: vi.fn(),
   drag: vi.fn(),
+  rotation: vi.fn(),
   readPosition: vi.fn(),
   setPosition: vi.fn(),
   commitAnimatedProperty: vi.fn(),
@@ -19,13 +20,14 @@ const mocks = vi.hoisted(() => ({
   projectCommitAnimatedProperty: vi.fn(),
   projectCommitAnimatedProperties: vi.fn(),
   isNativeSelection: vi.fn(),
+  projectCommitNativeGroupProperties: vi.fn(),
 }));
 
 vi.mock("../gsapResizeIntercept", () => ({ tryGsapResizeIntercept: mocks.resize }));
 vi.mock("../gsapRuntimeBridge", () => ({
   POSITION_CHANNELS: ["x", "y"],
   tryGsapDragIntercept: mocks.drag,
-  tryGsapRotationIntercept: vi.fn(),
+  tryGsapRotationIntercept: mocks.rotation,
 }));
 vi.mock("../gsapPositionDetection", () => ({
   readGsapPositionFromIframe: mocks.readPosition,
@@ -42,6 +44,7 @@ vi.mock("../../useProjectAnimatedPropertyCommit", () => ({
     commitAnimatedProperty: mocks.projectCommitAnimatedProperty,
     commitAnimatedProperties: mocks.projectCommitAnimatedProperties,
     isNativeSelection: mocks.isNativeSelection,
+    commitNativeGroupProperties: mocks.projectCommitNativeGroupProperties,
   }),
 }));
 vi.mock("../useSafeGsapCommitMutation", () => ({
@@ -104,13 +107,14 @@ function mountGroupHandler({
 }: Pick<AwareEditingParams, "gsapCommitMutation" | "makeFetchFallback"> &
   Partial<Pick<AwareEditingParams, "trackGsapInteractionFailure">>) {
   let groupCommit!: (updates: DomEditGroupPathOffsetCommit[]) => Promise<void>;
+  const showToast = vi.fn();
   function Harness() {
     groupCommit = useGsapAwareEditing({
       domEditSelection: null,
       selectedGsapAnimations: [],
       gsapCommitMutation,
       previewIframeRef: { current: null },
-      showToast: vi.fn(),
+      showToast,
       bumpGsapCache: vi.fn(),
       makeFetchFallback,
       trackGsapInteractionFailure,
@@ -123,10 +127,50 @@ function mountGroupHandler({
     return null;
   }
   const root = mountReactHarness(<Harness />);
-  return { groupCommit: (updates: DomEditGroupPathOffsetCommit[]) => groupCommit(updates), root };
+  return { groupCommit: (updates: DomEditGroupPathOffsetCommit[]) => groupCommit(updates), showToast, root };
 }
 
 describe("useGsapAwareEditing anchored resize", () => {
+  it("commits cropped rotation and its pivot position in one native revision", async () => {
+    mocks.isNativeSelection.mockReturnValue(true);
+    const h = mountResizeHandler([]);
+    h.selection.element.style.cssText = "width: 200px; height: 100px; clip-path: inset(10px 20px 30px 40px)";
+    h.selection.element.setAttribute("data-hf-drag-gsap-base-x", "240");
+    h.selection.element.setAttribute("data-hf-drag-gsap-base-y", "180");
+    await act(() => h.api.handleGsapAwareRotationCommit(
+      h.selection, { angle: 90 }, { x: 10, y: -10 },
+    ));
+    expect(mocks.projectCommitAnimatedProperties).toHaveBeenCalledTimes(1);
+    expect(mocks.projectCommitAnimatedProperties).toHaveBeenCalledWith(
+      h.selection, { rotation: 90, x: 250, y: 170 },
+      { intent: "edit", cropPivotFraction: { x: 0.05, y: -0.1 } },
+    );
+    act(() => h.root.unmount());
+  });
+
+  it("batches a legacy cropped rotation with its pivot position", async () => {
+    const h = mountResizeHandler([]);
+    const batch = vi.fn().mockResolvedValue(undefined);
+    Object.assign(h.commitMutation, { batch });
+    mocks.rotation.mockImplementation(async (selection, angle, _animations, _iframe, commit) => {
+      await commit(selection, { type: "rotation-test", angle }, { label: "Rotate layer" });
+      return { status: "persisted" };
+    });
+    mocks.drag.mockImplementation(async (selection, offset, _animations, _iframe, commit) => {
+      await commit(selection, { type: "position-test", offset }, { label: "Move layer" });
+      return { status: "persisted" };
+    });
+    await act(() => h.api.handleGsapAwareRotationCommit(
+      h.selection, { angle: 90 }, { x: 10, y: -10 },
+    ));
+    expect(batch).toHaveBeenCalledTimes(1);
+    expect(batch.mock.calls[0]![0]).toEqual(expect.arrayContaining([
+      expect.objectContaining({ mutation: { type: "rotation-test", angle: 90 } }),
+      expect.objectContaining({ mutation: { type: "position-test", offset: { x: 10, y: -10 } } }),
+    ]));
+    act(() => h.root.unmount());
+  });
+
   it("commits a native drag from its captured starting position, not from zero", async () => {
     mocks.isNativeSelection.mockReturnValue(true);
     const h = mountResizeHandler([]);
@@ -304,6 +348,57 @@ describe("useGsapAwareEditing anchored resize", () => {
     // Both members share ONE coalesceKey → they fold into a single undo entry.
     expect(capturedKeys[0]).toBe(capturedKeys[1]);
     act(() => root.unmount());
+  });
+
+  it("moves native group members in one native commit and never through GSAP", async () => {
+    const nativeA = { element: document.createElement("div"), id: "a", selector: "#a" };
+    const nativeB = { element: document.createElement("div"), id: "b", selector: "#b" };
+    mocks.isNativeSelection.mockReturnValue(true);
+    mocks.projectCommitNativeGroupProperties.mockResolvedValue(undefined);
+    const commitMutation = vi.fn().mockResolvedValue(undefined);
+    const { groupCommit, root } = mountGroupHandler({
+      gsapCommitMutation: commitMutation,
+      makeFetchFallback: () => vi.fn().mockResolvedValue([]),
+    });
+
+    await act(() => groupCommit([
+      { selection: nativeA, next: { x: 10, y: 20 } },
+      { selection: nativeB, next: { x: -5, y: 7 } },
+    ] as unknown as DomEditGroupPathOffsetCommit[]));
+
+    expect(mocks.projectCommitNativeGroupProperties).toHaveBeenCalledTimes(1);
+    expect(mocks.projectCommitNativeGroupProperties).toHaveBeenCalledWith([
+      { selection: nativeA, properties: { x: 10, y: 20 } },
+      { selection: nativeB, properties: { x: -5, y: 7 } },
+    ], "Move layers");
+    expect(mocks.drag).not.toHaveBeenCalled();
+    expect(commitMutation).not.toHaveBeenCalled();
+    act(() => root.unmount());
+  });
+
+  it("rejects a mixed native and GSAP group before either history writer runs", async () => {
+    const native = { element: document.createElement("div"), id: "native", selector: "#native" };
+    const legacy = { element: document.createElement("div"), id: "legacy", selector: "#legacy" };
+    mocks.isNativeSelection.mockImplementation((selection: DomEditSelection) => selection.id === "native");
+    mocks.projectCommitNativeGroupProperties.mockResolvedValue(undefined);
+    const commitMutation = vi.fn().mockResolvedValue(undefined);
+    const { groupCommit, showToast, root } = mountGroupHandler({
+      gsapCommitMutation: commitMutation,
+      makeFetchFallback: () => vi.fn().mockResolvedValue([]),
+    });
+    try {
+      await expect(groupCommit([
+        { selection: native, next: { x: 10, y: 20 } },
+        { selection: legacy, next: { x: 5, y: 7 } },
+      ] as unknown as DomEditGroupPathOffsetCommit[])).rejects.toThrow("native and authored layers");
+      expect(mocks.projectCommitNativeGroupProperties).not.toHaveBeenCalled();
+      expect(commitMutation).not.toHaveBeenCalled();
+      expect(mocks.drag).not.toHaveBeenCalled();
+      expect(showToast).toHaveBeenCalledOnce();
+      expect(showToast).toHaveBeenCalledWith(expect.stringContaining("native and authored layers"), "error");
+    } finally {
+      act(() => root.unmount());
+    }
   });
 
   it("preflights every group member before the first mutation", async () => {

@@ -22,7 +22,11 @@ import { clipTimingStart } from "../../features/animation/GSAP/gsapShared";
 import { getTimelineEditCapabilities } from "./timelineEditing";
 import { CLIP_Y, EFFECT_STRIP_H, timelineMediaRowCount, getTimelineLaneTop } from "./timelineLayout";
 import { usePlayerStore } from "../store/playerStore";
-import { isMultiDragPassenger, multiDragPassengerOffsetPx } from "./timelineMultiDragPreview";
+import {
+  isMultiDragPassenger,
+  multiDragPassengerOffsetPx,
+  multiDragPassengerRowOffsetPx,
+} from "./timelineMultiDragPreview";
 import { useTimelineMultiDragActorWindows } from "./useTimelineMultiDragActorWindows";
 import type { TimelineLanesProps } from "./timelineLaneProps";
 import { isAudioTimelineElement, isMusicTrack } from "../../features/timeline/timelineInspector";
@@ -129,6 +133,25 @@ export function TimelineLanes({
     rowsVirtualized,
     renderTimeRange,
   );
+  // Virtual rows normally include only the viewport and one active row. A
+  // passenger can start outside it and be translated into it during a rigid
+  // group move; mount just those source rows whose destination is visible.
+  const renderedRows = useMemo(() => {
+    if (!rowsVirtualized || !multiDragPreview?.groupRowDelta) return virtualRows;
+    const visible = new Set(virtualRows.map((row) => row.index));
+    const extra = new Set<number>();
+    for (const [track, members] of tracks) {
+      if (!members.some((member) => multiDragPreview.selectedKeys.has(getTimelineElementIdentity(member)))) {
+        continue;
+      }
+      const origin = rowGeometry.getRowIndex(track);
+      if (origin >= 0 && visible.has(origin + multiDragPreview.groupRowDelta)) extra.add(origin);
+    }
+    if (extra.size === 0) return virtualRows;
+    return [...virtualRows, ...[...extra].filter((index) => !visible.has(index)).map((index) => ({
+      index, rowKey: rowGeometry.rowKeys[index]!,
+    }))].sort((left, right) => left.index - right.index);
+  }, [multiDragPreview, rowGeometry, rowsVirtualized, tracks, virtualRows]);
   const keyboard = useTimelineKeyboardActor({
     logicalRows,
     focusedTargetId,
@@ -150,7 +173,7 @@ export function TimelineLanes({
     >
       {
         // fallow-ignore-next-line complexity
-        virtualRows.map(({ index: row, rowKey }) => {
+        renderedRows.map(({ index: row, rowKey }) => {
           const trackNum = displayTrackOrder[row];
           if (trackNum === undefined) return null;
           const group = groupByAnchor.get(trackNum);
@@ -418,6 +441,9 @@ export function TimelineLanes({
                     const passengerOffsetPx = isPassenger
                       ? multiDragPassengerOffsetPx(clipKey, pps, multiDragPreview)
                       : 0;
+                    const passengerRowOffsetPx = isPassenger && multiDragPreview
+                      ? multiDragPassengerRowOffsetPx(el.track, multiDragPreview, rowGeometry)
+                      : 0;
                     const clipGestures = createClipGestureHandlers(
                       el,
                       elementKey,
@@ -602,7 +628,7 @@ export function TimelineLanes({
                         key={clipKey}
                         className="absolute inset-0"
                         style={{
-                          transform: `translateX(${passengerOffsetPx}px)`,
+                          transform: `translate(${passengerOffsetPx}px, ${passengerRowOffsetPx}px)`,
                           opacity: 0.85,
                           zIndex: 20,
                           pointerEvents: "none",

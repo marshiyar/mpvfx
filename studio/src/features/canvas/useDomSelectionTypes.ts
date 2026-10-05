@@ -2,13 +2,14 @@ import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type { DomEditSelection } from "./domEditing";
 import type { SelectElementOptions, TimelineElement } from "../../player/index";
 import type { RightPanelTab } from "../../lib/studioHelpers";
+import type { PreviewElementState } from "../../../shared/preview/agentProtocol";
 
 export interface ApplyDomSelectionOptions {
   revealPanel?: boolean;
   additive?: boolean;
   preserveGroup?: boolean;
-  // A clear that came FROM the timeline must not be echoed back, or picking a
-  // clip with no canvas node would deselect the clip you just picked.
+  // A selection coming FROM the timeline must not be echoed back; the preview
+  // can resolve after a newer click or temporarily lack the matching DOM node.
   announce?: boolean;
 }
 
@@ -39,6 +40,8 @@ export interface UseDomSelectionParams {
 export interface UseDomSelectionReturn {
   // State
   domEditSelection: DomEditSelection | null;
+  /** Data returned by the isolated preview agent, never a parent-owned DOM node. */
+  remoteSelection: PreviewElementState | null;
   domEditGroupSelections: DomEditSelection[];
   domEditHoverSelection: DomEditSelection | null;
   activeGroupElement: HTMLElement | null;
@@ -77,5 +80,7 @@ export interface UseDomSelectionReturn {
   handleTimelineElementSelect: (element: TimelineElement | null) => Promise<void>;
   refreshDomEditSelectionFromPreview: (selection: DomEditSelection) => Promise<void>;
   refreshDomEditGroupSelectionsFromPreview: (selections: DomEditSelection[]) => Promise<void>;
-  applyMarqueeSelection: (selections: DomEditSelection[], additive: boolean) => void;
+  applyMarqueeSelection: (
+    selections: DomEditSelection[], additive: boolean, options?: { announce?: boolean },
+  ) => void;
 }

@@ -275,7 +275,7 @@ export function useTimelineGroupEditing({
             selector: change.element.selector,
             selectorIndex: change.element.selectorIndex,
           });
-          if (resolution.ok && resolution.located.clip.binding) {
+          if (resolution.ok) {
             nativeEntries.push({ change, clipId: resolution.located.clip.id });
           }
         }
@@ -376,7 +376,7 @@ export function useTimelineGroupEditing({
               coalesceMs,
               patchCompatibilityContent: (original, edit) => {
                 const change = nativeChangeByClipId.get(edit.address.clipId);
-                const target = change ? buildPatchTarget(change.element) : null;
+                const target = buildPatchTarget(edit.binding);
                 if (!change || !target) return original;
                 return buildTimelineMoveTimingPatch(
                   original,
@@ -537,7 +537,7 @@ export function useTimelineGroupEditing({
             selector: change.element.selector,
             selectorIndex: change.element.selectorIndex,
           });
-          if (resolution.ok && resolution.located.clip.binding) {
+          if (resolution.ok) {
             nativeEntries.push({ change, clipId: resolution.located.clip.id });
           }
         }
@@ -623,7 +623,7 @@ export function useTimelineGroupEditing({
               coalesceMs,
               patchCompatibilityContent: (original, edit) => {
                 const change = nativeChangeByClipId.get(edit.address.clipId);
-                const target = change ? buildPatchTarget(change.element) : null;
+                const target = buildPatchTarget(edit.binding);
                 if (!change || !target) return original;
                 return buildTimelineResizeTimingPatch(
                   original,

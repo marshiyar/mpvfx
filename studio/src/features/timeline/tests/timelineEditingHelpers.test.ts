@@ -40,6 +40,11 @@ function el(input: Partial<TimelineElement> & { id: string; tag: string }): Time
   };
 }
 
+it("does not change root duration when a timing patch cannot find its clip", () => {
+  const source = '<main data-composition-id="main" data-duration="9"><video id="authored" data-start="0" data-duration="2"></video></main>';
+  expect(buildTimelineMoveTimingPatch(source, { id: "preview-only" }, 1, 2)).toBe(source);
+});
+
 describe("applyTimelineStackingReorder", () => {
   it("commits via the change's own locator even when the element is not in timelineElements", () => {
     // Sub-comp children live in the preview iframe but NOT in the top-level

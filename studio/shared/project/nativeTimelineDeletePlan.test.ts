@@ -165,7 +165,7 @@ describe("native timeline delete planner", () => {
     })).toMatchObject({ ok: false, failure: { code: "ambiguous-clip" } });
   });
 
-  it("rejects a mixed valid and unbound target set without mutation", () => {
+  it("deletes bound and native-only clips together without mutating the input", () => {
     const original = project();
     const unbound = {
       ...original,
@@ -183,7 +183,11 @@ describe("native timeline delete planner", () => {
       targets: [targetA, { attributes: { "data-studio-clip-id": "clip:b" } }],
     });
 
-    expect(result).toMatchObject({ ok: false, failure: { code: "unbound-clip", targetIndex: 1 } });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.sourceFiles).toEqual(["z.html"]);
+    expect(result.document.sequence.tracks[0]!.clips).toEqual([]);
+    expect(result.document.sequence.tracks[1]).toEqual(unbound.sequence.tracks[1]);
     expect(JSON.stringify(unbound)).toBe(before);
   });
 
@@ -205,7 +209,8 @@ describe("native timeline delete planner", () => {
         attributes: { "data-studio-clip-id": "clip:a" },
         sourceFile: "wrong.html",
       }],
-    })).toMatchObject({ ok: false, failure: { code: "binding-source-mismatch" } });
+    // Exact selection resolution rejects the wrong source before planning a delete.
+    })).toMatchObject({ ok: false, failure: { code: "clip-not-found" } });
   });
 
   it("rejects an empty target set", () => {

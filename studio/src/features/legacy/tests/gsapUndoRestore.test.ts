@@ -105,6 +105,19 @@ function buildLiveIframe(bodyHtml: string) {
 describe("applyUndoRestoreToPreview", () => {
   const ROOT = "index.html";
 
+  it("reloads an isolated preview without partially applying an undo", () => {
+    const iframe = Object.defineProperty({}, "contentDocument", {
+      get: () => { throw new DOMException("cross origin", "SecurityError"); },
+    }) as HTMLIFrameElement;
+    const reloadPreview = vi.fn();
+    const previous = wrap('<div id="a" style="left: 10px">t</div>');
+    const restored = wrap('<div id="a" style="left: 20px">t</div>');
+    expect(applyUndoRestoreToPreview(iframe, ROOT, {
+      [ROOT]: { previous, restored },
+    }, 2, reloadPreview)).toBe("full");
+    expect(reloadPreview).toHaveBeenCalledTimes(1);
+  });
+
   it("restores multiple sibling media fragments without creating native source documents", () => {
     const previous = '<video id="a" src="a.mp4" data-start="2"></video>' +
       '<audio id="b" src="b.wav" data-start="4"></audio>';

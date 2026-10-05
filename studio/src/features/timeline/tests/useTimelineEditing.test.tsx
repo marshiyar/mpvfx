@@ -32,6 +32,11 @@ vi.mock("../../canvas/manualEditingAvailability", async (importOriginal) => {
   };
 });
 
+vi.mock("../../../lib/studioHelpers", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../lib/studioHelpers")>();
+  return { ...actual, resolveDroppedAssetDuration: vi.fn(async () => 4.004) };
+});
+
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 type ZIndexEntry = {
@@ -1526,8 +1531,8 @@ describe("useTimelineEditing duration rollback on failed persist", () => {
       projectId: "p1",
       writeProjectFile,
       recordEdit: vi.fn(async () => {}),
-      reloadPreview: vi.fn(),
       showToast,
+      reloadPreview: vi.fn(),
     });
     return { iframe, clip, hook, showToast, writeError };
   }
@@ -2020,6 +2025,7 @@ describe("useTimelineEditing native-canonical media insertion seam", () => {
     const recordEdit = vi.fn(async () => {
       throw new Error("wrapper drop must not create a separate browser history edit");
     });
+    const showToast = vi.fn();
     const hook = renderTimelineEditingHook({
       timelineElements: [],
       iframe,
@@ -2027,6 +2033,7 @@ describe("useTimelineEditing native-canonical media insertion seam", () => {
       projectId: "native-wrapper-drop",
       writeProjectFile,
       recordEdit,
+      showToast,
       reloadPreview,
       forceReloadSdkSession,
       nativeProjectEditing: {

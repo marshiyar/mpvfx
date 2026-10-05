@@ -22,6 +22,7 @@ interface DesktopAppDependencies {
   prepareRenderer(): Promise<void>;
   createWindow(): DesktopWindowHandle;
   closeSharedBrowser(): Promise<void>;
+  flushRenderer?(): Promise<void>;
 }
 
 export function shouldQuitWhenAllWindowsClosed(platform: NodeJS.Platform): boolean {
@@ -110,8 +111,13 @@ export function createDesktopAppController(
     },
     async close() {
       if (closePromise) return closePromise;
+      // Close must claim the lifetime before yielding to a pending startup.
+      // Otherwise startRuntime can resolve while close waits and open a window
+      // that teardown did not intend to show.
       stopping = true;
       const pending = (async () => {
+        await startPromise?.catch(() => {});
+        await dependencies.flushRenderer?.();
         let windowCloseError: unknown;
         const destroyActiveWindow = () => {
           const activeWindow = window;
@@ -142,7 +148,12 @@ export function createDesktopAppController(
         if (rejected) throw rejected.reason;
       })();
       closePromise = pending;
-      return pending;
+      try { return await pending; }
+      catch (error) {
+        closePromise = null;
+        if (runtime) stopping = false;
+        throw error;
+      }
     },
     origin() {
       return runtime?.origin ?? null;

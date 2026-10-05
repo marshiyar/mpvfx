@@ -1,19 +1,24 @@
+import { LibraryService } from "../runtime/index";
+import { dispatchLibraryCommand } from "./libraryCommands";
+import { launchCrosspost, resolveCrosspostRender } from "./crosspostCommands";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ipcMain, protocol, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from "electron";
 import { createStudioRuntime } from "../runtime/index";
 import { DESKTOP_CHANNELS, DESKTOP_ORIGIN, type DesktopRequest, type DesktopResponse } from "../shared/desktopBridge";
+import { projectIdFromPreviewHost } from "../shared/desktopPreviewOrigin";
 
 const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8", ".json": "application/json", ".svg": "image/svg+xml",
   ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".ico": "image/x-icon",
   ".webp": "image/webp", ".woff": "font/woff", ".woff2": "font/woff2", ".wasm": "application/wasm",
 };
 const EDITOR_CSP = [
   "default-src 'self' blob: data:", "script-src 'self'", "style-src 'self' 'unsafe-inline'",
-  "connect-src 'self'", "frame-src 'self' blob:", "worker-src 'self' blob:",
+  "connect-src 'self'", "frame-src mpvfx://*.preview blob:", "worker-src 'self' blob:",
   "object-src 'none'", "base-uri 'self'", "frame-ancestors 'none'",
 ].join("; ");
 
@@ -26,18 +31,55 @@ export function isEditorDocument(url: string): boolean {
   try {
     const parsed = new URL(url);
     return parsed.protocol === "mpvfx:" && parsed.host === "editor" &&
-      parsed.pathname === "/";
+      !parsed.username && !parsed.password && !parsed.port && parsed.pathname === "/";
   } catch { return false; }
 }
 
-export function isResourcePath(path: string): boolean {
+const SHARED_PREVIEW_PATHS = new Set(["/api/runtime.js", "/api/motion-path-plugin.js", "/api/fonts/file"]);
+const EDITOR_RESOURCE_CSP = "default-src 'none'; sandbox; frame-ancestors 'none'";
+
+export function isEditorResourcePath(path: string): boolean {
   return /^\/api\/projects\/[^/]+\/(?:preview|thumbnail|waveform)(?:\/|$)/.test(path) ||
-    /^\/api\/projects\/[^/]+\/renders\/file\//.test(path) ||
-    /^\/api\/render\/[^/]+\/(?:view|download)$/.test(path) ||
-    ["/api/runtime.js", "/api/motion-path-plugin.js", "/api/fonts/file"].includes(path);
+    /^\/api\/projects\/[^/]+\/renders\/file\/[^?#]+\.(?:mp4|webm|mov)$/i.test(path) ||
+    /^\/api\/render\/[^/]+\/(?:view|download)$/.test(path);
+}
+
+export function isPreviewResourcePath(path: string, projectId: string): boolean {
+  if (SHARED_PREVIEW_PATHS.has(path)) return true;
+  const match = /^\/api\/projects\/([^/]+)\/preview(?:\/|$)/.exec(path);
+  if (!match) return false;
+  try {
+    return match[1] === encodeURIComponent(projectId) && decodeURIComponent(match[1]) === projectId;
+  } catch { return false; }
+}
+
+function protectEditorResource(response: Response, path: string): Response {
+  const type = response.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase();
+  const safeTypes = new Set([
+    "image/jpeg", "image/png", "image/gif", "image/webp", "image/avif", "image/bmp",
+    "video/mp4", "video/webm", "video/quicktime", "video/x-msvideo", "video/mxf", "video/mp2t",
+    "audio/mpeg", "audio/mp4", "audio/wav", "audio/wave", "audio/x-wav", "audio/ogg", "audio/flac", "audio/aac",
+    "font/woff", "font/woff2", "font/ttf", "font/otf", "font/collection",
+    "application/font-woff", "application/vnd.ms-fontobject", "application/json",
+  ]);
+  // Older project markup can contain absolute editor-origin media URLs. Keep
+  // only passive media there; authored HTML, SVG, CSS and scripts belong to the
+  // project preview origin even when embedded as a nested frame.
+  if (response.ok && (!safeTypes.has(type ?? "") ||
+      (/^\/api\/projects\/[^/]+\/preview(?:\/|$)/.test(path) && type === "application/json"))) {
+    return new Response(null, { status: 403 });
+  }
+  const headers = new Headers(response.headers);
+  headers.set("Content-Security-Policy", EDITOR_RESOURCE_CSP);
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("Referrer-Policy", "no-referrer");
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
 interface Options {
+  crosspostDir?: string;
+  libraryModulePath?: string;
+  userDataPath?: string;
   staticDir: string;
   projectsDir: string;
   studioDir: string;
@@ -46,7 +88,11 @@ interface Options {
 
 /** Owns native commands, subscriptions and packaged resources. Opens no network listener. */
 export async function startEditorRuntime(options: Options) {
+  const libraries = options.libraryModulePath && options.userDataPath
+    ? new LibraryService(options.userDataPath, options.libraryModulePath) : undefined;
+  await libraries?.restore();
   const runtime = createStudioRuntime({
+    libraries,
     projectsDir: options.projectsDir,
     adapterHost: {
       studioDir: options.studioDir,
@@ -110,6 +156,28 @@ export async function startEditorRuntime(options: Options) {
     subscriptions.delete(subscriptionKey);
   };
   ipcMain.handle(DESKTOP_CHANNELS.request, dispatch);
+  ipcMain.handle(DESKTOP_CHANNELS.crosspost, async (event, projectId: string, filename: string) => {
+    assertEditor(event);
+    if (!options.crosspostDir || !options.userDataPath) throw new Error("Publishing is unavailable");
+    if (typeof projectId !== "string" || !projectId || /[/\\\x00-\x1f]/.test(projectId)) throw new Error("Invalid project");
+    await runtime.withProject(projectId, async () => {
+      const root = libraries?.outputDirectory(projectId) ?? resolve(options.projectsDir, "../renders");
+      const file = await resolveCrosspostRender(root, filename);
+      await launchCrosspost(options.crosspostDir!, options.userDataPath!, file);
+    });
+  });
+  ipcMain.handle(DESKTOP_CHANNELS.library, async (event, command) => {
+    assertEditor(event);
+    if (!libraries) throw new Error("Library service is unavailable");
+    return dispatchLibraryCommand(libraries, runtime, command);
+  });
+  ipcMain.handle(DESKTOP_CHANNELS.importFiles, async (event, projectId: string, paths: string[], directory?: string) => {
+    assertEditor(event);
+    if (typeof projectId !== "string" || !projectId || /[/\\\x00-\x1f]/.test(projectId) ||
+        !Array.isArray(paths) || !paths.length || paths.some(path => typeof path !== "string" || !isAbsolute(path)) ||
+        (directory !== undefined && typeof directory !== "string")) throw new Error("Invalid media import");
+    return runtime.importFiles(projectId, paths, directory);
+  });
   ipcMain.on(DESKTOP_CHANNELS.cancel, cancel);
   ipcMain.handle(DESKTOP_CHANNELS.subscribe, async (event, id: string, path: string) => {
     assertEditor(event);
@@ -131,10 +199,17 @@ export async function startEditorRuntime(options: Options) {
 
   protocol.handle("mpvfx", async (request) => {
     const url = new URL(request.url);
-    if (closed || url.host !== "editor") return new Response("Not found", { status: 404 });
+    if (closed || url.username || url.password || url.port) return new Response("Not found", { status: 404 });
     if (request.method !== "GET" && request.method !== "HEAD") return new Response(null, { status: 405 });
+    const previewProject = projectIdFromPreviewHost(url.host);
+    if (previewProject !== null) {
+      return isPreviewResourcePath(url.pathname, previewProject)
+        ? runtime.handle(request) : new Response(null, { status: 403 });
+    }
+    if (url.host !== "editor") return new Response("Not found", { status: 404 });
     if (url.pathname.startsWith("/api/")) {
-      return isResourcePath(url.pathname) ? runtime.handle(request) : new Response(null, { status: 403 });
+      return isEditorResourcePath(url.pathname)
+        ? protectEditorResource(await runtime.handle(request), url.pathname) : new Response(null, { status: 403 });
     }
     try {
       const root = await realpath(options.staticDir);
@@ -159,10 +234,14 @@ export async function startEditorRuntime(options: Options) {
       releaseRenderer();
       protocol.unhandle("mpvfx");
       ipcMain.removeHandler(DESKTOP_CHANNELS.request);
+      ipcMain.removeHandler(DESKTOP_CHANNELS.crosspost);
+      ipcMain.removeHandler(DESKTOP_CHANNELS.library);
+      ipcMain.removeHandler(DESKTOP_CHANNELS.importFiles);
       ipcMain.removeHandler(DESKTOP_CHANNELS.subscribe);
       ipcMain.removeListener(DESKTOP_CHANNELS.cancel, cancel);
       ipcMain.removeListener(DESKTOP_CHANNELS.unsubscribe, unsubscribe);
       await runtime.close();
+      await libraries?.close();
     },
   };
 }

@@ -107,7 +107,7 @@ describe("timeline OS-media import", () => {
     });
 
     expect(harness.getSource()).toContain('data-duration="10"');
-    expect(harness.getSource()).toContain('<video id="camera"');
+    expect(harness.getSource()).toMatch(/<video id="camera-[^"]+"/);
     expect(harness.getSource()).toContain('src="assets/camera.mov"');
     expect(harness.getSource()).toContain('data-start="6"');
     expect(harness.getSource()).toContain('data-duration="4"');
@@ -203,9 +203,9 @@ describe("timeline OS-media import", () => {
     });
 
     expect(harness.getSource()).toContain('data-duration="9"');
-    expect(harness.getSource()).toContain('<img id="poster"');
+    expect(harness.getSource()).toMatch(/<img id="poster-[^"]+"/);
     expect(harness.getSource()).toContain('src="assets/poster.avif" data-start="1"');
-    expect(harness.getSource()).toContain('<audio id="voice"');
+    expect(harness.getSource()).toMatch(/<audio id="voice-[^"]+"/);
     expect(harness.getSource()).toContain('src="assets/voice.aac" data-start="5"');
     expect(harness.getSource().match(/data-track-index="3"/g)).toHaveLength(2);
     expect(harness.writeProjectFile).toHaveBeenCalledTimes(2);

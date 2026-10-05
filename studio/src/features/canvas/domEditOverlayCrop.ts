@@ -45,6 +45,23 @@ export function scaleCropInsetsForBoxResize(input: {
   };
 }
 
+/** Screen-space translation that keeps the cropped visible center fixed while
+ * the source rotates around its own (non-destructive) center. `visibleOffset`
+ * is the visible center minus the source center at the gesture-start angle. */
+export function croppedRotationPivotTranslation(
+  visibleOffset: { x: number; y: number },
+  startAngle: number,
+  nextAngle: number,
+): { x: number; y: number } {
+  const radians = ((nextAngle - startAngle) * Math.PI) / 180;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  return {
+    x: visibleOffset.x - (visibleOffset.x * cosine - visibleOffset.y * sine),
+    y: visibleOffset.y - (visibleOffset.x * sine + visibleOffset.y * cosine),
+  };
+}
+
 /** Element-space insets → the cropped region in overlay (screen) space. */
 export function cropRectFromInsets(
   rect: CropScreenRect,
@@ -84,6 +101,37 @@ export function readElementCropInsets(
   if (!value || value === "none")
     return { top: 0, right: 0, bottom: 0, left: 0, radius: 0 };
   return parseInsetClipPathSides(value);
+}
+
+/** Visible crop center relative to the source center, as a fraction of the
+ * untransformed box. A proportional resize keeps this pivot attached. */
+export function readCropCenterOffsetFraction(element: HTMLElement): { x: number; y: number } | null {
+  const crop = readElementCropInsets(element);
+  if (!crop || !(crop.top || crop.right || crop.bottom || crop.left)) return null;
+  const computed = element.ownerDocument.defaultView?.getComputedStyle(element);
+  const pixelSize = (computedValue: string | undefined, layoutSize: number, inlineValue: string): number => {
+    const parsePixels = (value: string | undefined): number => {
+      const match = /^\s*([\d.]+)px\s*$/i.exec(value ?? "");
+      return match ? Number(match[1]) : 0;
+    };
+    // Computed dimensions resolve percentages to CSS pixels in the browser.
+    // DOM test engines may retain the percentage, so use layout size next.
+    return parsePixels(computedValue) || layoutSize || parsePixels(inlineValue);
+  };
+  const width = pixelSize(computed?.width, element.offsetWidth, element.style.width);
+  const height = pixelSize(computed?.height, element.offsetHeight, element.style.height);
+  if (!(width > 0 && height > 0)) return null;
+  const origin = (computed?.transformOrigin || element.style.transformOrigin).trim().toLowerCase();
+  const originPx = /^(-?[\d.]+)px\s+(-?[\d.]+)px(?:\s+0px)?$/.exec(origin);
+  const centered = !origin || ["center", "center center", "50% 50%"].includes(origin) ||
+    Boolean(originPx && Math.abs(Number(originPx[1]) - width / 2) < 1e-6 &&
+      Math.abs(Number(originPx[2]) - height / 2) < 1e-6);
+  if (!centered) {
+    return null;
+  }
+  const fraction = { x: (crop.left - crop.right) / (2 * width),
+    y: (crop.top - crop.bottom) / (2 * height) };
+  return Math.abs(fraction.x) <= 0.5 && Math.abs(fraction.y) <= 0.5 ? fraction : null;
 }
 
 export interface CropInsetDragInput {

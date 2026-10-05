@@ -8,8 +8,15 @@ export interface DesktopWindowOptions {
   autoHideMenuBar: boolean;
   webPreferences: {
     preload?: string;
+    additionalArguments?: string[];
     contextIsolation: true;
-    sandbox: true;
+    /**
+     * The preload loads the C++ engine module (native code), which a
+     * sandboxed preload cannot do. The page itself still has no Node access:
+     * contextIsolation stays on, nodeIntegration stays off, and the preload
+     * exposes only the engine's pure functions and the desktop bridge.
+     */
+    sandbox: false;
     nodeIntegration: false;
     webSecurity: true;
     allowRunningInsecureContent: false;
@@ -17,7 +24,9 @@ export interface DesktopWindowOptions {
   };
 }
 
-export function createWindowOptions(preload?: string): DesktopWindowOptions {
+export const ENGINE_MODULE_ARGUMENT = "--vkf-engine-module=";
+
+export function createWindowOptions(preload?: string, engineModulePath?: string): DesktopWindowOptions {
   return {
     width: 1440,
     height: 900,
@@ -28,8 +37,9 @@ export function createWindowOptions(preload?: string): DesktopWindowOptions {
     autoHideMenuBar: true,
     webPreferences: {
       ...(preload ? { preload } : {}),
+      ...(engineModulePath ? { additionalArguments: [`${ENGINE_MODULE_ARGUMENT}${engineModulePath}`] } : {}),
       contextIsolation: true,
-      sandbox: true,
+      sandbox: false,
       nodeIntegration: false,
       webSecurity: true,
       allowRunningInsecureContent: false,
@@ -53,7 +63,8 @@ function sameOrigin(url: string, allowedOrigin: string): boolean {
   try {
     const target = new URL(url);
     const allowed = new URL(allowedOrigin);
-    return target.protocol === allowed.protocol && target.host === allowed.host &&
+    return !target.username && !target.password && !target.port &&
+      target.protocol === allowed.protocol && target.host === allowed.host &&
       target.pathname === "/";
   } catch {
     return false;

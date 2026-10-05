@@ -99,6 +99,7 @@ export function StudioRightPanel({
     deleteNativeKeyframe,
     deleteNativeKeyframes,
     setNativeKeyframesInterpolation,
+    setNativePositionPath,
     handleSetArcPath,
     handleUpdateArcSegment,
     handleUnroll,
@@ -236,6 +237,7 @@ export function StudioRightPanel({
         onRemoveNativeKeyframe={deleteNativeKeyframe}
         onRemoveNativeKeyframes={deleteNativeKeyframes}
         onSetNativeKeyframesInterpolation={setNativeKeyframesInterpolation}
+        onSetNativePositionPath={setNativePositionPath}
         gsapMultipleTimelines={gsapMultipleTimelines}
         gsapUnsupportedTimelinePattern={gsapUnsupportedTimelinePattern}
         onUpdateGsapProperty={handleGsapUpdateProperty}

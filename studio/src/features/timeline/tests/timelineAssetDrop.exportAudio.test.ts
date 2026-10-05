@@ -12,6 +12,7 @@ describe("inserted video export audio discovery", () => {
         hfId: `hf-camera-${extension}`,
         assetPath: `assets/camera.${extension}`,
         kind: "video",
+        hasAudio: true,
         start: 0,
         duration: 5,
         track: 0,
@@ -27,4 +28,13 @@ describe("inserted video export audio discovery", () => {
       ]);
     },
   );
+});
+
+// A silent video is still a picture clip; it must not create an audio source.
+it.each([false, undefined])("does not invent audio when stream presence is %s", hasAudio => {
+  const html = buildTimelineAssetInsertHtml({ id: "silent", hfId: "hf-silent", assetPath: "assets/silent.mp4",
+    kind: "video", hasAudio, start: 0, duration: 1, track: 0, zIndex: 0 });
+  expect(html).toContain("<video ");
+  expect(parseAudioElements(html)).toEqual([]);
+  if (hasAudio === undefined) expect(html).not.toContain("data-has-audio");
 });

@@ -22,6 +22,8 @@ import {
   readTimelineElementZIndex,
 } from "./timelineElementHelpers";
 import { postRuntimeControlMessage } from "./runtimeProtocol";
+import { previewOriginFromIframe } from "./previewUrl";
+import { previewAgentForIframe } from "../../features/preview/previewAgentClient";
 
 // ---------------------------------------------------------------------------
 // Viewport / DOM normalisation
@@ -114,7 +116,8 @@ function postPreviewControl(
   action: string,
   payload: Record<string, unknown>,
 ): void {
-  postRuntimeControlMessage(iframe.contentWindow, action, payload);
+  const origin = previewOriginFromIframe(iframe);
+  if (origin) postRuntimeControlMessage(iframe.contentWindow, action, payload, 30, origin);
 }
 
 export function setPreviewMediaMuted(iframe: HTMLIFrameElement | null, muted: boolean): void {
@@ -214,6 +217,8 @@ export function resolveIframe(el: Element | null): HTMLIFrameElement | null {
 const SCRUB_VOLUME = 0.25;
 
 let scrubAudioEl: HTMLAudioElement | null = null;
+let scrubRemoteIframe: HTMLIFrameElement | null = null;
+let scrubRemoteAudioId: string | null = null;
 let scrubStopTimer: ReturnType<typeof setTimeout> | null = null;
 let scrubPrevMuted: boolean | null = null;
 let scrubPrevVolume: number | null = null;
@@ -268,14 +273,34 @@ export function scrubPreviewAudio(
   try {
     doc = iframe.contentDocument;
   } catch {
+    doc = null;
+  }
+  if (!doc) {
+    const client = previewAgentForIframe(iframe);
+    if (!client?.isReady || !musicId) return;
+    if (scrubRemoteIframe && scrubRemoteIframe !== iframe) stopScrubPreviewAudio();
+    scrubRemoteIframe = iframe;
+    scrubRemoteAudioId = musicId;
+    void client.request({ kind: "scrubAudio", audioId: musicId,
+      timeSeconds: audioFileTime, volume: normalizePreviewVolume(previewVolume) }).catch(() => {
+      // Navigation revokes a scrub request; the next paused seek can retry.
+    });
     return;
   }
-  if (!doc) return;
   const el = resolveScrubAudioEl(doc, musicId);
   if (el) applyScrub(el, audioFileTime, previewVolume);
 }
 
 export function stopScrubPreviewAudio(): void {
+  const remoteIframe = scrubRemoteIframe;
+  const remoteId = scrubRemoteAudioId;
+  scrubRemoteIframe = null;
+  scrubRemoteAudioId = null;
+  const remote = remoteIframe && previewAgentForIframe(remoteIframe);
+  if (remote?.isReady && remoteId) {
+    void remote.request({ kind: "scrubAudio", audioId: remoteId,
+      timeSeconds: null, volume: 0 }).catch(() => {});
+  }
   if (scrubStopTimer) {
     clearTimeout(scrubStopTimer);
     scrubStopTimer = null;

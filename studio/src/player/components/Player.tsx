@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useRef, useState } from "react";
 import { isLottieAnimationLoaded } from "@hyperframes/core/runtime/lottie-readiness";
 import { useMountEffect } from "../../app/useMountEffect";
 import { MpVfxLoader } from "../../ui/index";
+import { resolvePreviewUrl } from "../lib/previewUrl";
 // NOTE: importing "@hyperframes/player" registers a class extending HTMLElement
 // at module load, which throws under SSR. Defer the import to the mount effect
 // so it only runs in the browser.
@@ -166,21 +167,23 @@ export const Player = forwardRef<HTMLIFrameElement, PlayerProps>(
 
         // Create the web component imperatively to avoid JSX custom-element typing.
         const player = document.createElement("hyperframes-player") as MpVfxPlayerElement;
-        const srcUrl = new URL(
-          directUrl || `/api/projects/${projectId}/preview`,
+        const src = resolvePreviewUrl(
+          projectId ?? "",
+          directUrl || `/api/projects/${encodeURIComponent(projectId ?? "")}/preview`,
           window.location.origin,
         );
-        const src = srcUrl.pathname + srcUrl.search;
         const retryPreview = () => {
           retryCountRef.current += 1;
-          const retryUrl = new URL(src, window.location.origin);
+          const retryUrl = new URL(src);
           retryUrl.searchParams.set("_hfStudioRetry", String(retryCountRef.current));
           setPreviewError(null);
           setCompositionLoading(true);
-          player.setAttribute("src", retryUrl.pathname + retryUrl.search);
+          player.setAttribute("src", retryUrl.toString());
         };
         retryPreviewRef.current = retryPreview;
         const iframe = player.iframeElement;
+        // Parent-frame media adoption cannot inspect the isolated document.
+        iframe.allow = "autoplay";
         const preventToggle = (e: Event) => e.stopImmediatePropagation();
         const handleShaderTransitionState = (event: Event) => {
           const loading = getShaderTransitionLoading(event);
@@ -189,6 +192,8 @@ export const Player = forwardRef<HTMLIFrameElement, PlayerProps>(
         const handleReady = () => {
           setPreviewError(null);
           setCompositionLoading(false);
+          // The isolated frame becomes probeable through the host on this event.
+          onLoad();
         };
         const handleError = (event: Event) => {
           setPreviewError(readPreviewErrorMessage(event));

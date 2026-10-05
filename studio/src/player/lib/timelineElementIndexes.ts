@@ -1,4 +1,4 @@
-import { isAudioTimelineElement, isMusicTrack } from "../../features/timeline/timelineInspector";
+import { isAudioTimelineElement, resolveBeatSourceTrack } from "../../features/timeline/timelineInspector";
 import type { TimelineElement } from "../store/playerStore";
 import { getTimelineElementIdentity } from "./timelineElementHelpers";
 
@@ -25,13 +25,14 @@ export function getTimelineElementIndexes(
   const byKey = new Map<string, TimelineElement>();
   const mediaElements: TimelineElement[] = [];
   const audioTracks = new Set<number>();
-  let musicElement: TimelineElement | null = null;
   for (const element of elements) {
     byKey.set(getTimelineElementIdentity(element), element);
     if (element.src) mediaElements.push(element);
     if (isAudioTimelineElement(element)) audioTracks.add(element.track);
-    if (!musicElement && isMusicTrack(element)) musicElement = element;
   }
+  // The resolver returns one of these full elements; its public type names
+  // only the fields it inspects so lighter callers can share the same rule.
+  const musicElement = (resolveBeatSourceTrack(elements)?.element as TimelineElement | undefined) ?? null;
 
   const indexes = Object.freeze({
     byKey,

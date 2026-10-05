@@ -1,16 +1,54 @@
+// @vitest-environment happy-dom
+
 import { describe, expect, it } from "vitest";
 import {
   resolveLinkedCropInsets,
   cropRectFromInsets,
+  croppedRotationPivotTranslation,
   hugRectForElement,
   hugOrientedRectForElement,
   readElementCropFrame,
+  readCropCenterOffsetFraction,
   readElementCropInsets,
   resolveCropInsetFromEdgeDrag,
   rotateDeltaIntoFrame,
   scaleCropInsetsForBoxResize,
 } from "../domEditOverlayCrop";
 import { individualRotateDegrees } from "../domEditOverlayTransform";
+
+describe("cropped rotation pivot", () => {
+  it("stores the asymmetric visible center as a resize-stable local fraction", () => {
+    const element = document.createElement("div");
+    element.style.cssText = "width: 200px; height: 100px; clip-path: inset(10px 20px 30px 40px)";
+    document.body.append(element);
+    expect(readCropCenterOffsetFraction(element)).toEqual({ x: 0.05, y: -0.1 });
+    element.style.width = "400px";
+    element.style.height = "200px";
+    element.style.clipPath = "inset(20px 40px 60px 80px)";
+    expect(readCropCenterOffsetFraction(element)).toEqual({ x: 0.05, y: -0.1 });
+    element.style.transformOrigin = "0px 0px";
+    expect(readCropCenterOffsetFraction(element)).toBeNull();
+    element.remove();
+  });
+
+  it.each([90, 180, -45])("keeps an asymmetric visible center fixed at %s degrees", (angle) => {
+    const offset = { x: 10, y: -10 };
+    const translation = croppedRotationPivotTranslation(offset, 0, angle);
+    const radians = (angle * Math.PI) / 180;
+    const rotated = {
+      x: offset.x * Math.cos(radians) - offset.y * Math.sin(radians),
+      y: offset.x * Math.sin(radians) + offset.y * Math.cos(radians),
+    };
+    expect(translation.x + rotated.x).toBeCloseTo(offset.x, 8);
+    expect(translation.y + rotated.y).toBeCloseTo(offset.y, 8);
+  });
+
+  it("uses the gesture-start angle when the cropped element was already rotated", () => {
+    const translated = croppedRotationPivotTranslation({ x: 0, y: 10 }, 90, 180);
+    expect(translated.x).toBeCloseTo(10, 8);
+    expect(translated.y).toBeCloseTo(10, 8);
+  });
+});
 
 describe("resolveCropInsetFromEdgeDrag", () => {
   const startInsets = { top: 10, right: 20, bottom: 30, left: 40 };
@@ -250,7 +288,7 @@ describe("hugOrientedRectForElement", () => {
     });
   });
 
-  it("rotates an asymmetric crop offset around the original media center", () => {
+  it("projects an asymmetric crop offset from the source center before pivot compensation", () => {
     const element = croppedMedia("inset(10px 20px 30px 40px)");
 
     expect(

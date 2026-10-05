@@ -1,13 +1,10 @@
-import { AUDIO_EXT, IMAGE_EXT, VIDEO_EXT, FONT_EXT } from "./mediaTypes";
+import { classifyMediaImportPath } from "../../../shared/media/mediaImportPolicy";
 
 export type MediaCategory = "audio" | "images" | "video" | "fonts";
 
 export function getCategory(path: string): MediaCategory | null {
-  if (AUDIO_EXT.test(path)) return "audio";
-  if (IMAGE_EXT.test(path)) return "images";
-  if (VIDEO_EXT.test(path)) return "video";
-  if (FONT_EXT.test(path)) return "fonts";
-  return null;
+  const kind = classifyMediaImportPath(path);
+  return kind === "image" ? "images" : kind === "font" ? "fonts" : kind === "audio" || kind === "video" ? kind : null;
 }
 
 export function basename(path: string): string {

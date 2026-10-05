@@ -289,7 +289,9 @@ describe("native project render body script", () => {
     expect(script).not.toBeNull();
     expect(script).toContain("__studioNativeProjectApply");
     expect(script).not.toMatch(/\b(?:fetch|import)\s*\(/);
-    expect(script).not.toMatch(/\bgsap\b/i);
+    // Native values never animate through GSAP; the script only reads GSAP's
+    // cache for transform components a clip has no native value for.
+    expect(script).not.toMatch(/\bgsap\s*\.\s*(?:to|from|fromTo|set|timeline|quickSetter)\s*\(/i);
 
     const element = document.createElement("div");
     element.setAttribute("data-studio-clip-id", "clip:1");
@@ -382,8 +384,8 @@ describe("native project render body script", () => {
       sourceFile: "index.html",
       hfId: "hf:camera",
     };
-    window.eval(createNativeProjectRenderBodyScript(serializeNativeProjectDocument(duplicateCanonical))!);
-    window.dispatchEvent(new CustomEvent("hf-seek", { detail: { time: 2.5 } }));
+    expect(() => window.eval(createNativeProjectRenderBodyScript(serializeNativeProjectDocument(duplicateCanonical))!))
+      .toThrow(/more than one preview element claims native clip clip:1/i);
     expect(duplicateA.getAttribute("style")).toBeNull();
     expect(duplicateB.getAttribute("style")).toBeNull();
     expect(hf.getAttribute("style")).toBeNull();
@@ -529,8 +531,9 @@ describe("native project render body script", () => {
     );
     const previewElement = document.createElement("div");
     previewElement.setAttribute("data-studio-clip-id", "clip:1");
+    // One element per clip identity at a time: two elements claiming the same
+    // clip are ambiguous and neither is styled.
     const exportElement = document.createElement("div");
-    exportElement.setAttribute("data-studio-clip-id", "clip:1");
     document.body.replaceChildren(previewElement, exportElement);
 
     applyNativeFrameToDocument(
@@ -554,13 +557,174 @@ describe("native project render body script", () => {
 
     // Run the exact export body script against a fresh target at the same frame.
     previewElement.removeAttribute("data-studio-clip-id");
-    exportElement.removeAttribute("data-studio-clip-id");
     exportElement.id = "clip:1";
     clip.binding = { sourceFile: "index.html", domId: "clip:1" };
     window.eval(createNativeProjectRenderBodyScript(serializeNativeProjectDocument(project))!);
     window.dispatchEvent(new CustomEvent("hf-seek", { detail: { time: 2.5 } }));
 
     expect(exportElement.getAttribute("style")).toBe(previewStyle);
+  });
+
+  it("keeps a compensated asymmetric crop rotation identical in preview and export", () => {
+    const project = projectDocument();
+    const clip = project.sequence.tracks[0]!.clips[0]!;
+    // A 200×100 source with these insets has its visible center at (+10,-10).
+    // At 90 degrees that offset becomes (+10,+10), so moving the source by
+    // (0,-20) holds the visible center at its pre-rotation position.
+    clip.staticParameters = {
+      "transform.position": { x: 0, y: -20 },
+      "transform.rotation": 90,
+      "layout.width": 200,
+      "layout.height": 100,
+    };
+    clip.parameterTracks = [];
+    const previewElement = document.createElement("div");
+    previewElement.setAttribute("data-studio-clip-id", "clip:1");
+    previewElement.style.clipPath = "inset(10px 20px 30px 40px)";
+    const exportElement = document.createElement("div");
+    exportElement.style.clipPath = previewElement.style.clipPath;
+    document.body.replaceChildren(previewElement, exportElement);
+
+    applyNativeFrameToDocument(document, [{
+      clipId: clip.id,
+      startFrame: clip.startFrame,
+      durationFrames: clip.durationFrames,
+      staticParameters: clip.staticParameters,
+      parameterTracks: clip.parameterTracks,
+    }], 30);
+    const previewStyle = previewElement.getAttribute("style");
+    expect(previewStyle).toContain("translate3d(0px, -20px, 0px) rotate(90deg)");
+    expect(previewElement.style.clipPath).toBe("inset(10px 20px 30px 40px)");
+
+    previewElement.removeAttribute("data-studio-clip-id");
+    exportElement.id = "clip:1";
+    clip.binding = { sourceFile: "index.html", domId: "clip:1" };
+    window.eval(createNativeProjectRenderBodyScript(serializeNativeProjectDocument(project))!);
+    window.dispatchEvent(new CustomEvent("hf-seek", { detail: { time: 1 } }));
+    expect(exportElement.getAttribute("style")).toBe(previewStyle);
+  });
+
+  it("measures the remaining pivot drift between linearly interpolated rotation keys", () => {
+    const track = (id: string, parameterId: string, start: number, end: number) =>
+      createNativeParameterTrack({
+        id,
+        parameterId,
+        valueType: "number" as const,
+        frameRate: { numerator: 30, denominator: 1 },
+        keyframes: [
+          { id: `${id}:start`, frame: 0, value: start, outgoing: { type: "linear" as const } },
+          { id: `${id}:end`, frame: 90, value: end, outgoing: { type: "linear" as const } },
+        ],
+      });
+    const rotation = evaluateNativeParameterTrack(track("rotation", "transform.rotation", 0, 90), 45);
+    const x = evaluateNativeParameterTrack(track("x", "transform.position.x", 0, 0), 45);
+    const y = evaluateNativeParameterTrack(track("y", "transform.position.y", 0, -20), 45);
+    const radians = (rotation * Math.PI) / 180;
+    const visibleCenter = {
+      x: x + 10 * Math.cos(radians) + 10 * Math.sin(radians),
+      y: y + 10 * Math.sin(radians) - 10 * Math.cos(radians),
+    };
+    // Endpoints retain (10,-10), but independently linear x/y and rotation
+    // tracks cannot trace the circular compensation between those keys.
+    expect(visibleCenter.x - 10).toBeCloseTo(Math.sqrt(2) * 10 - 10, 6);
+    expect(visibleCenter.y).toBeCloseTo(-10, 6);
+  });
+
+  it("renders an opted-in cropped pivot at the same midpoint in preview and export", () => {
+    const project = projectDocument();
+    const clip = project.sequence.tracks[0]!.clips[0]!;
+    const numeric = (id: string, first: number, last: number) => createNativeParameterTrack({
+      id, parameterId: id, valueType: "number", frameRate: project.frameRate,
+      keyframes: [
+        { id: `${id}:first`, frame: 0, value: first, outgoing: { type: "linear" } },
+        { id: `${id}:last`, frame: 90, value: last, outgoing: { type: "linear" } },
+      ],
+    });
+    clip.parameterTracks = [
+      numeric("transform.position.x", 0, 0),
+      numeric("transform.position.y", 0, -20),
+      numeric("transform.rotation", 0, 90),
+    ];
+    clip.cropPivotSegments = [{
+      startRotationKeyId: "transform.rotation:first",
+      endRotationKeyId: "transform.rotation:last",
+      offsetFraction: { x: 0.05, y: -0.1 },
+    }];
+    const preview = document.createElement("div");
+    preview.setAttribute("data-studio-clip-id", clip.id);
+    preview.style.cssText = "width: 200px; height: 100px; clip-path: inset(10px 20px 30px 40px)";
+    const exported = document.createElement("div");
+    exported.style.cssText = preview.style.cssText;
+    document.body.replaceChildren(preview, exported);
+    applyNativeFrameToDocument(document, [{
+      clipId: clip.id, startFrame: clip.startFrame, durationFrames: clip.durationFrames,
+      staticParameters: clip.staticParameters, parameterTracks: clip.parameterTracks,
+      cropPivotSegments: clip.cropPivotSegments,
+    }], 75);
+    const expected = preview.style.transform;
+    expect(expected).toContain("translate3d(-4.142135623731px, -10px");
+
+    preview.removeAttribute("data-studio-clip-id");
+    exported.id = clip.id;
+    clip.binding = { sourceFile: "index.html", domId: clip.id };
+    window.eval(createNativeProjectRenderBodyScript(serializeNativeProjectDocument(project))!);
+    window.dispatchEvent(new CustomEvent("hf-seek", { detail: { time: 2.5 } }));
+    expect(exported.style.transform).toBe(expected);
+    expect(exported.style.clipPath).toBe("inset(10px 20px 30px 40px)");
+  });
+
+  it("renders curved, auto-rotating motion paths identically in preview and export", () => {
+    const project = projectDocument();
+    const clip = project.sequence.tracks[0]!.clips[0]!;
+    clip.parameterTracks = [
+      createNativeParameterTrack({
+        id: "parameter:position",
+        parameterId: "transform.position",
+        valueType: "vec2",
+        frameRate: { numerator: 30, denominator: 1 },
+        autoRotate: true,
+        keyframes: [
+          {
+            id: "a", frame: 0, value: { x: 0, y: 0 },
+            outgoing: { type: "cubic-bezier", controlPoints: { x1: 0.42, y1: 0, x2: 0.58, y2: 1 } },
+            outgoingPath: { type: "bezier", cp1: { x: 0, y: 300 }, cp2: { x: 400, y: 300 } },
+          },
+          { id: "b", frame: 60, value: { x: 400, y: 0 }, outgoing: { type: "linear" }, outgoingPath: { type: "curve", curviness: 1 } },
+          { id: "c", frame: 90, value: { x: 600, y: 200 }, outgoing: { type: "linear" } },
+        ],
+      }),
+    ];
+    const previewElement = document.createElement("div");
+    previewElement.setAttribute("data-studio-clip-id", "clip:1");
+    const exportElement = document.createElement("div");
+    document.body.replaceChildren(previewElement, exportElement);
+
+    for (const frame of [45, 80, 110]) {
+      applyNativeFrameToDocument(document, [{
+        clipId: clip.id,
+        startFrame: clip.startFrame,
+        durationFrames: clip.durationFrames,
+        parameterTracks: clip.parameterTracks,
+      }], frame);
+      const previewStyle = previewElement.getAttribute("style")!;
+      // The path heads down-right early on: auto-rotate adds a clockwise turn.
+      if (frame === 45) expect(previewStyle).toMatch(/rotate\((?!0deg)[0-9.]+deg\)/);
+
+      previewElement.removeAttribute("data-studio-clip-id");
+      exportElement.id = "clip:1";
+      clip.binding = { sourceFile: "index.html", domId: "clip:1" };
+      window.eval(createNativeProjectRenderBodyScript(serializeNativeProjectDocument(project))!);
+      window.dispatchEvent(new CustomEvent("hf-seek", { detail: { time: frame / 30 } }));
+      expect(exportElement.getAttribute("style")).toBe(previewStyle);
+
+      // Reset for the next frame.
+      delete clip.binding;
+      exportElement.removeAttribute("style");
+      exportElement.removeAttribute("data-studio-clip-id");
+      exportElement.removeAttribute("data-studio-native-owned");
+      exportElement.removeAttribute("id");
+      previewElement.setAttribute("data-studio-clip-id", "clip:1");
+    }
   });
 
   it("rejects malformed sidecar data instead of injecting a partial animation", () => {
@@ -771,7 +935,7 @@ describe("native export integration", () => {
       '<body><span data-studio-clip-id="clip:dialogue"><audio src="wrong.wav"></audio></span><span data-studio-clip-id="clip:dialogue"><audio src="also-wrong.wav"></audio></span>',
     );
     expect(() => applyNativeProjectExportAudioMutes(ambiguousHtml, project, "index.html")).toThrow(
-      /cannot resolve muted audio clip/i,
+      /native export cannot resolve clip clip:dialogue/i,
     );
     project.sequence.tracks[1]!.clips[0]!.binding = {
       sourceFile: "index.html",

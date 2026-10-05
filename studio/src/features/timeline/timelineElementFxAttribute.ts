@@ -18,6 +18,11 @@ import type {
   MutableRef,
   UseTimelineElementVisibilityEditingInput,
 } from "./timelineTrackVisibility";
+import { resolveNativeClipSelection } from "../../../shared/project/nativePropertyEditPlan";
+import { NATIVE_PROJECT_DOCUMENT_PATH, parseNativeProjectDocument, type NativeProjectDocument } from "../../../shared/project/nativeProjectDocument";
+import { commitNativeTimelineAudioAttribute } from "../project/nativeTimelineAudioAttributeTransaction";
+import { NativeProjectRevisionConflictError } from "../project/nativeProjectPersistence";
+import type { NativeTimelineEditingDependencies } from "./useTimelineEditingTypes";
 
 function patchLiveElementAttribute(
   iframe: HTMLIFrameElement | null,
@@ -88,7 +93,16 @@ export function useSetElementAttribute({
   previewIframeRef,
   pendingTimelineEditPathRef,
   isRecordingRef,
-}: UseTimelineElementVisibilityEditingInput): {
+  nativeProjectEditing,
+  nativeDocumentRef,
+  editQueueRef,
+  reloadPreview,
+}: UseTimelineElementVisibilityEditingInput & {
+  nativeProjectEditing?: NativeTimelineEditingDependencies;
+  nativeDocumentRef?: MutableRef<NativeProjectDocument | null>;
+  editQueueRef?: MutableRef<Promise<unknown>>;
+  reloadPreview?: () => void;
+}): {
   setLive: (element: TimelineElement, attr: string, value: string | null) => void;
   setQuiet: (
     element: TimelineElement,
@@ -111,6 +125,57 @@ export function useSetElementAttribute({
       }
       const pid = projectIdRef.current;
       if (!pid) return;
+      const native = nativeDocumentRef?.current;
+      const selection = {
+        id: element.id, hfId: element.hfId, sourceFile: element.sourceFile,
+        selector: element.selector, selectorIndex: element.selectorIndex,
+      };
+      const resolution = native ? resolveNativeClipSelection(native, selection) : null;
+      const clip = resolution?.ok ? resolution.located.clip : null;
+      const asset = clip ? native?.assets.find(candidate => candidate.id === clip.assetId) : null;
+      const supported = ["muted", "data-volume", "data-fx-chain", "data-automation"];
+      if (native && clip && (asset?.kind === "video" || asset?.kind === "audio") &&
+          clip.binding?.sourceFile && supported.includes(attr) && nativeProjectEditing && editQueueRef) {
+        const sourceFile = clip.binding.sourceFile;
+        const previous = attr === "muted" ? (clip.muted ? "" : null)
+          : attr === "data-volume" ? (clip.staticParameters?.["audio.volume"] == null ? null : String(clip.staticParameters["audio.volume"]))
+          : attr === "data-fx-chain" ? clip.audioFxChain ?? null
+          : clip.audioAutomation ?? null;
+        const operation = editQueueRef.current.then(async () => {
+          const commitAgainst = (document: NativeProjectDocument) => commitNativeTimelineAudioAttribute({
+            expectedRevision: document.revision,
+            target: { kind: "clip", selection, sourceFile }, attr, value, label,
+            readOptionalProjectFile: nativeProjectEditing.readOptionalProjectFile,
+            writeProjectFile, recordEdit,
+            commitFileTransaction: nativeProjectEditing.commitFileTransaction,
+            onCommitted: next => {
+              nativeDocumentRef.current = next;
+              nativeProjectEditing.onNativeDocumentCommitted(next);
+            },
+          });
+          try { await commitAgainst(nativeDocumentRef.current ?? native); }
+          catch (error) {
+            if (!(error instanceof NativeProjectRevisionConflictError)) throw error;
+            const content = await nativeProjectEditing.readOptionalProjectFile(NATIVE_PROJECT_DOCUMENT_PATH);
+            if (!content) throw error;
+            const latest = parseNativeProjectDocument(JSON.parse(content));
+            nativeDocumentRef.current = latest;
+            await commitAgainst(latest);
+          }
+        });
+        editQueueRef.current = operation.catch(() => undefined);
+        try {
+          await operation;
+          domEditSaveTimestampRef.current = Date.now();
+          pendingTimelineEditPathRef.current.add(sourceFile);
+          pendingTimelineEditPathRef.current.add(NATIVE_PROJECT_DOCUMENT_PATH);
+          reloadPreview?.();
+        } catch (error) {
+          patchLiveElementAttribute(previewIframeRef.current, element, attr, previous, activeCompPath);
+          showToast(error instanceof Error ? error.message : "Failed to update native audio", "error");
+        }
+        return;
+      }
       try {
         await setElementAttribute({
           projectId: pid,
@@ -141,6 +206,10 @@ export function useSetElementAttribute({
       isRecordingRef,
       showToast,
       projectIdRef,
+      nativeProjectEditing,
+      nativeDocumentRef,
+      editQueueRef,
+      reloadPreview,
     ],
   );
   return { setLive, setQuiet };

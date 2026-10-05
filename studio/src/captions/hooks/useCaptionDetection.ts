@@ -29,11 +29,14 @@ export function useCaptionDetection({
   // Switching compositions must drop the previous comp's caption state — a
   // stale model + full-canvas overlay otherwise blocks normal element editing
   // on the new composition (and edit mode could never be exited).
-  const prevCompPathRef = useRef<string | null>(activeCompPath);
+  const scope = JSON.stringify([projectId, activeCompPath]);
+  const currentScopeRef = useRef(scope);
+  currentScopeRef.current = scope;
+  const prevCompPathRef = useRef(scope);
   // eslint-disable-next-line no-restricted-syntax
   useEffect(() => {
-    if (prevCompPathRef.current !== activeCompPath) {
-      prevCompPathRef.current = activeCompPath;
+    if (prevCompPathRef.current !== scope) {
+      prevCompPathRef.current = scope;
       const store = useCaptionStore.getState();
       if (store.model || store.isEditMode) {
         // Flush the last debounced caption edit before the reset destroys the
@@ -42,13 +45,14 @@ export function useCaptionDetection({
         store.reset();
       }
     }
-  }, [activeCompPath]);
+  }, [scope]);
 
   // eslint-disable-next-line no-restricted-syntax
   useEffect(() => {
     if (!projectId) return;
 
     let activating = false;
+    let cancelled = false;
 
     const tryActivateCaptions = () => {
       const captionState = useCaptionStore.getState();
@@ -109,9 +113,10 @@ export function useCaptionDetection({
       activating = true;
       const srcPath = captionSrcPath;
       desktopRequest(`/api/projects/${projectId}/files/${encodeURIComponent(srcPath)}`)
-        .then((r) => r.json())
+        .then((r) => { if (!r.ok) throw new Error(`Could not read captions (${r.status})`); return r.json(); })
         .then((data: { content?: string }) => {
-          if (!data.content || !doc || !win || useCaptionStore.getState().isEditMode) return;
+          if (cancelled || currentScopeRef.current !== scope || previewIframeRef.current?.contentDocument !== doc ||
+            !data.content || !doc || !win || useCaptionStore.getState().isEditMode || useCaptionStore.getState().dismissed) return;
           const root = doc.querySelector("[data-composition-id]");
           const w = parseInt(root?.getAttribute("data-width") ?? "1920", 10);
           const h = parseInt(root?.getAttribute("data-height") ?? "1080", 10);
@@ -142,9 +147,10 @@ export function useCaptionDetection({
     tryActivateCaptions();
 
     return () => {
+      cancelled = true;
       window.removeEventListener("message", handleMessage);
     };
-  }, [activeCompPath, projectId, compIdToSrc, captionSync, previewIframeRef]);
+  }, [activeCompPath, projectId, compIdToSrc, captionSync.loadOverrides, previewIframeRef, scope]);
 
   // eslint-disable-next-line no-restricted-syntax
   useEffect(() => {

@@ -13,6 +13,11 @@ import {
   serializeNativeProjectDocument,
   type NativeProjectDocument,
 } from "../../../shared/project/nativeProjectDocument";
+import { beginStudioManualEditGesture, endStudioManualEditGesture } from "../canvas/manualEdits";
+import {
+  captureNativeGestureCommitCandidate,
+  retainCommittedNativeGestureDraft,
+} from "./nativeGestureDraft";
 
 (
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -491,6 +496,52 @@ it("preserves the native playhead and rendered frame across a paused keyframe sa
   expect(card.style.transform).toContain("translate3d(309px, -57px");
 });
 
+it("holds a released native gesture through a delayed sidecar reload and old-adapter seeks", async () => {
+  const oldProject = project("project:gesture-handoff");
+  oldProject.sequence.tracks[0]!.clips[0]!.staticParameters = { "transform.rotation": 0 };
+  const nextProject = project("project:gesture-handoff");
+  nextProject.revision = 1;
+  nextProject.sequence.tracks[0]!.clips[0]!.staticParameters = { "transform.rotation": 70 };
+  const laterProject = project("project:gesture-handoff");
+  laterProject.revision = 2;
+  laterProject.sequence.tracks[0]!.clips[0]!.staticParameters = { "transform.rotation": 35 };
+  const element = document.createElement("div");
+  element.setAttribute("data-studio-clip-id", "clip:a");
+  document.body.append(element);
+  const iframeWindow = { __player: {
+    getTime: () => 0, getDuration: () => 1, isPlaying: () => false,
+    play: vi.fn(), pause: vi.fn(), seek: vi.fn(),
+  } } as unknown as import("./nativeProjectRuntime").NativeProjectRuntimeWindow;
+  const iframe = { contentWindow: iframeWindow, contentDocument: document } as HTMLIFrameElement;
+  const delayedRead = deferred<string>();
+  const read = vi.fn()
+    .mockResolvedValueOnce(serializeNativeProjectDocument(oldProject))
+    .mockImplementationOnce(() => delayedRead.promise)
+    .mockResolvedValueOnce(serializeNativeProjectDocument(laterProject));
+  const base = { projectId: "gesture-handoff", iframe, readOptionalProjectFile: read };
+  const view = renderSession({ ...base, reloadToken: 0 }, () => {});
+  await act(async () => {});
+  iframeWindow.__studioNativePlayer!.seek(0);
+  expect(element.style.transform).toContain("rotate(0deg)");
+
+  const token = beginStudioManualEditGesture(element);
+  element.style.transform = "rotate(70deg)";
+  const candidate = captureNativeGestureCommitCandidate(element);
+  retainCommittedNativeGestureDraft(candidate, nextProject.id, nextProject.revision);
+  endStudioManualEditGesture(element, token);
+  view.rerender({ ...base, reloadToken: 1 });
+  iframeWindow.__studioNativePlayer!.seek(0);
+  expect(element.style.transform).toBe("rotate(70deg)");
+
+  await act(async () => delayedRead.resolve(serializeNativeProjectDocument(nextProject)));
+  expect(iframeWindow.__studioNativePlayer!.getTime()).toBe(0);
+  expect(element.style.transform).toContain("rotate(70deg)");
+  // A later durable revision can repaint once the transient hold is retired.
+  view.rerender({ ...base, reloadToken: 2 });
+  await act(async () => {});
+  expect(element.style.transform).toContain("rotate(35deg)");
+});
+
 it("installs at the restored editor playhead when native data arrives after URL hydration", async () => {
   const native = project("project:restored");
   const iframeWindow = {} as import("./nativeProjectRuntime").NativeProjectRuntimeWindow;
@@ -502,4 +553,25 @@ it("installs at the restored editor playhead when native data arrives after URL 
   }, () => {});
   await act(async () => {});
   expect(iframeWindow.__studioNativePlayer!.getTime()).toBe(0.5);
+  expect(iframeWindow.__studioNativePlayer!.isPlaying()).toBe(false);
+});
+
+it("keeps an early Play click active when the native sidecar arrives afterward", async () => {
+  const native = project("project:early-play");
+  const response = deferred<string>();
+  const iframeWindow = {} as import("./nativeProjectRuntime").NativeProjectRuntimeWindow;
+  let playRequested = false;
+  renderSession({
+    projectId: "early-play",
+    readOptionalProjectFile: () => response.promise,
+    iframe: { contentWindow: iframeWindow, contentDocument: document } as HTMLIFrameElement,
+    getPlayheadSeconds: () => 0.2,
+    getIsPlaying: () => playRequested,
+  }, () => {});
+  expect(iframeWindow.__studioNativePlayer).toBeUndefined();
+
+  playRequested = true;
+  await act(async () => response.resolve(serializeNativeProjectDocument(native)));
+  expect(iframeWindow.__studioNativePlayer!.isPlaying()).toBe(true);
+  expect(iframeWindow.__studioNativePlayer!.getTime()).toBeGreaterThanOrEqual(0.2);
 });

@@ -6,6 +6,8 @@ import {
   type NativeProjectKeyframeFailure,
 } from "../../../shared/project/nativeProjectKeyframeCommands";
 import { applyNativeProjectPropertyCommand } from "../../../shared/project/nativeProjectPropertyCommands";
+import { markNativeCropPivotIntervals } from "../../../shared/project/nativeCropPivotSegments";
+import type { Vec2Value } from "../../../shared/project/nativeKeyframeTypes";
 import type { NativeProjectDocument } from "../../../shared/project/nativeProjectDocument";
 import {
   createNativeProjectRepository,
@@ -20,6 +22,10 @@ import {
 import { synchronizeIncomingNativeDocument } from "../project/nativeDocumentRefSync";
 import type { CommitNativeTimelineFileTransaction } from "../project/nativeTimelineTransactionCommit";
 import { readNativePropertyBaselines } from "../../../shared/project/nativePropertyBaseline";
+import {
+  captureNativeGestureCommitCandidate,
+  retainCommittedNativeGestureDraft,
+} from "../project/nativeGestureDraft";
 
 export type ProjectAnimatedPropertyCommitRoute = "native" | "legacy";
 export type ProjectAnimatedPropertyCommitIntent = "edit" | "keyframe";
@@ -28,6 +34,8 @@ export interface ProjectAnimatedPropertyCommitOptions {
   readonly intent?: ProjectAnimatedPropertyCommitIntent;
   /** Compatibility styles that must land atomically with native geometry. */
   readonly sourceStyles?: Readonly<Record<string, string>>;
+  /** Native cropped rotation only: opt in the adjacent rotation intervals. */
+  readonly cropPivotFraction?: Vec2Value;
 }
 
 export interface UseProjectAnimatedPropertyCommitOptions {
@@ -65,6 +73,14 @@ export interface ProjectAnimatedPropertyCommitApi {
     properties: Record<string, number | string>,
     options?: ProjectAnimatedPropertyCommitOptions,
   ): Promise<ProjectAnimatedPropertyCommitRoute>;
+  /**
+   * One native edit of several layers (a group move): planned against one
+   * draft and saved once, so it is one undo step and never half-applied.
+   */
+  commitNativeGroupProperties(
+    entries: readonly { selection: DomEditSelection; properties: Record<string, number | string> }[],
+    label: string,
+  ): Promise<void>;
 }
 
 type RoutingFailure = NativePropertyEditPlanFailure | NativeProjectKeyframeFailure;
@@ -119,8 +135,9 @@ function editLabel(
  * Project-level property router.
  *
  * The native document is authoritative when an exact clip binding and a fully
- * supported atomic edit exist. The legacy callback remains an all-or-nothing
- * compatibility fallback; a batch can never write both authorities.
+ * supported atomic edit exist. Explicit keys, auto-key edits, and explicit
+ * native identities never fall back to another animation writer. Ordinary
+ * compatibility edits retain an atomic fallback; batches never split authorities.
  */
 export function useProjectAnimatedPropertyCommit(
   options: UseProjectAnimatedPropertyCommitOptions,
@@ -146,6 +163,8 @@ export function useProjectAnimatedPropertyCommit(
       // Capture authoring identity before persistence waits behind another edit.
       const authoringDependencies = dependenciesRef.current;
       const sourceStyles = { ...commitOptions.sourceStyles };
+      const cropPivotFraction = commitOptions.cropPivotFraction && { ...commitOptions.cropPivotFraction };
+      const gestureDraft = captureNativeGestureCommitCandidate(selection.element);
       const sourceFile = selection.sourceFile;
       const sourceTarget = { id: selection.id, hfId: selection.hfId,
         selector: selection.selector, selectorIndex: selection.selectorIndex };
@@ -168,15 +187,23 @@ export function useProjectAnimatedPropertyCommit(
         const dependencies = dependenciesRef.current;
         const persistedDocument = latestDocumentRef.current;
         const document = persistedDocument ?? dependencies.nativeBootstrapDocument ?? null;
+        const requiresNative = request.intent === "keyframe" || request.autoKeyframeEnabled ||
+          Boolean(request.selectedElement.attributes["data-studio-clip-id"]);
         if (!document) {
-          await dependencies.legacyCommitProperties(selection, properties);
+          if (requiresNative) {
+            throw new NativeProjectEditRoutingError({
+              code: "clip-not-found",
+              message: "This layer is not available in the native project. The keyframe edit was not saved.",
+            });
+          }
+          await dependencies.legacyCommitProperties(selection, request.properties);
           return "legacy";
         }
 
         const initialPlan = planNativePropertyEdit(document, request);
         if (!initialPlan.ok) {
-          if (LEGACY_FALLBACK_CODES.has(initialPlan.failure.code)) {
-            await dependencies.legacyCommitProperties(selection, properties);
+          if (!requiresNative && LEGACY_FALLBACK_CODES.has(initialPlan.failure.code)) {
+            await dependencies.legacyCommitProperties(selection, request.properties);
             return "legacy";
           }
           throw new NativeProjectEditRoutingError(initialPlan.failure);
@@ -212,7 +239,9 @@ export function useProjectAnimatedPropertyCommit(
           if (!plan.ok) throw new NativeProjectEditRoutingError(plan.failure);
           const result = applyNativeProjectPropertyCommand(draft, plan.command);
           if (!result.ok) throw new NativeProjectEditRoutingError(result.failure);
-          return result.document;
+          return cropPivotFraction
+            ? markNativeCropPivotIntervals(result.document, plan.clipId, plan.clipLocalFrame, cropPivotFraction)
+            : result.document;
         };
         const label = editLabel(properties, intent);
         let committed;
@@ -237,6 +266,9 @@ export function useProjectAnimatedPropertyCommit(
           );
         }
         latestDocumentRef.current = committed.document;
+        if (dependencies.onNativeDocumentCommitted) {
+          retainCommittedNativeGestureDraft(gestureDraft, committed.document.id, committed.document.revision);
+        }
         dependencies.onNativeDocumentCommitted?.(committed.document);
         return "native";
       });
@@ -244,6 +276,76 @@ export function useProjectAnimatedPropertyCommit(
         () => undefined,
         () => undefined,
       );
+      return run;
+    },
+    [],
+  );
+
+  const commitNativeGroupProperties = useCallback(
+    (
+      entries: readonly { selection: DomEditSelection; properties: Record<string, number | string> }[],
+      label: string,
+    ): Promise<void> => {
+      const authoringDependencies = dependenciesRef.current;
+      const playheadSeconds = authoringDependencies.getPlayheadSeconds();
+      const autoKeyframeEnabled = authoringDependencies.getAutoKeyframeEnabled?.() ?? false;
+      const gestureDrafts = entries.map(({ selection }) => captureNativeGestureCommitCandidate(selection.element));
+      const requests = entries.map(({ selection, properties }) => ({
+        selectedElement: selectionReference(selection),
+        playheadSeconds,
+        properties: { ...properties },
+        selectionBounds: { width: selection.boundingBox.width, height: selection.boundingBox.height },
+        propertyBaselines: readNativePropertyBaselines({
+          computedStyles: selection.computedStyles,
+          boundingBox: selection.boundingBox,
+        }),
+        intent: "edit" as const,
+        autoKeyframeEnabled,
+      }));
+      const run = queueRef.current.then(async () => {
+        if (requests.length === 0) return;
+        const dependencies = dependenciesRef.current;
+        const persistedDocument = latestDocumentRef.current;
+        const document = persistedDocument ?? dependencies.nativeBootstrapDocument ?? null;
+        if (!document) throw new Error("Native editing is not ready for this project");
+        const repository = createNativeProjectRepository({
+          readOptionalProjectFile: dependencies.readOptionalProjectFile,
+          writeProjectFile: dependencies.writeProjectFile,
+          recordHistory: dependencies.recordHistory,
+          commitFileTransaction: dependencies.commitFileTransaction,
+        });
+        const applyPlannedEdits = (draft: NativeProjectDocument): NativeProjectDocument =>
+          requests.reduce((current, request) => {
+            const plan = planNativePropertyEdit(current, request);
+            if (!plan.ok) throw new NativeProjectEditRoutingError(plan.failure);
+            const result = applyNativeProjectPropertyCommand(current, plan.command);
+            if (!result.ok) throw new NativeProjectEditRoutingError(result.failure);
+            return result.document;
+          }, draft);
+        let committed;
+        try {
+          committed = persistedDocument
+            ? await repository.transaction({ expectedRevision: persistedDocument.revision, label }, applyPlannedEdits)
+            : await repository.save(applyPlannedEdits(document), { expectedRevision: null, label });
+        } catch (error) {
+          if (!(error instanceof NativeProjectRevisionConflictError)) throw error;
+          const latest = await repository.load();
+          if (!latest || latest.document.id !== document.id) throw error;
+          latestDocumentRef.current = latest.document;
+          committed = await repository.transaction(
+            { expectedRevision: latest.document.revision, label },
+            applyPlannedEdits,
+          );
+        }
+        latestDocumentRef.current = committed.document;
+        if (dependencies.onNativeDocumentCommitted) {
+          for (const gestureDraft of gestureDrafts) {
+            retainCommittedNativeGestureDraft(gestureDraft, committed.document.id, committed.document.revision);
+          }
+        }
+        dependencies.onNativeDocumentCommitted?.(committed.document);
+      });
+      queueRef.current = run.then(() => undefined, () => undefined);
       return run;
     },
     [],
@@ -268,5 +370,5 @@ export function useProjectAnimatedPropertyCommit(
     [],
   );
 
-  return { isNativeSelection, commitAnimatedProperty, commitAnimatedProperties };
+  return { isNativeSelection, commitAnimatedProperty, commitAnimatedProperties, commitNativeGroupProperties };
 }

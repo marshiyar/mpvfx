@@ -67,6 +67,7 @@ export function getPersistedTab(): SidebarTab {
 }
 
 interface LeftSidebarProps {
+  libraryNavigation?: ReactNode;
   width?: number;
   projectId: string;
   compositions: string[];
@@ -75,7 +76,7 @@ interface LeftSidebarProps {
   activeComposition: string | null;
   onSelectComposition: (comp: string) => void;
   onImportFiles?: (files: FileList, dir?: string) => void | Promise<void>;
-  onDeleteFile?: (path: string) => void;
+  onDeleteFile?: (path: string, removePlacements?: boolean) => void;
   onDeleteComposition?: (path: string) => void | Promise<unknown>;
   onRenameFile?: (oldPath: string, newPath: string) => void;
   onRenderComposition?: (comp: string) => void;
@@ -93,6 +94,7 @@ export const LeftSidebar = memo(
     {
       width = 240,
       projectId,
+      libraryNavigation,
       compositions,
       masterComposition,
       assets,
@@ -184,6 +186,16 @@ export const LeftSidebar = memo(
           <div className="flex min-h-0 flex-1">{takeoverContent}</div>
         ) : (
           <>
+            {libraryNavigation && (
+              <div
+                role="region"
+                aria-label="Libraries and shared media"
+                tabIndex={0}
+                className="max-h-[45%] min-h-0 shrink-0 overflow-y-auto overscroll-contain focus-visible:outline focus-visible:outline-2 focus-visible:outline-studio-accent"
+              >
+                {libraryNavigation}
+              </div>
+            )}
             {/* Media-first editor navigation. */}
             {(availableTabs.length > 1 || onToggleCollapse || onImportFiles) && (
             <div className="border-b border-neutral-800/50 px-3 py-3 flex-shrink-0">

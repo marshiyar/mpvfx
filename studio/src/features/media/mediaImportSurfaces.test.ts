@@ -33,9 +33,15 @@ describe("media import surface parity", () => {
     expect(getTimelineAssetKind("assets/luts/look.cube")).toBeNull();
   });
 
-  it("uses the same classification for uppercase and URL-suffixed media", () => {
-    expect(getCategory("assets/TAKE.M4V?v=2")).toBe("video");
-    expect(getTimelineAssetKind("assets/VOICE.AAC#preview")).toBe("audio");
-    expect(isMediaFile("assets/POSTER.AVIF?rev=3")).toBe(true);
+  it("recognizes uppercase extensions after literal filename punctuation on every surface", () => {
+    for (const [path, category, kind] of [
+      ["assets/TAKE?v=2.M4V", "video", "video"],
+      ["assets/VOICE#preview.AAC", "audio", "audio"],
+      ["assets/POSTER?rev=3.AVIF", "images", "image"],
+    ]) {
+      expect(getCategory(path)).toBe(category);
+      expect(getTimelineAssetKind(path)).toBe(kind);
+      expect(isMediaFile(path)).toBe(true);
+    }
   });
 });

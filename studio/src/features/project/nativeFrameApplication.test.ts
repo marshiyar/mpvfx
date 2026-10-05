@@ -6,6 +6,7 @@ import { applyRotationDraftViaGsap } from "../canvas/manualOffsetDrag";
 
 import { applyNativeFrameToDocument, type NativeClipFrameBinding } from "./nativeFrameApplication";
 import { createNativeParameterTrack } from "../../../shared/project/nativeKeyframeTypes";
+import { evaluateNativeParameterTrack } from "../../../shared/project/nativeKeyframeEvaluator";
 
 const frameRate = { numerator: 30, denominator: 1 } as const;
 
@@ -72,6 +73,150 @@ beforeEach(() => {
 });
 
 describe("applyNativeFrameToDocument", () => {
+  it("corrects only an opted-in asymmetric crop rotation between authored keys", () => {
+    const element = addClipElement("clip:pivot");
+    element.style.width = "200px";
+    element.style.height = "100px";
+    element.style.clipPath = "inset(10px 20px 30px 40px)";
+    const numeric = (id: string, first: number, last: number) => createNativeParameterTrack({
+      id, parameterId: id, valueType: "number", frameRate,
+      keyframes: [
+        { id: `${id}:start`, frame: 0, value: first, outgoing: { type: "linear" } },
+        { id: `${id}:end`, frame: 90, value: last, outgoing: { type: "linear" } },
+      ],
+    });
+    const clips: NativeClipFrameBinding[] = [{
+      clipId: "clip:pivot", startFrame: 0, durationFrames: 91,
+      parameterTracks: [
+        numeric("transform.position.x", 0, 0),
+        numeric("transform.position.y", 0, -20),
+        numeric("transform.rotation", 0, 90),
+      ],
+    }];
+    applyNativeFrameToDocument(document, clips, 45);
+    expect(element.style.transform).toContain("translate3d(0px, -10px");
+    clips[0] = { ...clips[0]!, cropPivotSegments: [{
+      startRotationKeyId: "transform.rotation:start",
+      endRotationKeyId: "transform.rotation:end",
+      offsetFraction: { x: 0.05, y: -0.1 },
+    }] };
+    applyNativeFrameToDocument(document, clips, 0);
+    expect(element.style.transform).toContain("translate3d(0px, 0px");
+    applyNativeFrameToDocument(document, clips, 45);
+    expect(element.style.transform).toContain("translate3d(-4.142135623731px, -10px");
+    applyNativeFrameToDocument(document, clips, 90);
+    expect(element.style.transform).toContain("translate3d(0px, -20px");
+  });
+
+  it("keeps an interior authored position key exact and retains its eased center path", () => {
+    const element = addClipElement("clip:interior");
+    element.style.cssText = "width: 200px; height: 100px; clip-path: inset(10px 20px 30px 40px)";
+    const rotation = createNativeParameterTrack({
+      id: "rotation", parameterId: "transform.rotation", valueType: "number", frameRate,
+      keyframes: [
+        { id: "first", frame: 0, value: 0, outgoing: { type: "linear" } },
+        { id: "last", frame: 90, value: 90, outgoing: { type: "linear" } },
+      ],
+    });
+    const y = createNativeParameterTrack({
+      id: "y", parameterId: "transform.position.y", valueType: "number", frameRate,
+      keyframes: [
+        { id: "y:0", frame: 0, value: 0, outgoing: { type: "linear" } },
+        { id: "y:30", frame: 30, value: -4, outgoing: { type: "cubic-bezier",
+          controlPoints: { x1: 0.1, y1: 0.8, x2: 0.4, y2: 1 } } },
+        { id: "y:90", frame: 90, value: -20, outgoing: { type: "linear" } },
+      ],
+    });
+    const clip: NativeClipFrameBinding = {
+      clipId: "clip:interior", startFrame: 0, durationFrames: 91,
+      staticParameters: { "transform.position.x": 0 }, parameterTracks: [rotation, y],
+      cropPivotSegments: [{ startRotationKeyId: "first", endRotationKeyId: "last",
+        offsetFraction: { x: 0.05, y: -0.1 } }],
+    };
+    for (const [frame, authoredY] of [[0, 0], [30, -4], [90, -20]]) {
+      applyNativeFrameToDocument(document, [clip], frame!);
+      expect(element.style.transform).toContain(`, ${authoredY}px`);
+    }
+    applyNativeFrameToDocument(document, [clip], 45);
+    const renderedY = Number(/translate3d\([^,]+,\s*([^p]+)px/.exec(element.style.transform)?.[1]);
+    const authoredY = evaluateNativeParameterTrack(y, 45) as number;
+    const progress = (authoredY + 4) / -16;
+    const offsetAt30 = 10 * Math.sin(Math.PI / 6) - 10 * Math.cos(Math.PI / 6);
+    const expectedCenterY = -4 + offsetAt30 + (-20 + 10 - (-4 + offsetAt30)) * progress;
+    const offsetAt45 = 10 * Math.sin(Math.PI / 4) - 10 * Math.cos(Math.PI / 4);
+    expect(renderedY + offsetAt45).toBeCloseTo(expectedCenterY, 8);
+  });
+
+  it("pins a cropped center through a native scale animation without moving keyed poses", () => {
+    const element = addClipElement("clip:scale-pivot");
+    element.style.cssText = "width: 200px; height: 100px; clip-path: inset(10px 20px 30px 40px)";
+    const numeric = (id: string, first: number, last: number) => createNativeParameterTrack({
+      id, parameterId: id, valueType: "number", frameRate,
+      keyframes: [
+        { id: `${id}:first`, frame: 0, value: first, outgoing: { type: "linear" } },
+        { id: `${id}:last`, frame: 90, value: last, outgoing: { type: "linear" } },
+      ],
+    });
+    const clip: NativeClipFrameBinding = {
+      clipId: "clip:scale-pivot", startFrame: 0, durationFrames: 91,
+      parameterTracks: [
+        numeric("transform.position.x", 0, -10),
+        numeric("transform.position.y", 0, -30),
+        numeric("transform.rotation", 0, 90),
+        createNativeParameterTrack({
+          id: "scale", parameterId: "transform.scale", valueType: "vec2", frameRate,
+          keyframes: [
+            { id: "scale:first", frame: 0, value: { x: 1, y: 1 }, outgoing: { type: "linear" } },
+            { id: "scale:last", frame: 90, value: { x: 2, y: 2 }, outgoing: { type: "linear" } },
+          ],
+        }),
+      ],
+      cropPivotSegments: [{ startRotationKeyId: "transform.rotation:first",
+        endRotationKeyId: "transform.rotation:last", offsetFraction: { x: 0.05, y: -0.1 } }],
+    };
+    applyNativeFrameToDocument(document, [clip], 0);
+    expect(element.style.transform).toContain("translate3d(0px, 0px");
+    applyNativeFrameToDocument(document, [clip], 45);
+    const match = /translate3d\(([^p]+)px,\s*([^p]+)px/.exec(element.style.transform)!;
+    const current = { x: Number(match[1]), y: Number(match[2]) };
+    const q = 15 * Math.SQRT2;
+    expect(current.x + q).toBeCloseTo(10, 8);
+    expect(current.y).toBeCloseTo(-10, 8);
+    applyNativeFrameToDocument(document, [clip], 90);
+    expect(element.style.transform).toContain("translate3d(-10px, -30px");
+  });
+
+  it("leaves an authored curved position path untouched", () => {
+    const element = addClipElement("clip:path");
+    element.style.cssText = "width: 200px; height: 100px; clip-path: inset(10px 20px 30px 40px)";
+    const clip: NativeClipFrameBinding = {
+      clipId: "clip:path", startFrame: 0, durationFrames: 91,
+      parameterTracks: [
+        createNativeParameterTrack({
+          id: "path", parameterId: "transform.position", valueType: "vec2", frameRate,
+          keyframes: [
+            { id: "p0", frame: 0, value: { x: 0, y: 0 }, outgoing: { type: "linear" },
+              outgoingPath: { type: "bezier", cp1: { x: 10, y: 40 }, cp2: { x: 30, y: -40 } } },
+            { id: "p1", frame: 90, value: { x: 40, y: 0 }, outgoing: { type: "linear" } },
+          ],
+        }),
+        createNativeParameterTrack({
+          id: "rotation", parameterId: "transform.rotation", valueType: "number", frameRate,
+          keyframes: [
+            { id: "r0", frame: 0, value: 0, outgoing: { type: "linear" } },
+            { id: "r1", frame: 90, value: 90, outgoing: { type: "linear" } },
+          ],
+        }),
+      ],
+    };
+    applyNativeFrameToDocument(document, [clip], 45);
+    const original = element.style.transform;
+    applyNativeFrameToDocument(document, [{ ...clip, cropPivotSegments: [{
+      startRotationKeyId: "r0", endRotationKeyId: "r1", offsetFraction: { x: 0.05, y: -0.1 },
+    }] }], 45);
+    expect(element.style.transform).toBe(original);
+  });
+
   it("applies the evaluated midpoint for independent position, rotation, scale, and opacity tracks", () => {
     const element = addClipElement();
 
@@ -461,5 +606,19 @@ it("keeps the active gesture picture through retained frame reapplication", () =
     endStudioManualEditGesture(element, token);
     applyNativeFrameToDocument(document, [clip], 75);
     expect(element.style.transform).toContain("rotate(-90deg)");
+  } finally { delete runtime.gsap; }
+});
+
+it("keeps the page's GSAP values for transform components it has no native value for", async () => {
+  const { gsap } = await import("gsap");
+  const element = addClipElement();
+  const runtime = window as unknown as { gsap?: unknown };
+  runtime.gsap = gsap;
+  try {
+    // An animation that stayed legacy-owned (for example an unsupported ease).
+    gsap.set(element, { rotation: 30, scale: 0.5, x: 999 });
+    const [position] = animatedClip().parameterTracks;
+    applyNativeFrameToDocument(document, [animatedClip({ parameterTracks: [position!] })], 75);
+    expect(element.style.transform).toBe("translate3d(50px, 25px, 0px) rotate(30deg) scale(0.5, 0.5)");
   } finally { delete runtime.gsap; }
 });

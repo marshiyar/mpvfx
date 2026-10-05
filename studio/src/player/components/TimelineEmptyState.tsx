@@ -48,55 +48,33 @@ export function TimelineEmptyState({
       {/* Empty drop zone */}
       <div className="flex-1 flex items-center justify-center">
         <div
-          className={`flex items-center gap-3 px-6 py-3 border border-dashed rounded-lg transition-colors duration-150 ${
+          className={`pointer-events-none flex items-center gap-3 px-6 py-3 border border-dashed rounded-lg transition-colors duration-150 ${
             isDragOver ? "border-studio-accent/60 bg-studio-accent/[0.06]" : "border-neutral-700/50"
           }`}
         >
-          {isDragOver ? (
-            <>
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="text-studio-accent flex-shrink-0"
-              >
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" y1="15" x2="12" y2="3" />
-              </svg>
-              <span className="text-[13px] text-studio-accent">Drop media files to import</span>
-            </>
-          ) : (
-            <>
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="text-neutral-600 flex-shrink-0"
-              >
-                <rect x="2" y="2" width="20" height="20" rx="2" />
-                <path d="M7 2v20" />
-                <path d="M17 2v20" />
-                <path d="M2 7h20" />
-                <path d="M2 17h20" />
-              </svg>
-              <span className="text-[13px] text-neutral-500">
-                {onFileDrop
-                  ? "Drop video, audio, or images here to start editing"
-                  : "Import media to start editing"}
-              </span>
-            </>
-          )}
+          {/* The outer drop zone owns drag events. Keep this decorative subtree
+              mounted and out of hit testing so a drag over its text still drops. */}
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={`flex-shrink-0 ${isDragOver ? "text-studio-accent" : "text-neutral-600"}`}
+          >
+            <rect x="2" y="2" width="20" height="20" rx="2" />
+            <path d="M7 2v20" />
+            <path d="M17 2v20" />
+            <path d="M2 7h20" />
+          </svg>
+          <span className={`text-[13px] ${isDragOver ? "text-studio-accent" : "text-neutral-500"}`}>
+            {onFileDrop
+              ? "Drop video, audio, or images here to start editing"
+              : "Import media to start editing"}
+          </span>
         </div>
       </div>
     </div>

@@ -486,6 +486,13 @@ describe("buildExpandedElements", () => {
 });
 
 describe("resolveTimelineExpansionRawId", () => {
+  it("expands a selected composition host when its children have live parent links", () => {
+    const parentMap = new Map([["title-card", "scene"]]);
+    expect(resolveTimelineExpansionRawId({ selectedElementId: "index.html#scene",
+      manifest: [clip({ id: "compositions/scene.html#scene", compositionSrc: "compositions/scene.html" })],
+      parentMap })).toBe("scene");
+  });
+
   it("keeps strip rows stable while playback crosses nested compositions", () => {
     const manifest = [
       clip({ id: "first", start: 0, duration: 5 }),
@@ -649,6 +656,27 @@ describe("resolveTimelineExpansionRawId", () => {
     expect(usePlayerStore.getState().isPlaying).toBe(true);
     expect(rows?.map((row) => row.domId ?? row.id)).toEqual(["scene"]);
 
+    act(() => root.unmount());
+  });
+
+  it("shows observed child rows when their composition host is selected", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    let rows: TimelineElement[] | undefined;
+    act(() => {
+      usePlayerStore.setState({
+        elements: [el({ id: "scene", domId: "scene", key: "index.html#scene",
+          start: 0, duration: 4, compositionSrc: "compositions/scene.html" })],
+        clipManifest: [clip({ id: "scene", start: 0, duration: 4, compositionSrc: "compositions/scene.html" })],
+        clipParentMap: new Map([["panel", "scene"]]),
+        domClipChildren: [{ id: "panel", parentId: "scene", hostId: "scene", label: "Panels",
+          stackingContextId: "css:root" }],
+        selectedElementId: "index.html#scene",
+      });
+      root.render(React.createElement(TimelineExpansionHarness, { onValue: value => { rows = value; } }));
+    });
+    expect(rows?.map(row => row.domId ?? row.id)).toEqual(["scene", "panel"]);
     act(() => root.unmount());
   });
 

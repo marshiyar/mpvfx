@@ -574,8 +574,8 @@ describe("flat PropertyPanel input coverage", () => {
           onSetManualOffset: vi.fn(),
           onSetManualSize: vi.fn(),
           onSetManualRotation: vi.fn(),
-          // Header/footer controls render only when their callbacks are wired —
-          // supply them so the coverage guard exercises the header + footer sections.
+          // Supply callbacks to exercise the header and confirm the retired
+          // footer recording control remains absent even with its callback wired.
           selectedElementId: "el-1",
           selectedElementHidden: false,
           onToggleElementHidden: vi.fn(),
@@ -596,22 +596,18 @@ describe("flat PropertyPanel input coverage", () => {
       act(() => changeInput(input, String(200 + index)));
       act(() => blurInput(input));
     }
-    // Header (Clear selection) and footer (record) controls — exercises the
-    // "header" and "footer" sections. The visibility toggle is intentionally omitted:
+    // Clear selection exercises the header section. The retired footer record
+    // control remains absent. The visibility toggle is intentionally omitted:
     // it renders only when the dispatcher forwards a live selection handle, which this
     // unit-level mock does not model. Clear selection already covers the header section.
-    for (const selector of [
-      '[aria-label="Clear selection"]',
-      '[data-flat-footer-record="true"]',
-    ]) {
-      const button = host.querySelector<HTMLButtonElement>(selector);
-      if (!button) throw new Error(`expected flat panel control ${selector}`);
-      act(() => button.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    }
+    const clearSelection = host.querySelector<HTMLButtonElement>('[aria-label="Clear selection"]');
+    if (!clearSelection) throw new Error("expected flat Clear selection control");
+    act(() => clearSelection.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(host.querySelector('[data-flat-footer-record="true"]')).toBeNull();
 
     expect(trackStudioEvent).toHaveBeenCalled();
     expect(new Set(trackStudioEvent.mock.calls.map(([, payload]) => payload.section))).toEqual(
-      new Set(["layout", "header", "footer"]),
+      new Set(["transform", "header"]),
     );
     for (const [, payload] of trackStudioEvent.mock.calls) {
       expect(payload).toEqual(

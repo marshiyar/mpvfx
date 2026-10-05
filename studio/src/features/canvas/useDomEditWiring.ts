@@ -1,6 +1,5 @@
 /**
- * Wiring layer for DOM edit sessions: DOM selection to timeline sync,
- * GSAP cache invalidation on refresh,
+ * Wiring layer for DOM edit sessions: GSAP cache invalidation on refresh,
  * GSAP cache population, animation resolution for the selected element,
  * and preview sync side-effects.
  *
@@ -9,7 +8,6 @@
  */
 import { useEffect, useRef } from "react";
 import type { DomEditSelection } from "./domEditingTypes";
-import { usePlayerStore } from "../../player/index";
 import { useDomEditPreviewSync } from "./useDomEditPreviewSync";
 import { useGsapAnimationsForElement, usePopulateKeyframeCacheForFile } from "../animation/GSAP/useGsapTweenCache";
 import { useGsapAnimationFetchFallback } from "../animation/GSAP/useGsapAnimationFetchFallback";
@@ -176,18 +174,6 @@ export function useDomEditWiring({
   removeAllKeyframesBatch,
   handleDomManualEditsReset,
 }: UseDomEditWiringParams) {
-  // ── DOM selection -> timeline element sync ──
-
-  useEffect(() => {
-    if (!domEditSelection?.id) return;
-    const { selectedElementId, elements, setSelectedElementId } = usePlayerStore.getState();
-    const matchKey = elements.find(
-      (el) => el.domId === domEditSelection.id || el.id === domEditSelection.id,
-    );
-    const key = matchKey ? (matchKey.key ?? matchKey.id) : null;
-    if (key && key !== selectedElementId) setSelectedElementId(key);
-  }, [domEditSelection?.id]);
-
   // ── GSAP cache sync ──
 
   // Bump GSAP cache when refreshKey changes (code-tab edits trigger iframe

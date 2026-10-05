@@ -1,3 +1,5 @@
+import { discoverNativeTimelineSources } from "./nativeTimelineSources";
+import { stabilizeNativeBindingSource } from "./nativeBindingSource";
 import type { RecordEditInput } from "../history/studioFileHistory";
 import { serializeStudioFileMutations } from "../history/studioFileMutationCoordinator";
 import {
@@ -5,6 +7,7 @@ import {
   parseNativeProjectDocument,
   serializeNativeProjectDocument,
   type NativeProjectDocument,
+  type NativeClipDomBinding,
   type NativeProjectTrackLane,
 } from "../../../shared/project/nativeProjectDocument";
 import { NativeProjectRevisionConflictError } from "./nativeProjectPersistence";
@@ -29,10 +32,13 @@ export interface CommitNativeTimelineMoveInput {
   readonly writeProjectFile: ProjectFileWriter;
   readonly recordEdit: (input: RecordEditInput) => Promise<void>;
   readonly commitFileTransaction?: CommitNativeTimelineFileTransaction;
+  /** Unique to a gesture when another source edit must share this Undo step. */
+  readonly gestureCoalesceKey?: string;
   readonly patchCompatibilityContent: (
     content: string,
     exactStartSeconds: number,
     destinationLane: Readonly<NativeProjectTrackLane>,
+    binding: Readonly<NativeClipDomBinding>,
   ) => string;
   readonly onCommitted?: (document: NativeProjectDocument) => void;
   readonly signal?: AbortSignal;
@@ -72,14 +78,14 @@ const throwIfAborted = (signal?: AbortSignal): void => {
 export async function commitNativeTimelineMove(
   input: CommitNativeTimelineMoveInput,
 ): Promise<CommitNativeTimelineMoveResult> {
-  const sourceFile = input.element.sourceFile;
-  if (typeof sourceFile !== "string" || sourceFile.length === 0) {
-    return { committed: false, reason: "clip-not-found" };
-  }
+  const discovery = await discoverNativeTimelineSources(input, [input.element]);
+  if (!discovery.ok) return { committed: false, reason: discovery.reason };
+  const sourceFile = discovery.sourceFiles[0] ?? null;
+  const sourcePaths = discovery.sourceFiles;
 
   const result = await serializeStudioFileMutations(
     input.writeProjectFile,
-    [NATIVE_PROJECT_DOCUMENT_PATH, sourceFile],
+    [NATIVE_PROJECT_DOCUMENT_PATH, ...sourcePaths],
     async (): Promise<CommitNativeTimelineMoveResult> => {
       throwIfAborted(input.signal);
       const nativeBefore = await input.readOptionalProjectFile(NATIVE_PROJECT_DOCUMENT_PATH);
@@ -105,23 +111,34 @@ export async function commitNativeTimelineMove(
         );
       }
 
-      const compatibilityBefore = await input.readOptionalProjectFile(sourceFile);
-      throwIfAborted(input.signal);
-      if (compatibilityBefore == null) {
+      let compatibilityBefore = "";
+      let compatibilityAfter = "";
+      if (sourceFile !== null) {
+        const sourceContent = await input.readOptionalProjectFile(sourceFile);
+        throwIfAborted(input.signal);
+        if (sourceContent == null) {
         return { committed: false, reason: "missing-compatibility-file" };
-      }
-      const compatibilityAfter = input.patchCompatibilityContent(
-        compatibilityBefore,
+        }
+        compatibilityBefore = sourceContent;
+        const binding = current.sequence.tracks.find(track => track.id === plan.address.trackId)
+          ?.clips.find(clip => clip.id === plan.address.clipId)?.binding;
+        if (!binding) throw new NativeTimelineCompatibilityError(`Native clip ${plan.address.clipId} has no source binding`);
+        const stableSource = stabilizeNativeBindingSource(current, sourceFile, compatibilityBefore);
+        compatibilityAfter = input.patchCompatibilityContent(
+        stableSource,
         plan.compatibilityStartSeconds,
         {
           authoredTrack: plan.destination.authoredTrack,
           displayTrack: plan.destination.displayTrack,
         },
-      );
-      if (compatibilityAfter === compatibilityBefore) {
+        binding,
+        );
+        if (compatibilityAfter === compatibilityBefore) {
         throw new NativeTimelineCompatibilityError(
           `Compatibility source ${sourceFile} did not accept the native clip timing patch`,
         );
+        }
+
       }
 
       const document = parseNativeProjectDocument({
@@ -131,16 +148,17 @@ export async function commitNativeTimelineMove(
       const nativeAfter = serializeNativeProjectDocument(document);
       const snapshots: Record<string, { before: string; after: string }> = {
         [NATIVE_PROJECT_DOCUMENT_PATH]: { before: nativeBefore, after: nativeAfter },
-        [sourceFile]: { before: compatibilityBefore, after: compatibilityAfter },
+        ...(sourceFile === null ? {} : { [sourceFile]: { before: compatibilityBefore, after: compatibilityAfter } }),
       };
-      const orderedPaths = [NATIVE_PROJECT_DOCUMENT_PATH, sourceFile];
+      const orderedPaths = [NATIVE_PROJECT_DOCUMENT_PATH, ...sourcePaths];
       await commitNativeTimelineFileSnapshots({
         orderedPaths,
         snapshots,
         history: {
           label: "Move timeline clip",
           kind: "timeline",
-          coalesceKey: `timeline-move:${plan.address.clipId}`,
+          coalesceKey: input.gestureCoalesceKey ?? `timeline-move:${plan.address.clipId}`,
+          ...(input.gestureCoalesceKey ? { coalesceMs: 60_000 } : {}),
         },
         commitFileTransaction: input.commitFileTransaction,
         writeProjectFile: input.writeProjectFile,

@@ -89,6 +89,27 @@ function renderHookWith(
 }
 
 describe("useAnimatedPropertyCommit — ownership and rejection propagation", () => {
+  it("rejects isolated-preview legacy edits before inventing an animation baseline", async () => {
+    const iframe = Object.defineProperty({}, "contentDocument", {
+      get: () => { throw new DOMException("cross origin", "SecurityError"); },
+    }) as HTMLIFrameElement;
+    const mutations: Array<Record<string, unknown>> = [];
+    let commit!: Commit;
+    const root = renderHookWith(
+      [keyframedAnim],
+      (mutation) => mutations.push(mutation),
+      (ready) => (commit = ready),
+      vi.fn(),
+      undefined,
+      { current: iframe },
+    );
+    await expect(commit(selection, { rotationX: 12 })).rejects.toMatchObject({
+      name: "GsapEditBlockedError",
+      reason: "preview-unavailable",
+    });
+    expect(mutations).toHaveLength(0);
+    act(() => root.unmount());
+  });
   it("rejects a helper-authored property before sending a mutation", async () => {
     const helperRotation = {
       id: "#box-to-rotation",

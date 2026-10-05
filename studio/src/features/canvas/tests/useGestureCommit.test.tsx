@@ -85,7 +85,7 @@ function makeSelection(element: HTMLElement): DomEditSelection {
 }
 
 describe("useGestureCommit", () => {
-  it("coalesces property-group commits and reloads only the terminal group", async () => {
+  it.each([false, true])("handles recording completion with project changed=%s", async (changeProject) => {
     const iframe = document.createElement("iframe");
     document.body.append(iframe);
     const element = document.createElement("div");
@@ -96,8 +96,16 @@ describe("useGestureCommit", () => {
     const sessionRef = {
       current: {
         domEditSelection: makeSelection(element),
-        selectedGsapAnimations: [],
-        commitMutation,
+        nativeProjectDocument: {
+          schemaVersion: 1, id: "project", revision: 0, frameRate: { numerator: 30, denominator: 1 },
+          canvas: { width: 100, height: 100, background: "#000000" },
+          assets: [{ id: "asset", kind: "image", name: "card", durationFrames: 300 }],
+          sequence: { id: "sequence", name: "Main", tracks: [{ id: "track", kind: "video", clips: [{
+            id: "clip", assetId: "asset", startFrame: 0, durationFrames: 60, sourceInFrame: 0,
+            muted: false, effects: [], parameterTracks: [], binding: { domId: "card", sourceFile: "index.html" },
+          }] }] },
+        } as import("../../../../shared/project/nativeProjectDocument").NativeProjectDocument,
+        commitNativeProject: vi.fn(async () => true),
       },
     };
     const captured: { hook: ReturnType<typeof useGestureCommit> | null } = { hook: null };
@@ -115,16 +123,26 @@ describe("useGestureCommit", () => {
     if (!captured.hook) throw new Error("hook did not initialize");
 
     act(() => captured.hook?.handleToggleRecording());
+    if (changeProject) {
+      sessionRef.current = { ...sessionRef.current,
+        nativeProjectDocument: { ...sessionRef.current.nativeProjectDocument, id: "other-project" } };
+      usePlayerStore.setState({ currentTime: 0.75, isPlaying: true });
+    }
     act(() => captured.hook?.handleToggleRecording());
+    if (changeProject) {
+      expect(sessionRef.current.commitNativeProject).not.toHaveBeenCalled();
+      expect(usePlayerStore.getState().currentTime).toBe(0.75);
+      expect(usePlayerStore.getState().isPlaying).toBe(true);
+      expect(gestureRecording.clearSamples).toHaveBeenCalledOnce();
+      expect(captured.hook.gestureState).toBe("idle");
+      return;
+    }
     await act(async () => {
-      await vi.waitFor(() => expect(commitMutation).toHaveBeenCalledTimes(2));
+      await vi.waitFor(() => expect(sessionRef.current.commitNativeProject).toHaveBeenCalledTimes(1));
     });
 
-    const options = commitMutation.mock.calls.map((call) => call[1]);
-    expect(new Set(options.map((entry) => entry.coalesceKey)).size).toBe(1);
-    expect(options[0]).toEqual(expect.objectContaining({ coalesceMs: Infinity, skipReload: true }));
-    expect(options[0]).not.toHaveProperty("softReload");
-    expect(options[1]).toEqual(expect.objectContaining({ coalesceMs: Infinity, softReload: true }));
-    expect(options[1]).not.toHaveProperty("skipReload");
+    expect(commitMutation).not.toHaveBeenCalled();
+    const saved = (sessionRef.current.commitNativeProject.mock.calls[0] as unknown as [{ document: import("../../../../shared/project/nativeProjectDocument").NativeProjectDocument }])[0].document;
+    expect(saved.sequence.tracks[0]!.clips[0]!.parameterTracks).toHaveLength(3);
   });
 });

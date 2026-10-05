@@ -134,7 +134,7 @@ describe("native timeline range edit planner", () => {
     });
   });
 
-  it("declines an unbound native clip instead of inventing a compatibility target", () => {
+  it("trims a native-only clip without inventing a compatibility target", () => {
     const result = planNativeTimelineRangeEdit({
       document: document({ binding: false }),
       element: {
@@ -146,13 +146,7 @@ describe("native timeline range edit planner", () => {
       requestedDurationSeconds: secondsAtFrame(60),
     });
 
-    expect(result).toEqual({
-      ok: false,
-      failure: {
-        code: "unbound-clip",
-        message: "Native clip clip:a has no exact compatibility binding",
-      },
-    });
+    expect(result).toMatchObject({ ok: true, sourceFile: null, durationFrames: 60 });
   });
 
   it("declines a missing native clip without mutating the supplied document", () => {
@@ -180,7 +174,7 @@ describe("native timeline range edit planner", () => {
     });
   });
 
-  it("rejects a trim boundary that cannot map to an integral source frame", () => {
+  it("preserves a fractional source-frame boundary in the native document and compatibility timing", () => {
     const result = planNativeTimelineRangeEdit({
       document: document({ playbackRate: { numerator: 3, denominator: 2 } }),
       element,
@@ -188,10 +182,15 @@ describe("native timeline range edit planner", () => {
       requestedDurationSeconds: secondsAtFrame(119),
     });
 
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.failure.code).toBe("native-command-rejected");
-    expect(result.failure.nativeCode).toBe("non-integral-source-boundary");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.document.sequence.tracks[0]!.clips[0]).toMatchObject({
+      startFrame: 31,
+      durationFrames: 119,
+      sourceInFrame: 11,
+      sourceInFraction: { numerator: 1, denominator: 2 },
+    });
+    expect(Number(result.compatibility.sourceOffset)).toBeCloseTo(secondsAtFrame(11.5), 12);
   });
 
   it("declines a range edit that moves both clip boundaries", () => {

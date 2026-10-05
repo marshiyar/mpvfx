@@ -48,6 +48,8 @@ export interface GestureState {
   initialRotation: StudioRotationSnapshot;
   initialBoxSize: StudioBoxSizeSnapshot;
   pathOffsetMember?: ManualOffsetDragMember;
+  /** Visible crop center minus source center at rotation start, in overlay px. */
+  rotationVisibleOffset?: { x: number; y: number };
   originLeft: number;
   originTop: number;
   originWidth: number;
@@ -298,7 +300,7 @@ export type UseDomEditOverlayGesturesOptions = {
     ) => Promise<void> | void
   >;
   onRotationCommitRef: RefObject<
-    (s: DomEditSelection, n: { angle: number }) => Promise<void> | void
+    (s: DomEditSelection, n: { angle: number }, offset?: { x: number; y: number }) => Promise<void> | void
   >;
   onCanvasPointerMoveRef: RefObject<
     (

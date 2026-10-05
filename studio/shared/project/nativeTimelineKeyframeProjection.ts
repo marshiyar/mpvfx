@@ -1,5 +1,6 @@
 import type { NativeInterpolation, NativeParameterTrack } from "./nativeKeyframeTypes";
 import type { NativeProjectDocument } from "./nativeProjectDocument";
+import { isVec2PositionTrack, positionComponentViews } from "./nativePositionTrack";
 import {
   resolveNativeClipSelection,
   type NativePropertyEditPlanFailure,
@@ -144,15 +145,42 @@ export const projectNativeTimelineKeyframes = (
   if (!resolution.ok) return { ok: false, failure: resolution.failure };
   const { clip, trackId } = resolution.located;
 
+  interface ProjectedLane {
+    readonly laneId: string;
+    readonly animationId: string;
+    readonly parameterId: string;
+    readonly keyframes: readonly {
+      readonly id: string;
+      readonly frame: number;
+      readonly value: number;
+      readonly outgoing: NativeParameterTrack["keyframes"][number]["outgoing"];
+    }[];
+  }
   const projectedTracks = clip.parameterTracks
-    .flatMap((track) => {
+    .flatMap((track): { track: ProjectedLane; property: NonNullable<ReturnType<typeof propertyByParameterId.get>> }[] => {
+      // A 2D position shows as x and y lanes that share its keyframe identities.
+      if (isVec2PositionTrack(track)) {
+        return positionComponentViews(track, clip.parameterTracks).flatMap((view) => {
+          const property = propertyByParameterId.get(view.parameterId);
+          return property
+            ? [{
+                track: { laneId: `${track.id}|${view.component}`, animationId: track.id, parameterId: view.parameterId, keyframes: view.keyframes },
+                property,
+              }]
+            : [];
+        });
+      }
       const property = propertyByParameterId.get(track.parameterId);
       if (!property || track.valueType !== "number") return [];
-      return [{ track: track as NativeParameterTrack<"number">, property }];
+      const scalar = track as NativeParameterTrack<"number">;
+      return [{
+        track: { laneId: scalar.id, animationId: scalar.id, parameterId: scalar.parameterId, keyframes: scalar.keyframes },
+        property,
+      }];
     })
     .sort(
       (left, right) =>
-        left.property.order - right.property.order || left.track.id.localeCompare(right.track.id),
+        left.property.order - right.property.order || left.track.laneId.localeCompare(right.track.laneId),
     );
 
   for (const { track } of projectedTracks) {
@@ -178,7 +206,7 @@ export const projectNativeTimelineKeyframes = (
       .map((keyframe) => ({
         id: keyframe.id,
         keyframeId: keyframe.id,
-        animationId: track.id,
+        animationId: track.animationId,
         parameterId: track.parameterId,
         frame: keyframe.frame,
         percentage: (keyframe.frame / clip.durationFrames) * 100,
@@ -188,8 +216,8 @@ export const projectNativeTimelineKeyframes = (
       .sort((left, right) => left.frame - right.frame || left.keyframeId.localeCompare(right.keyframeId));
     const lanes = lanesByGroup.get(property.groupId) ?? [];
     lanes.push({
-      laneId: track.id,
-      animationId: track.id,
+      laneId: track.laneId,
+      animationId: track.animationId,
       parameterId: track.parameterId,
       property: property.property,
       label: property.label,

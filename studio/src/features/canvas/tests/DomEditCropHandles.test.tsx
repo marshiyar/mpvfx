@@ -37,6 +37,7 @@ function makeEl(id: string, clip = ""): HTMLElement {
 function render(
   el: HTMLElement,
   onSessionInsetsChange = vi.fn(),
+  rect = overlayRect,
 ): { root: Root; host: HTMLElement } {
   const host = document.createElement("div");
   document.body.append(host);
@@ -45,7 +46,7 @@ function render(
     root.render(
       <DomEditCropHandles
         selection={selectionFor(el)}
-        overlayRect={overlayRect}
+        overlayRect={rect}
         onSessionInsetsChange={onSessionInsetsChange}
       />,
     );
@@ -54,12 +55,19 @@ function render(
 }
 
 describe("DomEditCropHandles draft interaction", () => {
-  it("draws exactly four solid square unfilled crop lines that overhang the media", () => {
+  it("draws a square-corner cropped outline, four square handles, and larger edge hit strips", () => {
     const { root, host } = render(makeEl("a"));
     const frame = host.querySelector<HTMLElement>("[data-dom-edit-crop-frame]");
+    const outline = host.querySelector<HTMLElement>("[data-dom-edit-crop-outline]");
     const lines = Array.from(host.querySelectorAll<HTMLElement>("[data-dom-edit-crop-line]"));
+    const knobs = Array.from(host.querySelectorAll<HTMLElement>("[data-dom-edit-crop-knob]"));
+    const handles = Array.from(host.querySelectorAll<HTMLButtonElement>("[data-dom-edit-crop-handle]"));
 
     expect(frame).not.toBeNull();
+    expect(outline).not.toBeNull();
+    expect(outline?.className).not.toMatch(/rounded|bg-/);
+    expect(outline?.style.width).toBe("200px");
+    expect(outline?.style.height).toBe("100px");
     expect(lines.map((line) => line.dataset.domEditCropLine)).toEqual([
       "top",
       "right",
@@ -68,10 +76,60 @@ describe("DomEditCropHandles draft interaction", () => {
     ]);
     expect(frame?.className).not.toMatch(/bg-|border-dashed|rounded/);
     for (const line of lines) expect(line.className).not.toMatch(/border-dashed|rounded/);
+    expect(knobs.map((knob) => knob.dataset.domEditCropKnob)).toEqual([
+      "top", "right", "bottom", "left",
+    ]);
+    for (const knob of knobs) expect(knob.className).not.toMatch(/rounded/);
+    expect(handles[0]?.style.height).toBe("12px");
+    expect(handles[1]?.style.width).toBe("12px");
     expect(Number.parseFloat(lines[0]!.style.left)).toBeLessThan(0);
     expect(Number.parseFloat(lines[0]!.style.width)).toBeGreaterThan(overlayRect.width);
     expect(Number.parseFloat(lines[3]!.style.top)).toBeLessThan(0);
     expect(Number.parseFloat(lines[3]!.style.height)).toBeGreaterThan(overlayRect.height);
+    act(() => root.unmount());
+  });
+
+  it("keeps outline and handles on the cropped bounds at editor zoom", () => {
+    const zoomedRect: OverlayRect = {
+      ...overlayRect,
+      width: 400,
+      height: 200,
+      editScaleX: 2,
+      editScaleY: 2,
+    };
+    const { root, host } = render(makeEl("zoomed", "inset(10px 20px 30px 40px)"), vi.fn(), zoomedRect);
+    const outline = host.querySelector<HTMLElement>("[data-dom-edit-crop-outline]")!;
+    const top = host.querySelector<HTMLElement>('[data-dom-edit-crop-line="top"]')!;
+    const rightHandle = host.querySelector<HTMLElement>('[data-dom-edit-crop-handle="right"]')!;
+    expect(outline.style.left).toBe("80px");
+    expect(outline.style.top).toBe("20px");
+    expect(outline.style.width).toBe("280px");
+    expect(outline.style.height).toBe("120px");
+    expect(top.style.left).toBe("68px");
+    expect(top.style.width).toBe("304px");
+    expect(rightHandle.style.left).toBe("354px");
+    expect(rightHandle.style.height).toBe("144px");
+    act(() => root.unmount());
+  });
+
+  it("keeps the cropped rectangle in the element frame before rotation", () => {
+    const element = makeEl("rotated", "inset(10px)");
+    element.style.transform = "matrix(0, 1, -1, 0, 0, 0)";
+    Object.defineProperty(element, "offsetWidth", { configurable: true, value: 200 });
+    Object.defineProperty(element, "offsetHeight", { configurable: true, value: 100 });
+    const rotatedAabb: OverlayRect = {
+      ...overlayRect, left: 50, top: 20, width: 100, height: 200,
+    };
+    const { root, host } = render(element, vi.fn(), rotatedAabb);
+    const frame = host.querySelector<HTMLElement>("[data-dom-edit-crop-frame]")!;
+    const outline = host.querySelector<HTMLElement>("[data-dom-edit-crop-outline]")!;
+    expect(frame.style.transform).toBe("rotate(90deg)");
+    expect(frame.style.width).toBe("200px");
+    expect(frame.style.height).toBe("100px");
+    expect(outline.style.left).toBe("10px");
+    expect(outline.style.top).toBe("10px");
+    expect(outline.style.width).toBe("180px");
+    expect(outline.style.height).toBe("80px");
     act(() => root.unmount());
   });
 

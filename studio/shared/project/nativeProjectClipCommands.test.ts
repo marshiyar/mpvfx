@@ -266,6 +266,41 @@ describe("native project clip move commands", () => {
 });
 
 describe("native project clip trim, split, and delete commands", () => {
+  it("rebases a crop pivot onto trim and split rotation keys and restores it on undo", () => {
+    const original = documentFixture();
+    const marker = { startRotationKeyId: "rotation:0", endRotationKeyId: "rotation:90",
+      offsetFraction: { x: 0.05, y: -0.1 } };
+    findClip(original, "clip:first")!.cropPivotSegments = [marker];
+    const assertBound = (clip: NonNullable<ReturnType<typeof findClip>>) => {
+      const [segment] = clip.cropPivotSegments ?? [];
+      const rotation = clip.parameterTracks.find((track) => track.parameterId === "transform.rotation")!;
+      expect(segment).toBeDefined();
+      expect(rotation.keyframes.some((key) => key.id === segment?.startRotationKeyId)).toBe(true);
+      expect(rotation.keyframes.some((key) => key.id === segment?.endRotationKeyId)).toBe(true);
+      expect(segment?.offsetFraction).toEqual(marker.offsetFraction);
+    };
+    const split = applyNativeProjectClipCommand(original, { type: "split", address: firstAddress, splitFrame: 60 });
+    expect(split.ok).toBe(true);
+    if (!split.ok) return;
+    assertBound(findClip(split.document, "clip:first")!);
+    assertBound(findClip(split.document, nativeSplitClipId("clip:first", 60))!);
+    const undone = applyNativeProjectClipCommand(split.document, split.inverse);
+    expect(undone.ok).toBe(true);
+    if (undone.ok) expect(serializeNativeProjectDocument(undone.document))
+      .toBe(serializeNativeProjectDocument(original));
+
+    const trimmedIn = applyNativeProjectClipCommand(original, {
+      type: "trim-in", address: firstAddress, startFrame: 30,
+    });
+    expect(trimmedIn.ok).toBe(true);
+    if (trimmedIn.ok) assertBound(findClip(trimmedIn.document, "clip:first")!);
+    const trimmedOut = applyNativeProjectClipCommand(original, {
+      type: "trim-out", address: firstAddress, endFrameExclusive: 60,
+    });
+    expect(trimmedOut.ok).toBe(true);
+    if (trimmedOut.ok) assertBound(findClip(trimmedOut.document, "clip:first")!);
+  });
+
   it("trims in on an integer frame, advancing source media and rebasing native keyframes without touching effects or static parameters", () => {
     const original = documentFixture();
     const before = findClip(original, "clip:first")!;
@@ -319,6 +354,52 @@ describe("native project clip trim, split, and delete commands", () => {
     expect(right.parameterTracks[0]?.id).not.toBe(left.parameterTracks[0]?.id);
   });
 
+  it("splits curved, eased, auto-rotating motion paths so both halves evaluate exactly like the original", () => {
+    const original = documentFixture();
+    const clip = findClip(original, "clip:first")!;
+    const position = createNativeParameterTrack({
+      id: "parameter:position",
+      parameterId: "transform.position",
+      valueType: "vec2",
+      frameRate,
+      autoRotate: true,
+      keyframes: [
+        {
+          id: "a", frame: 0, value: { x: 0, y: 0 },
+          outgoing: { type: "cubic-bezier", controlPoints: { x1: 0.42, y1: 0, x2: 0.58, y2: 1 } },
+          outgoingPath: { type: "bezier", cp1: { x: 0, y: 300 }, cp2: { x: 400, y: 300 } },
+        },
+        { id: "b", frame: 50, value: { x: 400, y: 0 }, outgoing: { type: "linear" }, outgoingPath: { type: "curve", curviness: 1 } },
+        { id: "c", frame: 110, value: { x: 700, y: 250 }, outgoing: { type: "linear" } },
+      ],
+    });
+    clip.parameterTracks = [...clip.parameterTracks, position];
+
+    const result = expectMove(original, { type: "split", address: firstAddress, splitFrame: 60 });
+    const left = findClip(result.document, "clip:first")!.parameterTracks.find((track) => track.parameterId === "transform.position")!;
+    const right = findClip(result.document, nativeSplitClipId("clip:first", 60))!.parameterTracks.find((track) => track.parameterId === "transform.position")!;
+
+    // Every frame of each half equals the original at the matching source frame.
+    for (let frame = 0; frame < 60; frame++) {
+      for (const [half, offset] of [[left, 0], [right, 60]] as const) {
+        const expected = evaluateNativeParameterTrack(position, offset + frame);
+        const actual = evaluateNativeParameterTrack(half, frame);
+        expect(actual.x, `x at ${offset + frame}`).toBeCloseTo(expected.x, 6);
+        expect(actual.y, `y at ${offset + frame}`).toBeCloseTo(expected.y, 6);
+      }
+    }
+    // Auto-rotate and authored keyframe identities survive the cut.
+    expect(left.autoRotate).toBe(true);
+    expect(right.autoRotate).toBe(true);
+    expect(left.keyframes.find((keyframe) => keyframe.frame === 50)?.id).toBe("b");
+    expect(right.keyframes.find((keyframe) => keyframe.frame === 50)?.id).toBe("c");
+    // The cut segment keeps a curved path rather than flattening to a line.
+    expect(left.keyframes.find((keyframe) => keyframe.frame === 0)?.outgoingPath?.type).toBe("bezier");
+    expect(right.keyframes.find((keyframe) => keyframe.frame === 0)?.outgoingPath?.type).toBe("bezier");
+    // The result still round-trips through the project document.
+    expect(() => parseNativeProjectDocument(JSON.parse(serializeNativeProjectDocument(result.document)))).not.toThrow();
+  });
+
   it("advances source media by the exact rational playback rate when trimming and splitting", () => {
     const fast = documentFixture();
     findClip(fast, "clip:first")!.playbackRate = { numerator: 2, denominator: 1 };
@@ -345,31 +426,39 @@ describe("native project clip trim, split, and delete commands", () => {
     });
   });
 
-  it("rejects trim and split boundaries that cannot map to an integer source frame", () => {
+  it("preserves exact fractional source positions through trims, splits, and serialization", () => {
     const original = documentFixture();
     findClip(original, "clip:first")!.playbackRate = { numerator: 1, denominator: 2 };
 
-    const trim = applyNativeProjectClipCommand(original, {
+    const trim = expectMove(original, {
       type: "trim-in",
       address: firstAddress,
       startFrame: 1,
     });
-    expect(trim).toMatchObject({
-      ok: false,
-      document: original,
-      failure: { code: "non-integral-source-boundary" },
+    expect(findClip(trim.document, "clip:first")).toMatchObject({
+      startFrame: 1,
+      durationFrames: 119,
+      sourceInFrame: 12,
+      sourceInFraction: { numerator: 1, denominator: 2 },
     });
 
-    const split = applyNativeProjectClipCommand(original, {
+    const split = expectMove(original, {
       type: "split",
       address: firstAddress,
       splitFrame: 1,
     });
-    expect(split).toMatchObject({
-      ok: false,
-      document: original,
-      failure: { code: "non-integral-source-boundary" },
+    expect(findClip(split.document, nativeSplitClipId("clip:first", 1))).toMatchObject({
+      startFrame: 1,
+      sourceInFrame: 12,
+      sourceInFraction: { numerator: 1, denominator: 2 },
     });
+    const restored = parseNativeProjectDocument(JSON.parse(serializeNativeProjectDocument(trim.document)));
+    expect(findClip(restored, "clip:first")?.sourceInFraction).toEqual({ numerator: 1, denominator: 2 });
+    const nextTrim = expectMove(restored, { type: "trim-in", address: firstAddress, startFrame: 2 });
+    expect(findClip(nextTrim.document, "clip:first")?.sourceInFrame).toBe(13);
+    expect(findClip(nextTrim.document, "clip:first")?.sourceInFraction).toBeUndefined();
+    expect(findClip(original, "clip:first")?.sourceInFrame).toBe(12);
+    expect(findClip(original, "clip:first")?.durationFrames).toBe(120);
   });
 
   it("requires a bound split to provide a unique explicit right-side binding", () => {
@@ -529,6 +618,25 @@ describe("timeline resize extension", () => {
     const clip = findClip(result.document, "clip:first")!;
     expect(clip).toMatchObject({ startFrame: 24, sourceInFrame: 6, durationFrames: 126 });
     expect(clip.parameterTracks[0]!.keyframes.find((key) => key.id === "rotation:90")!.frame).toBe(96);
+  });
+
+  it("extends a marked crop pivot left without losing its original interpolation reference", () => {
+    const original = documentFixture();
+    const sourceClip = findClip(original, "clip:first")!;
+    sourceClip.startFrame = 30;
+    sourceClip.cropPivotSegments = [{ startRotationKeyId: "rotation:0", endRotationKeyId: "rotation:90",
+      offsetFraction: { x: 0.05, y: -0.1 } }];
+    const result = expectMove(original, { type: "trim-in", address: firstAddress, startFrame: 24 });
+    const extended = findClip(result.document, "clip:first")!;
+    expect(extended).toMatchObject({ startFrame: 24, sourceInFrame: 6, durationFrames: 126 });
+    expect(extended.cropPivotSegments?.[0]?.reference?.frameOffset).toBe(-6);
+    expect(parseNativeProjectDocument(JSON.parse(serializeNativeProjectDocument(result.document))))
+      .toEqual(result.document);
+    expect(findClip(original, "clip:first")!.cropPivotSegments?.[0]?.reference).toBeUndefined();
+
+    const invalid = structuredClone(result.document);
+    findClip(invalid, "clip:first")!.cropPivotSegments![0]!.reference!.frameOffset = -7;
+    expect(() => parseNativeProjectDocument(invalid)).toThrow("before its original frame zero");
   });
 
   it("rejects extending timed media past its available source with an actionable reason", () => {

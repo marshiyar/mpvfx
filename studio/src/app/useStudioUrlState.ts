@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePlayerStore } from "../player/index";
 import { findElementForSelection, type DomEditSelection } from "../features/canvas/domEditing";
+import type { PreviewElementState } from "../../shared/preview/agentProtocol";
+import { previewAgentForIframe } from "../features/preview/previewAgentClient";
+import { previewOriginFromIframe } from "../player/lib/previewUrl";
+import { previewOriginForProject } from "../../shared/desktopPreviewOrigin";
 import { clampNumber, type RightPanelTab } from "../lib/studioHelpers";
 import { parseProjectIdFromHash } from "./projectRouting";
 import {
@@ -23,6 +27,7 @@ interface UseStudioUrlStateParams {
   rightCollapsed: boolean;
   activeCompPathHydrated: boolean;
   domEditSelection: DomEditSelection | null;
+  remoteSelection?: PreviewElementState | null;
   domEditGroupSelections: DomEditSelection[];
   applyMarqueeSelection: (selections: DomEditSelection[], additive: boolean) => void;
   buildDomSelectionFromTarget: (
@@ -83,6 +88,28 @@ function toPersistedSelection(
     ...primary,
     group: members.size > 0 ? [...members.values()] : undefined,
   };
+}
+
+function toPersistedRemoteSelection(selection: PreviewElementState): StudioUrlSelectionState | null {
+  if (!selection.id && !selection.selector) return null;
+  return {
+    sourceFile: selection.sourceFile || undefined,
+    id: selection.id || undefined,
+    selector: selection.selector,
+    selectorIndex: selection.selectorIndex,
+  };
+}
+
+export function matchesRemoteUrlSelection(
+  state: PreviewElementState,
+  target: StudioUrlSelectionTarget,
+  activeCompPath: string | null,
+): boolean {
+  const sourceFile = target.sourceFile ?? activeCompPath ?? "index.html";
+  if (state.sourceFile !== sourceFile) return false;
+  if (target.id) return state.id === target.id;
+  return Boolean(target.selector) && state.selector === target.selector &&
+    (target.selectorIndex === undefined || state.selectorIndex === target.selectorIndex);
 }
 
 function replaceHash(nextHash: string) {
@@ -172,6 +199,7 @@ export function useStudioUrlState({
   rightCollapsed,
   activeCompPathHydrated,
   domEditSelection,
+  remoteSelection,
   domEditGroupSelections,
   applyMarqueeSelection,
   buildDomSelectionFromTarget,
@@ -187,6 +215,7 @@ export function useStudioUrlState({
   // drop its currentTime subscription once hydration completes — otherwise it
   // re-runs on every playhead tick for the lifetime of the session.
   const [selectionHydrated, setSelectionHydrated] = useState(initialState.selection == null);
+  const [remoteAgentReadyVersion, setRemoteAgentReadyVersion] = useState(0);
   const pendingSelectionRef = useRef(initialState.selection);
   const stableTimeRef = useRef<number | null>(initialState.currentTime);
   const selectionApplySeqRef = useRef(0);
@@ -199,11 +228,34 @@ export function useStudioUrlState({
       rightCollapsed,
       timelineVisible: null,
       selection: hydratedSelectionRef.current
-        ? toPersistedSelection(domEditSelection, domEditGroupSelections)
+        ? remoteSelection
+          ? toPersistedRemoteSelection(remoteSelection)
+          : toPersistedSelection(domEditSelection, domEditGroupSelections)
         : pendingSelectionRef.current,
     }),
-    [activeCompPath, domEditGroupSelections, domEditSelection, rightCollapsed, rightPanelTab],
+    [activeCompPath, domEditGroupSelections, domEditSelection, remoteSelection, rightCollapsed, rightPanelTab],
   );
+
+  useEffect(() => {
+    let unsubscribe: (() => void) | null = null;
+    const subscribe = () => {
+      unsubscribe?.();
+      unsubscribe = null;
+      const iframe = previewIframeRef.current;
+      if (!iframe || !projectId || previewOriginFromIframe(iframe) !== previewOriginForProject(projectId)) return;
+      const client = previewAgentForIframe(iframe);
+      unsubscribe = client?.onReady(() => setRemoteAgentReadyVersion(version => version + 1)) ?? null;
+    };
+    const onAttached = (event: Event) => {
+      if ((event as CustomEvent<HTMLIFrameElement>).detail === previewIframeRef.current) subscribe();
+    };
+    window.addEventListener("mpvfx-preview-agent-attached", onAttached);
+    subscribe();
+    return () => {
+      unsubscribe?.();
+      window.removeEventListener("mpvfx-preview-agent-attached", onAttached);
+    };
+  }, [projectId, previewIframeRef, refreshKey, compositionLoading]);
 
   // Resolve a URL selection to a live element and apply it. Shared by the initial
   // hydration effect and the external-navigation (hashchange) handler. Returns
@@ -215,6 +267,36 @@ export function useStudioUrlState({
       if (!selection) {
         applyDomSelection(null, { revealPanel: false });
         return true;
+      }
+      const iframe = previewIframeRef.current;
+      if (iframe && projectId && previewOriginFromIframe(iframe) === previewOriginForProject(projectId)) {
+        const client = previewAgentForIframe(iframe);
+        if (!client?.isReady) return false;
+        void (async () => {
+          for (let offset = 0; offset < 3000; offset += 300) {
+            const result = await client.request({ kind: "snapshot", offset, limit: 300 });
+            if (applySeq !== selectionApplySeqRef.current) return;
+            if (!Array.isArray(result)) return;
+            const match = result.find(state => matchesRemoteUrlSelection(state, selection, activeCompPath));
+            if (match) {
+              window.dispatchEvent(new CustomEvent("mpvfx-isolated-preview-selection", {
+                detail: { iframe, state: match },
+              }));
+              hydratedSelectionRef.current = true;
+              pendingSelectionRef.current = null;
+              setSelectionHydrated(true);
+              return;
+            }
+            if (result.length < 300) break;
+          }
+          window.dispatchEvent(new CustomEvent("mpvfx-isolated-preview-selection", {
+            detail: { iframe, state: null },
+          }));
+          hydratedSelectionRef.current = true;
+          pendingSelectionRef.current = null;
+          setSelectionHydrated(true);
+        })().catch(() => { /* A navigation revokes the snapshot; the next ready event retries. */ });
+        return false;
       }
       let doc: Document | null = null;
       try {
@@ -258,6 +340,7 @@ export function useStudioUrlState({
     },
     [
       activeCompPath,
+      projectId,
       applyDomSelection,
       applyMarqueeSelection,
       buildDomSelectionFromTarget,
@@ -313,6 +396,7 @@ export function useStudioUrlState({
     initialState.currentTime,
     projectId,
     refreshKey,
+    remoteAgentReadyVersion,
   ]);
 
   useEffect(() => {

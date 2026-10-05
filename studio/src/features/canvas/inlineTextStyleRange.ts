@@ -27,6 +27,7 @@ import {
   isRichTextFormattingStyle,
   isRichTextFormattingTag,
 } from "@hyperframes/core/rich-text-sanitize";
+import { reconcileInlineTextFill } from "./inlineTextFillMirror";
 
 /** One stretch of characters that are all styled the same way. */
 interface StyledRun {
@@ -99,46 +100,8 @@ export function applyInlineStyle(range: Range, style: InlineStyleDelta): void {
 
   const next = restyle(runs, span.start, span.end, style);
   render(host, next);
-  reconcileFillColors(host);
+  reconcileInlineTextFill(host);
   selectRange(host, span.start, span.end);
-}
-
-/**
- * Whether something above the run is painting the glyphs a different colour.
- *
- * `-webkit-text-fill-color` inherits and paints the glyph fill, so an ancestor
- * that sets it wins over any `color` a descendant sets. A composition doing so
- * is not doing anything wrong, but from the editor it reads as the colour
- * picker being broken: the run is saved with the colour asked for and renders
- * in someone else's.
- *
- * Asked of the rendered span rather than worked out from the stylesheet. Its
- * own `color` is set, so its computed colour IS the one that was asked for, and
- * if the fill differs from it then something else is painting it. Both sides
- * come from the same computed style, so neither notation nor inheritance has to
- * be untangled by hand.
- */
-function reconcileFillColors(host: Element): void {
-  const view = host.ownerDocument.defaultView;
-  if (!view?.getComputedStyle) return;
-  for (const span of host.querySelectorAll<HTMLElement>("span")) {
-    if (!span.style.color) continue;
-    // A generated mirror repeats the run's colour. Remove that before asking
-    // what would paint the run without it; an authored, different fill stays
-    // in place long enough to be detected as the overpaint it is.
-    const existingFill = span.style.getPropertyValue("-webkit-text-fill-color");
-    if (existingFill === span.style.color) {
-      span.style.removeProperty("-webkit-text-fill-color");
-    }
-    const computed = view.getComputedStyle(span) as CSSStyleDeclaration & {
-      webkitTextFillColor?: string;
-    };
-    const fill = computed.webkitTextFillColor;
-    if (!fill || !computed.color) continue;
-    if (fill !== computed.color) {
-      span.style.setProperty("-webkit-text-fill-color", span.style.color);
-    }
-  }
 }
 
 /**

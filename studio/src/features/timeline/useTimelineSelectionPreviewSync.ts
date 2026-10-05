@@ -3,12 +3,14 @@ import type { TimelineElement } from "../../player/index";
 import type { DomEditSelection } from "../canvas/domEditing";
 import { resolveTimelineIdForSelection } from "../../lib/studioHelpers";
 import { logSelect } from "../../lib/selectDebug";
+import type { PreviewElementState } from "../../../shared/preview/agentProtocol";
 
 interface UseTimelineSelectionPreviewSyncParams {
   selectedElementId: string | null;
   selectedElementIds: Set<string>;
   timelineElements: TimelineElement[];
   domEditSelection: DomEditSelection | null;
+  remoteSelection?: PreviewElementState | null;
   domEditGroupSelections: DomEditSelection[];
   activeCompPath: string | null;
   buildDomSelectionForTimelineElement: (
@@ -23,7 +25,9 @@ interface UseTimelineSelectionPreviewSyncParams {
       announce?: boolean;
     },
   ) => void;
-  applyMarqueeSelection: (selections: DomEditSelection[], additive: boolean) => void;
+  applyMarqueeSelection: (
+    selections: DomEditSelection[], additive: boolean, options?: { announce?: boolean },
+  ) => void;
   onSelectionNotFound: () => void;
 }
 
@@ -68,6 +72,7 @@ export function useTimelineSelectionPreviewSync({
   selectedElementIds,
   timelineElements,
   domEditSelection,
+  remoteSelection,
   domEditGroupSelections,
   activeCompPath,
   buildDomSelectionForTimelineElement,
@@ -84,10 +89,13 @@ export function useTimelineSelectionPreviewSync({
   const domEditGroupSelectionsRef = useRef(domEditGroupSelections);
   const lastSyncedSelectedKeyRef = useRef("");
   const missingSelectionKeyRef = useRef("");
+  const remoteSelectionKeyRef = useRef<{ handle: string; selectedKey: string } | null>(null);
   domEditSelectionRef.current = domEditSelection;
   domEditGroupSelectionsRef.current = domEditGroupSelections;
 
   useEffect(() => {
+    let cancelled = false;
+    let missingWarningTimer: ReturnType<typeof setTimeout> | null = null;
     const previousSelectedKey = lastSyncedSelectedKeyRef.current;
     lastSyncedSelectedKeyRef.current = selectedKey;
     const currentDomEditSelection = domEditSelectionRef.current;
@@ -107,6 +115,24 @@ export function useTimelineSelectionPreviewSync({
       ? resolveTimelineIdForSelection(currentDomEditSelection, timelineElements, activeCompPath)
       : null;
 
+    // The isolated selection's timeline row can use a different key than the
+    // authored DOM id or native clip id. Bind it to the selection-set revision
+    // present when its agent handle arrives. Legacy DOM reconciliation must
+    // not clear that remote inspector while the set is unchanged. A later
+    // timeline selection change revokes it without erasing the new anchor.
+    if (remoteSelection) {
+      if (remoteSelectionKeyRef.current?.handle !== remoteSelection.handle) {
+        remoteSelectionKeyRef.current = { handle: remoteSelection.handle, selectedKey };
+      } else if (remoteSelectionKeyRef.current.selectedKey !== selectedKey) {
+        applyDomSelection(null, { revealPanel: false, announce: false });
+      } else {
+        missingSelectionKeyRef.current = "";
+      }
+      return;
+    } else {
+      remoteSelectionKeyRef.current = null;
+    }
+
     if (selectedIds.length === 0) {
       missingSelectionKeyRef.current = "";
       // The timeline holds nothing, so the canvas is about to hold nothing either.
@@ -117,7 +143,7 @@ export function useTimelineSelectionPreviewSync({
         clearing: previousSelectedKey.length > 0 && currentIds.length > 0,
       });
       if (previousSelectedKey.length > 0 && currentIds.length > 0) {
-        applyDomSelection(null, { revealPanel: false });
+        applyDomSelection(null, { revealPanel: false, announce: false });
       }
       return;
     }
@@ -126,12 +152,17 @@ export function useTimelineSelectionPreviewSync({
       return;
     }
 
-    let cancelled = false;
     // One warning per selection, however many times the effect retries it.
     const warnSelectionMissingOnce = () => {
       if (missingSelectionKeyRef.current === selectedKey) return;
-      missingSelectionKeyRef.current = selectedKey;
-      onSelectionNotFound();
+      // Agent selection follows the timeline store asynchronously in an
+      // isolated preview. Give that exact handle a brief chance to arrive;
+      // cleanup cancels the warning on navigation or a newer selection.
+      missingWarningTimer = setTimeout(() => {
+        if (cancelled || missingSelectionKeyRef.current === selectedKey) return;
+        missingSelectionKeyRef.current = selectedKey;
+        onSelectionNotFound();
+      }, 500);
     };
     const syncSelection = async () => {
       const selections: DomEditSelection[] = [];
@@ -168,17 +199,18 @@ export function useTimelineSelectionPreviewSync({
         resolved: selections.length,
       });
       if (selections.length === 0) {
-        applyDomSelection(null, { revealPanel: false });
+        applyDomSelection(null, { revealPanel: false, announce: false });
       } else if (selections.length === 1) {
-        applyDomSelection(selections[0]);
+        applyDomSelection(selections[0], { announce: false });
       } else {
-        applyMarqueeSelection(selections, false);
+        applyMarqueeSelection(selections, false, { announce: false });
       }
     };
 
     void syncSelection();
     return () => {
       cancelled = true;
+      if (missingWarningTimer) clearTimeout(missingWarningTimer);
     };
     // DOM selection changes are read through refs. Depending on them directly
     // would let the preview-to-timeline echo cancel an in-flight timeline click.
@@ -189,6 +221,7 @@ export function useTimelineSelectionPreviewSync({
     applyMarqueeSelection,
     buildDomSelectionForTimelineElement,
     onSelectionNotFound,
+    remoteSelection,
     selectedElementId,
     selectedIds,
     selectedKey,

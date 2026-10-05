@@ -196,7 +196,7 @@ describe("native timeline multi-clip move planner", () => {
     expect(result).toMatchObject({ ok: false, failure: { code: "ambiguous-clip" } });
   });
 
-  it("rejects a native clip without a compatibility binding", () => {
+  it("moves a native-only clip without a compatibility binding", () => {
     const original = document();
     const unbound = {
       ...original,
@@ -218,7 +218,7 @@ describe("native timeline multi-clip move planner", () => {
       }],
     });
 
-    expect(result).toMatchObject({ ok: false, failure: { code: "unbound-clip" } });
+    expect(result).toMatchObject({ ok: true, sourceFiles: [], moves: [expect.objectContaining({ sourceFile: null, binding: null, startFrame: 59 })] });
   });
 
   it("creates one empty destination track for a group gesture without mutating the source", () => {

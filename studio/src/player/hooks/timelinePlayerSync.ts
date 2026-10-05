@@ -19,6 +19,25 @@ export function timelineElementsChanged(
       element.duration !== prior.duration ||
       element.track !== prior.track ||
       element.sourceDuration !== prior.sourceDuration
+      || element.domId !== prior.domId
+      || element.hfId !== prior.hfId
+      || element.selector !== prior.selector
+      || element.selectorIndex !== prior.selectorIndex
+      || element.zIndex !== prior.zIndex
+      || element.hidden !== prior.hidden
+      || element.timelineLocked !== prior.timelineLocked
+      || element.timelineRole !== prior.timelineRole
+      || element.audioGroup !== prior.audioGroup
+      || element.audioGroupLabel !== prior.audioGroupLabel
+      || element.audioGroupVolume !== prior.audioGroupVolume
+      || element.audioGroupHidden !== prior.audioGroupHidden
+      || element.audioGroupFxChain !== prior.audioGroupFxChain
+      || element.audioGroupAutomation !== prior.audioGroupAutomation
+      || element.volume !== prior.volume
+      || element.muted !== prior.muted
+      || element.fxChain !== prior.fxChain
+      || element.automation !== prior.automation
+      || element.colorGrading !== prior.colorGrading
     );
   });
 }

@@ -3,6 +3,9 @@ import type { TimelineElement } from "../player/store/playerStore";
 import type { DomEditSelection } from "../features/canvas/domEditing";
 import type { TimelineAssetKind } from "../features/timeline/timelineAssetDrop";
 import { roundToCenti } from "./rounding";
+import { projectMediaUrl } from "../../shared/media/mediaUrl";
+import type { MediaMetadata } from "../../shared/media/mediaMetadata";
+import { resolveProjectMediaMetadata } from "./projectMediaMetadata";
 
 export interface EditingFile {
   path: string;
@@ -257,50 +260,33 @@ export function collectHtmlIds(source: string): string[] {
   return Array.from(source.matchAll(/\bid="([^"]+)"/g), (match) => match[1] ?? "");
 }
 
-const DEFAULT_TIMELINE_ASSET_DURATION: Record<TimelineAssetKind, number> = {
-  image: 3,
-  video: 5,
-  audio: 5,
-};
-
 export async function resolveDroppedAssetDuration(
   projectId: string,
   assetPath: string,
   kind: TimelineAssetKind,
+  knownMetadata?: MediaMetadata | null,
 ): Promise<number> {
-  if (kind === "image") return DEFAULT_TIMELINE_ASSET_DURATION.image;
+  if (kind === "image") return 3;
+  const metadata = knownMetadata === undefined ? await resolveProjectMediaMetadata(projectId, assetPath) : knownMetadata;
+  if (metadata && metadata.duration > 0) return metadata.duration;
 
   const media = document.createElement(kind === "video" ? "video" : "audio");
   media.preload = "metadata";
-  media.src = `/api/projects/${projectId}/preview/${assetPath}`;
-
-  const duration = await new Promise<number>((resolve) => {
-    const timeout = window.setTimeout(() => resolve(DEFAULT_TIMELINE_ASSET_DURATION[kind]), 3000);
-    const finalize = (value: number) => {
+  return new Promise<number>((resolve, reject) => {
+    const finalize = (value: number | null) => {
       window.clearTimeout(timeout);
-      resolve(value);
+      media.onloadedmetadata = null;
+      media.onerror = null;
+      media.removeAttribute("src");
+      media.load();
+      if (value !== null) resolve(value);
+      else reject(new Error(`Could not read the duration of ${assetPath}. The media was not added to the timeline.`));
     };
-
-    media.addEventListener(
-      "loadedmetadata",
-      () => {
-        const raw = Number(media.duration);
-        finalize(
-          Number.isFinite(raw) && raw > 0
-            ? roundToCenti(raw)
-            : DEFAULT_TIMELINE_ASSET_DURATION[kind],
-        );
-      },
-      { once: true },
-    );
-    media.addEventListener("error", () => finalize(DEFAULT_TIMELINE_ASSET_DURATION[kind]), {
-      once: true,
-    });
+    const timeout = window.setTimeout(() => finalize(null), 10000);
+    media.onloadedmetadata = () => finalize(Number.isFinite(media.duration) && media.duration > 0 ? media.duration : null);
+    media.onerror = () => finalize(null);
+    media.src = projectMediaUrl(projectId, assetPath);
   });
-
-  media.src = "";
-  media.load();
-  return duration;
 }
 
 export async function resolveDroppedAssetDimensions(
@@ -309,7 +295,7 @@ export async function resolveDroppedAssetDimensions(
   kind: TimelineAssetKind,
 ): Promise<{ width: number; height: number } | null> {
   if (kind === "audio") return null;
-  const src = `/api/projects/${projectId}/preview/${assetPath}`;
+  const src = projectMediaUrl(projectId, assetPath);
 
   if (kind === "image") {
     return new Promise((resolve) => {

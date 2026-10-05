@@ -299,7 +299,7 @@ export function useGestureRecording() {
   }, []);
 
   const startRecording = useCallback(
-    (element: HTMLElement, iframeEl: HTMLIFrameElement, elementEndTime?: number) => {
+    (element: HTMLElement, iframeEl: HTMLIFrameElement, elementEndTime?: number, nativeValues?: Readonly<Record<string, number | string>>) => {
       if (isRecordingRef.current) return;
       isRecordingRef.current = true;
 
@@ -314,6 +314,11 @@ export function useGestureRecording() {
 
       // --- Phase 1: Read base position from GSAP + CSS vars ---
       const base = readBasePosition(element, iframeEl);
+      // Native-owned values supersede the page runtime's potentially stale cache.
+      if (typeof nativeValues?.x === "number") base.baseX = nativeValues.x;
+      if (typeof nativeValues?.y === "number") base.baseY = nativeValues.y;
+      if (typeof nativeValues?.opacity === "number") base.baseOpacity = nativeValues.opacity;
+      if (typeof nativeValues?.scale === "number") base.baseScale = nativeValues.scale;
       r.cssVarOffset = { x: base.cssOffX, y: base.cssOffY };
       r.accumulated = { opacity: base.baseOpacity, scale: base.baseScale, z: 0 };
       r.basePosition = { x: base.baseX, y: base.baseY };

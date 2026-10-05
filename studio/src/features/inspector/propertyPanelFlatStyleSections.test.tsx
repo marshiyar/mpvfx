@@ -165,7 +165,21 @@ describe("FlatStyleSection — Fill", () => {
     const { host, root, onSetStyle } = renderSection();
     clickSegment(host, "Image");
     expect(host.textContent).toContain("Upload image");
+    expect(host.textContent).not.toContain("External URL");
+    expect(host.textContent).not.toContain("Existing image URL");
     expect(onSetStyle).not.toHaveBeenCalledWith("background-image", expect.anything());
+    act(() => root.unmount());
+  });
+
+  it("keeps an existing external image fill visible and editable", () => {
+    const { host, root, onSetStyle } = renderSection({
+      "background-image": 'url("https://example.test/artwork.png")',
+    });
+    expect(host.textContent).toContain("Existing image URL");
+    const field = Array.from(host.querySelectorAll("label")).find((label) =>
+      label.textContent?.includes("Existing image URL"));
+    expect(field?.querySelector("input")?.value).toBe("https://example.test/artwork.png");
+    expect(onSetStyle).not.toHaveBeenCalled();
     act(() => root.unmount());
   });
 });

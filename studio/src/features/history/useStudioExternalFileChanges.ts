@@ -56,6 +56,7 @@ export function useStudioExternalFileChanges({
   return useExternalFileChangeCoordinator({
     projectId,
     activeCompPath,
+    previewFilePath: activeCompPath ?? masterCompPath,
     recoveryFilePath: fileManager.editingFile?.path ?? activeCompPath ?? masterCompPath,
     pendingTimelineEditPathRef,
     drainPendingChanges,

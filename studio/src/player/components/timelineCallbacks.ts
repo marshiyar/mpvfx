@@ -43,6 +43,7 @@ export interface TimelineDropCallbacks {
 }
 
 export interface TimelineEditCallbacks {
+  onNativeAudioAction?: (element: TimelineElement, action: "detach" | "reattach") => Promise<void>;
   onMoveElement?: (
     element: TimelineElement,
     updates: Pick<TimelineElement, "start" | "track">,

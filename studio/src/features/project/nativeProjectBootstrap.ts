@@ -1,4 +1,5 @@
 import type { TimelineElement } from "../../player/store/timelineElement";
+import { sourcePositionFromSeconds, advanceSourcePosition } from "../../../shared/project/nativeSourceTime";
 import { nativeMediaAssetId, nativeMediaSource } from "../../../shared/project/nativeMediaSource";
 import { validateRationalFrameRate, type RationalFrameRate } from "../../../shared/project/nativeKeyframeTypes";
 import {
@@ -64,10 +65,12 @@ interface BootstrapCandidate {
   readonly authoredTrack: number;
   readonly displayTrack: number;
   readonly binding: NativeClipDomBinding;
-  readonly source: string;
+  /** Project media file; absent for HTML-authored element layers. */
+  readonly source?: string;
   readonly startFrame: number;
   readonly durationFrames: number;
   readonly sourceInFrame: number;
+  readonly sourceInFraction?: NativePlaybackRate;
   readonly sourceDurationFrames: number;
   readonly playbackRate: NativePlaybackRate;
 }
@@ -125,12 +128,6 @@ const rationalPlaybackRate = (value: number): NativePlaybackRate => {
   return { numerator: numerator / divisor, denominator: denominator / divisor };
 };
 
-const sourceFramesConsumed = (durationFrames: number, playbackRate: NativePlaybackRate): number => {
-  const numerator = BigInt(durationFrames) * BigInt(playbackRate.numerator);
-  const denominator = BigInt(playbackRate.denominator);
-  return Number((numerator + denominator - 1n) / denominator);
-};
-
 const mediaKind = (
   element: TimelineElement,
 ): { kind: NativeProjectAssetKind; trackKind: NativeProjectTrackKind } | null => {
@@ -149,7 +146,7 @@ const exactBinding = (
       code: "missing-source-file",
       disposition: "legacy-only",
       elementId: element.id,
-      message: "Media row has no exact source-file scope",
+      message: "Timeline row has no exact source-file scope",
     };
   }
   const domId = nonEmpty(element.domId) ? element.domId : undefined;
@@ -170,7 +167,7 @@ const exactBinding = (
       code: "missing-exact-binding",
       disposition: "legacy-only",
       elementId: element.id,
-      message: "Media row has no exact DOM, hf-id, or selector identity",
+      message: "Timeline row has no exact DOM, hf-id, or selector identity",
     };
   }
   return {
@@ -215,6 +212,11 @@ const trackId = (authoredTrack: number, kind: NativeProjectTrackKind): string =>
 const clipId = (binding: NativeClipDomBinding): string =>
   `native-clip:${bindingIdentity(binding)}`;
 const sourceName = (source: string): string => source.split(/[\\/]/).at(-1) || source;
+/** One element asset per bound layer: element layers share no source file. */
+const elementAssetId = (binding: NativeClipDomBinding): string =>
+  `native-element:${bindingIdentity(binding)}`;
+const elementName = (element: TimelineElement): string =>
+  element.label?.trim() || element.domId || element.hfId || element.tag;
 
 const diagnostic = (
   code: NativeProjectBootstrapDiagnosticCode,
@@ -265,26 +267,20 @@ export const bootstrapNativeProjectFromTimeline = (
       );
       continue;
     }
-    const kind = mediaKind(element);
-    if (!kind) {
-      diagnostics.push(
-        diagnostic(
-          "unsupported-media-row",
-          element,
-          `Timeline tag ${element.tag} is not video, audio, or image media`,
-          "ignored",
-        ),
-      );
-      continue;
-    }
-    if (!nonEmpty(element.src)) {
-      diagnostics.push(diagnostic("missing-media-source", element, "Media row has no source asset"));
-      continue;
-    }
-    const source = nativeMediaSource(element.src, input.projectId);
-    if (!source) {
-      diagnostics.push(diagnostic("unsupported-media-source", element, "Media source is not a file owned by this project"));
-      continue;
+    // Every other timeline row is an HTML-authored layer. It gets an element
+    // clip so its timing and keyframes are native (engine-owned) like media.
+    const kind = mediaKind(element) ?? { kind: "element" as const, trackKind: "video" as const };
+    let source: string | undefined;
+    if (kind.kind !== "element") {
+      if (!nonEmpty(element.src)) {
+        diagnostics.push(diagnostic("missing-media-source", element, "Media row has no source asset"));
+        continue;
+      }
+      source = nativeMediaSource(element.src, input.projectId) ?? undefined;
+      if (!source) {
+        diagnostics.push(diagnostic("unsupported-media-source", element, "Media source is not a file owned by this project"));
+        continue;
+      }
     }
     const binding = exactBinding(element);
     if (isDiagnostic(binding)) {
@@ -322,17 +318,19 @@ export const bootstrapNativeProjectFromTimeline = (
     }
     const startFrame = frameFromSeconds(element.start, input.frameRate);
     const durationFrames = frameFromSeconds(element.duration, input.frameRate);
-    const sourceInFrame = frameFromSeconds(element.playbackStart ?? 0, input.frameRate);
-    const playbackRate = rationalPlaybackRate(element.playbackRate ?? 1);
+    const isElement = kind.kind === "element";
+    const sourcePosition = isElement ? { sourceInFrame: 0 } : sourcePositionFromSeconds(element.playbackStart ?? 0, input.frameRate);
+    const playbackRate = isElement ? { numerator: 1, denominator: 1 } : rationalPlaybackRate(element.playbackRate ?? 1);
     if (durationFrames <= 0) {
       diagnostics.push(
         diagnostic("invalid-timing", element, "Media duration does not span an integer project frame"),
       );
       continue;
     }
-    const requiredSourceFrames = sourceInFrame + sourceFramesConsumed(durationFrames, playbackRate);
+    const sourceEnd = advanceSourcePosition({ ...sourcePosition, playbackRate }, durationFrames);
+    const requiredSourceFrames = sourceEnd.sourceInFrame + (sourceEnd.sourceInFraction ? 1 : 0);
     const sourceDurationFrames =
-      element.sourceDuration === undefined
+      isElement || element.sourceDuration === undefined
         ? requiredSourceFrames
         : frameFromSeconds(element.sourceDuration, input.frameRate);
     if (sourceDurationFrames < requiredSourceFrames) {
@@ -355,7 +353,7 @@ export const bootstrapNativeProjectFromTimeline = (
       source,
       startFrame,
       durationFrames,
-      sourceInFrame,
+      ...sourcePosition,
       sourceDurationFrames,
       playbackRate,
     });
@@ -425,16 +423,25 @@ export const bootstrapNativeProjectFromTimeline = (
   const assetById = new Map<string, NativeProjectAsset>();
   const trackById = new Map<string, NativeProjectTrack>();
   for (const candidate of accepted) {
-    const candidateAssetId = nativeMediaAssetId(candidate.kind, candidate.source);
+    const candidateAssetId = candidate.source === undefined
+      ? elementAssetId(candidate.binding)
+      : nativeMediaAssetId(candidate.kind, candidate.source);
     const currentAsset = assetById.get(candidateAssetId);
     if (!currentAsset || currentAsset.durationFrames < candidate.sourceDurationFrames) {
-      assetById.set(candidateAssetId, {
-        id: candidateAssetId,
-        kind: candidate.kind,
-        name: sourceName(candidate.source),
-        source: candidate.source,
-        durationFrames: candidate.sourceDurationFrames,
-      });
+      assetById.set(candidateAssetId, candidate.source === undefined
+        ? {
+            id: candidateAssetId,
+            kind: "element",
+            name: elementName(candidate.element),
+            durationFrames: candidate.sourceDurationFrames,
+          }
+        : {
+            id: candidateAssetId,
+            kind: candidate.kind,
+            name: sourceName(candidate.source),
+            source: candidate.source,
+            durationFrames: candidate.sourceDurationFrames,
+          });
     }
 
     const laneKinds = new Set(accepted.filter(other => other.authoredTrack === candidate.authoredTrack && other.displayTrack === candidate.displayTrack).map(other => other.trackKind));
@@ -455,6 +462,7 @@ export const bootstrapNativeProjectFromTimeline = (
       startFrame: candidate.startFrame,
       durationFrames: candidate.durationFrames,
       sourceInFrame: candidate.sourceInFrame,
+      ...(candidate.sourceInFraction ? { sourceInFraction: candidate.sourceInFraction } : {}),
       playbackRate: candidate.playbackRate,
       muted: candidate.element.muted ?? false,
       binding: candidate.binding,

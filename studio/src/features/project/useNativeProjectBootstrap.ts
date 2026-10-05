@@ -29,6 +29,12 @@ export interface UseNativeProjectBootstrapOptions {
   /** Authoritative project timebase; never inferred from preview wall-clock seconds. */
   readonly frameRate: RationalFrameRate | null;
   readonly timelineElements: readonly TimelineElement[];
+  /**
+   * File of the composition the timeline shows. Rows owned directly by it carry
+   * no sourceFile of their own (only rows inside a sub-composition host do), the
+   * same convention the timeline keys and DOM resolvers follow.
+   */
+  readonly activeSourceFile: string;
   readonly readLegacyAnimations: (
     projectId: string,
     sourceFile: string,
@@ -37,6 +43,7 @@ export interface UseNativeProjectBootstrapOptions {
 
 export interface NativeProjectBootstrapState {
   readonly loading: boolean;
+  readonly error?: string;
   readonly document: NativeProjectDocument | null;
   readonly diagnostics: readonly (
     | NativeProjectBootstrapDiagnostic
@@ -54,15 +61,26 @@ function sourceFilesOf(elements: readonly TimelineElement[]): string[] {
   return [...new Set(elements.map((element) => element.sourceFile).filter(Boolean) as string[])].sort();
 }
 
+function scopeToActiveFile(
+  elements: readonly TimelineElement[],
+  activeSourceFile: string,
+): readonly TimelineElement[] {
+  if (elements.every((element) => element.sourceFile)) return elements;
+  return elements.map((element) =>
+    element.sourceFile ? element : { ...element, sourceFile: activeSourceFile },
+  );
+}
+
 function baseBootstrap(
   options: UseNativeProjectBootstrapOptions,
+  timelineElements: readonly TimelineElement[],
 ): { document: NativeProjectDocument; diagnostics: readonly NativeProjectBootstrapDiagnostic[] } | null {
   if (
     options.status !== "absent" ||
     !options.projectId ||
     !options.compositionDimensions ||
     !options.frameRate ||
-    options.timelineElements.length === 0
+    timelineElements.length === 0
   ) {
     return null;
   }
@@ -76,7 +94,7 @@ function baseBootstrap(
       height: Math.round(options.compositionDimensions.height),
       background: "#000000",
     },
-    elements: options.timelineElements,
+    elements: timelineElements,
   });
   if (!result.ok) return null;
   const clipCount = result.document.sequence.tracks.reduce(
@@ -109,40 +127,44 @@ function unmatchedDiagnostic(
 export function useNativeProjectBootstrap(
   options: UseNativeProjectBootstrapOptions,
 ): NativeProjectBootstrapState {
-  const base = useMemo(() => baseBootstrap(options), [
+  const timelineElements = useMemo(
+    () => scopeToActiveFile(options.timelineElements, options.activeSourceFile),
+    [options.activeSourceFile, options.timelineElements],
+  );
+  const base = useMemo(() => baseBootstrap(options, timelineElements), [
     options.compositionDimensions,
     options.frameRate,
     options.projectId,
     options.status,
-    options.timelineElements,
+    timelineElements,
   ]);
-  const files = useMemo(() => sourceFilesOf(options.timelineElements), [options.timelineElements]);
-  const [parsedFiles, setParsedFiles] = useState<readonly LegacyGsapAnimationFile[]>([]);
-  const [loading, setLoading] = useState(false);
+  const files = useMemo(() => sourceFilesOf(timelineElements), [timelineElements]);
+  const [parsed, setParsed] = useState<{
+    base: NonNullable<typeof base>;
+    files: readonly LegacyGsapAnimationFile[];
+    error?: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!base || !options.projectId) {
-      setParsedFiles([]);
-      setLoading(false);
+      setParsed(null);
       return;
     }
     let cancelled = false;
-    setLoading(true);
     void Promise.all(
-      files.map(async (sourceFile): Promise<LegacyGsapAnimationFile> => ({
-        sourceFile,
-        animations: (await options.readLegacyAnimations(options.projectId!, sourceFile)) ?? [],
-      })),
+      files.map(async (sourceFile): Promise<LegacyGsapAnimationFile> => {
+        const animations = await options.readLegacyAnimations(options.projectId!, sourceFile);
+        if (animations === null) throw new Error(`Could not read animations from ${sourceFile}`);
+        return { sourceFile, animations };
+      }),
     )
       .then((next) => {
         if (cancelled) return;
-        setParsedFiles(next);
-        setLoading(false);
+        setParsed({ base, files: next });
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (cancelled) return;
-        setParsedFiles([]);
-        setLoading(false);
+        setParsed({ base, files: [], error: error instanceof Error ? error.message : "Could not read the authored animations" });
       });
     return () => {
       cancelled = true;
@@ -150,8 +172,10 @@ export function useNativeProjectBootstrap(
   }, [base, files, options.projectId, options.readLegacyAnimations]);
 
   return useMemo(() => {
-    if (!base || loading) return { ...EMPTY_STATE, loading };
-    const collected = buildLegacyGsapNativeSources(base.document, options.timelineElements, parsedFiles);
+    if (!base) return EMPTY_STATE;
+    if (parsed?.base !== base) return { ...EMPTY_STATE, loading: true };
+    if (parsed.error) return { ...EMPTY_STATE, error: parsed.error };
+    const collected = buildLegacyGsapNativeSources(base.document, timelineElements, parsed.files);
     const merged = mergeLegacyGsapAnimationsIntoNativeProject({
       document: base.document,
       sources: collected.sources as readonly LegacyGsapNativeBootstrapSource[],
@@ -165,5 +189,5 @@ export function useNativeProjectBootstrap(
         ...unmatchedDiagnostic(collected.unmatched),
       ],
     };
-  }, [base, loading, options.timelineElements, parsedFiles]);
+  }, [base, timelineElements, parsed]);
 }

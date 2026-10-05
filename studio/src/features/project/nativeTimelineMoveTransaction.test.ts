@@ -9,6 +9,7 @@ import {
 } from "../../../shared/project/nativeProjectDocument";
 import { NativeProjectRevisionConflictError } from "./nativeProjectPersistence";
 import { commitNativeTimelineMove } from "./nativeTimelineMoveTransaction";
+import { buildPatchTarget, buildTimelineMoveTimingPatch } from "../timeline/timelineEditingHelpers";
 
 const rate = { numerator: 30_000, denominator: 1_001 } as const;
 
@@ -101,6 +102,39 @@ const patchHtml = (
     .replace(/data-start="[^"]*"/, `data-start="${start}"`);
 
 describe("native timeline dual-file move transaction", () => {
+  it("accepts a unique lane gesture key so a preceding z batch shares one Undo step", async () => {
+    const state = memory();
+    const result = await commitNativeTimelineMove({
+      expectedRevision: 2, element: timelineElement, requestedStartSeconds: 3, requestedTrack: 0,
+      gestureCoalesceKey: "timeline-move:clip:a:gesture-1",
+      readOptionalProjectFile: state.readOptionalProjectFile,
+      writeProjectFile: state.writeProjectFile,
+      recordEdit: state.recordEdit,
+      patchCompatibilityContent: patchHtml,
+    });
+    expect(result.committed).toBe(true);
+    expect(state.recordEdit).toHaveBeenCalledWith(expect.objectContaining({
+      coalesceKey: "timeline-move:clip:a:gesture-1", coalesceMs: 60_000,
+    }));
+  });
+
+  it("uses the saved binding and restores a preview-only hf ID before patching", async () => {
+    const state = memory();
+    state.files.set("index.html", state.originalHtml.replace(' data-hf-id="hf-clip"', ""));
+    const result = await commitNativeTimelineMove({
+      expectedRevision: 2, element: timelineElement, requestedStartSeconds: 3, requestedTrack: 0,
+      readOptionalProjectFile: state.readOptionalProjectFile,
+      writeProjectFile: state.writeProjectFile,
+      recordEdit: state.recordEdit,
+      patchCompatibilityContent: (content, start, _lane, binding) => {
+        const target = buildPatchTarget(binding);
+        return target ? buildTimelineMoveTimingPatch(content, target, start, 4) : content;
+      },
+    });
+    expect(result.committed).toBe(true);
+    expect(state.files.get("index.html")).toContain('data-hf-id="hf-clip"');
+    expect(state.files.get("index.html")).toContain('data-start="2.97"');
+  });
   it("uses one durable file transaction and publishes only after it resolves", async () => {
     const state = memory();
     let resolveCommit!: () => void;

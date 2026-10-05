@@ -128,12 +128,14 @@ export function FlatMediaSection({
     };
   }, [cropActive, elementKey]);
 
-  const setHasAudio = (next: boolean) => {
+  const setVideoSound = (next: boolean) => {
     if (next) {
-      void onSetAttribute("has-audio", "true");
+      // A missing flag may describe an imported clip whose audio was not
+      // probed. Enabling sound is the explicit user override in that case.
+      if (!hasAudio) void onSetAttribute("has-audio", "true");
       void onSetHtmlAttribute("muted", null);
     } else {
-      void onSetAttribute("has-audio", "");
+      // Keep source metadata intact so unmuting can recover the same track.
       void onSetHtmlAttribute("muted", "true");
     }
   };
@@ -264,18 +266,19 @@ export function FlatMediaSection({
             onChange={(next) => void onSetHtmlAttribute("loop", next ? "true" : null)}
             onReset={() => void onSetHtmlAttribute("loop", null)}
           />
-          <ResettableMediaToggle
-            label="Muted"
-            checked={hasMuted}
-            onChange={(next) => void onSetHtmlAttribute("muted", next ? "true" : null)}
-            onReset={() => void onSetHtmlAttribute("muted", null)}
-          />
-          {isVideo && (
+          {isVideo ? (
             <ResettableMediaToggle
-              label="Has audio track"
-              checked={hasAudio}
-              onChange={setHasAudio}
-              onReset={() => setHasAudio(false)}
+              label="Play video sound"
+              checked={hasAudio && !hasMuted}
+              onChange={setVideoSound}
+              onReset={() => setVideoSound(false)}
+            />
+          ) : (
+            <ResettableMediaToggle
+              label="Muted"
+              checked={hasMuted}
+              onChange={(next) => void onSetHtmlAttribute("muted", next ? "true" : null)}
+              onReset={() => void onSetHtmlAttribute("muted", null)}
             />
           )}
         </>

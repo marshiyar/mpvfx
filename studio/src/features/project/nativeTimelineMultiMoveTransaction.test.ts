@@ -13,6 +13,7 @@ import {
   commitNativeTimelineMultiMove,
   type NativeTimelineMultiMoveCompatibilityEdit,
 } from "./nativeTimelineMultiMoveTransaction";
+import { buildTimelineMoveTimingPatch, buildPatchTarget } from "../timeline/timelineEditingHelpers";
 
 const frameRate = { numerator: 24_000, denominator: 1_001 } as const;
 
@@ -140,6 +141,112 @@ function memory(options?: {
 }
 
 describe("native timeline multi-file move transaction", () => {
+  it("accepts an unchanged split piece alongside a clip that really moves", async () => {
+    const splitId = "native-split:native-clip:file:10:index.html|hf:39:hf-a9d71aab-03d9-40c3-be22-b6f8f4341bd8|dom:23:cs146-assignment6-watch|frame:1099";
+    const splitStart = 1099 / 30;
+    const native = parseNativeProjectDocument({
+      schemaVersion: 1, id: "project:split-move", revision: 0,
+      frameRate: { numerator: 30, denominator: 1 },
+      canvas: { width: 1920, height: 1080, background: "#000" },
+      assets: [{ id: "asset:video", kind: "video", name: "class.mov", durationFrames: 300 }],
+      sequence: { id: "sequence:main", name: "Main", tracks: [{
+        id: "track:video", kind: "video", lane: { authoredTrack: 0, displayTrack: 0 }, clips: [{
+          id: splitId, assetId: "asset:video",
+          binding: { sourceFile: "index.html", domId: "cs146-assignment6-watch-split" },
+          startFrame: 1099, durationFrames: 30, sourceInFrame: 0, muted: false,
+          effects: [], parameterTracks: [],
+        }, {
+          id: "zz-other", assetId: "asset:video",
+          binding: { sourceFile: "index.html", domId: "other" },
+          startFrame: 1200, durationFrames: 30, sourceInFrame: 0, muted: false,
+          effects: [], parameterTracks: [],
+        }],
+      }] },
+    });
+    const source = `<main data-composition-id="main" data-duration="41"><video id="cs146-assignment6-watch-split" data-start="${splitStart}" data-duration="1"></video><video id="other" data-start="40" data-duration="1"></video></main>`;
+    const files = new Map([
+      [NATIVE_PROJECT_DOCUMENT_PATH, serializeNativeProjectDocument(native)],
+      ["index.html", source],
+    ]);
+    const recordEdit = vi.fn(async () => {});
+    const result = await commitNativeTimelineMultiMove({
+      expectedRevision: 0,
+      changes: [
+        { element: { attributes: { "data-studio-clip-id": splitId } }, requestedStartSeconds: splitStart },
+        { element: { attributes: { "data-studio-clip-id": "zz-other" } }, requestedStartSeconds: 41 },
+      ],
+      readOptionalProjectFile: async path => files.get(path),
+      writeProjectFile: async (path, content, expected) => {
+        expect(files.get(path)).toBe(expected);
+        files.set(path, content);
+      },
+      recordEdit,
+      patchCompatibilityContent: (content, edit) => {
+        const target = buildPatchTarget(edit.binding)!;
+        return buildTimelineMoveTimingPatch(content, target, edit.exactStartSeconds, 1, undefined, String(edit.exactStartSeconds));
+      },
+    });
+    expect(result.committed).toBe(true);
+    expect(files.get("index.html")).toContain(`id="cs146-assignment6-watch-split" data-start="${splitStart}"`);
+    expect(files.get("index.html")).toContain('id="other" data-start="41"');
+    expect(recordEdit).toHaveBeenCalledOnce();
+
+    const staleSource = source.replace(`data-start="${splitStart}"`, 'data-start="35"');
+    const staleFiles = new Map([
+      [NATIVE_PROJECT_DOCUMENT_PATH, serializeNativeProjectDocument(native)],
+      ["index.html", staleSource],
+    ]);
+    await expect(commitNativeTimelineMultiMove({
+      expectedRevision: 0,
+      changes: [{ element: { attributes: { "data-studio-clip-id": splitId } }, requestedStartSeconds: splitStart }],
+      readOptionalProjectFile: async path => staleFiles.get(path),
+      writeProjectFile: async () => { throw new Error("No write is allowed for stale timing"); },
+      recordEdit: async () => { throw new Error("No history is allowed for stale timing"); },
+      patchCompatibilityContent: content => content,
+    })).rejects.toThrow(`Compatibility source index.html did not accept the patch for native clip ${splitId}`);
+  });
+  it("moves a preview-identified clip after its hf identity was omitted from authored source", async () => {
+    const id = "native-clip:file:10:index.html|hf:39:hf-a9d71aab-03d9-40c3-be22-b6f8f4341bd8|dom:23:cs146-assignment6-watch";
+    const source = '<main data-composition-id="main" data-duration="2"><video id="cs146-assignment6-watch" data-start="0" data-duration="2"></video></main>';
+    const native = parseNativeProjectDocument({
+      schemaVersion: 1, id: "project:binding-repair", revision: 0,
+      frameRate: { numerator: 30, denominator: 1 },
+      canvas: { width: 1920, height: 1080, background: "#000" },
+      assets: [{ id: "asset:a", kind: "video", name: "a.mov", durationFrames: 300 }],
+      sequence: { id: "sequence:main", name: "Main", tracks: [{
+        id: "track:video", kind: "video", lane: { authoredTrack: 0, displayTrack: 0 }, clips: [{
+          id, assetId: "asset:a", binding: { sourceFile: "index.html", domId: "cs146-assignment6-watch", hfId: "hf-a9d71aab-03d9-40c3-be22-b6f8f4341bd8" },
+          startFrame: 0, durationFrames: 60, sourceInFrame: 0, muted: false,
+          effects: [], parameterTracks: [],
+        }],
+      }] },
+    });
+    const files = new Map([
+      [NATIVE_PROJECT_DOCUMENT_PATH, serializeNativeProjectDocument(native)],
+      ["index.html", source],
+    ]);
+    const recordEdit = vi.fn(async () => {});
+    const result = await commitNativeTimelineMultiMove({
+      expectedRevision: 0,
+      changes: [{ element: { attributes: { "data-studio-clip-id": id } }, requestedStartSeconds: 1 }],
+      readOptionalProjectFile: async path => files.get(path),
+      writeProjectFile: async (path, content, expected) => {
+        expect(files.get(path)).toBe(expected);
+        files.set(path, content);
+      },
+      recordEdit,
+      patchCompatibilityContent: (content, edit) => {
+        // The preview locator can be stale; the transaction supplies the
+        // persisted binding that actually owns this source node.
+        const target = buildPatchTarget(edit.binding);
+        return target ? buildTimelineMoveTimingPatch(content, target, edit.exactStartSeconds, 2) : content;
+      },
+    });
+    expect(result.committed).toBe(true);
+    expect(files.get("index.html")).toContain('data-start="1"');
+    expect(files.get("index.html")).toContain('data-hf-id="hf-a9d71aab-03d9-40c3-be22-b6f8f4341bd8"');
+    expect(recordEdit).toHaveBeenCalledOnce();
+  });
   it("uses one durable file transaction for every snapshot before publication", async () => {
     const state = memory();
     let resolveCommit!: () => void;

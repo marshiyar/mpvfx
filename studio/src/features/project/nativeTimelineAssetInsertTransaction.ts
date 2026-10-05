@@ -5,10 +5,12 @@ import {
   parseNativeProjectDocument,
   serializeNativeProjectDocument,
   type NativeClipDomBinding,
+  type NativeMediaAssetKind,
   type NativeProjectAssetKind,
   type NativeProjectDocument,
 } from "../../../shared/project/nativeProjectDocument";
 import { NativeProjectRevisionConflictError } from "./nativeProjectPersistence";
+import { stabilizeNativeBindingSource } from "./nativeBindingSource";
 import {
   planNativeTimelineAssetInsertions,
   quantizeNativeTimelineAssetInsertion,
@@ -25,7 +27,7 @@ type ProjectFileWriter = (path: string, content: string, expectedContent?: strin
 export interface NativeTimelineAssetInsertRequest {
   readonly assetPath: string;
   readonly assetName?: string;
-  readonly kind: NativeProjectAssetKind;
+  readonly kind: NativeMediaAssetKind;
   readonly sourceFile: string;
   readonly requestedStartSeconds: number;
   readonly requestedDurationSeconds: number;
@@ -170,6 +172,9 @@ export async function commitNativeTimelineAssetInsertions(
       }
 
       const compatibilityAfter: Record<string, string> = { ...compatibilityBefore };
+      for (const sourceFile of sourceFiles) {
+        compatibilityAfter[sourceFile] = stabilizeNativeBindingSource(current, sourceFile, compatibilityBefore[sourceFile]!);
+      }
       const plannedInsertions: NativeTimelineAssetInsertion[] = [];
       const ordered = [...timed].sort(
         (left, right) => requestKey(left.request).localeCompare(requestKey(right.request)),

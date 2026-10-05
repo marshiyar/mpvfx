@@ -46,10 +46,13 @@ describe("media import format catalog", () => {
     expect(classifyMediaImportPath(`nested/My Asset.${extension.toUpperCase()}`)).toBe(expectedKind);
   });
 
-  it("classifies cache-busted and fragment-bearing asset URLs", () => {
-    expect(classifyMediaImportPath("assets/clip.M4V?v=2#preview")).toBe("video");
-    expect(classifyMediaImportPath("assets/voice.AAC#take-2")).toBe("audio");
-    expect(classifyMediaImportPath("assets/poster.AVIF?rev=3")).toBe("image");
+  it("classifies literal filenames by their final extension without stripping ? or #", () => {
+    expect(classifyMediaImportPath("assets/clip?v=2#preview.M4V")).toBe("video");
+    expect(classifyMediaImportPath("assets/voice#take-2.AAC")).toBe("audio");
+    expect(classifyMediaImportPath("assets/poster?rev=3.AVIF")).toBe("image");
+    expect(classifyMediaImportPath("assets/clip.M4V?v=2#preview")).toBeNull();
+    expect(classifyMediaImportPath("assets/voice.AAC#take-2")).toBeNull();
+    expect(classifyMediaImportPath("assets/poster.AVIF?rev=3")).toBeNull();
   });
 
   it("does not turn project/code/archive files into media imports", () => {

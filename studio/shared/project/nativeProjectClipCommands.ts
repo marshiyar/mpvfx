@@ -1,6 +1,8 @@
+import { advanceSourcePosition, sourceRangeFits, type NativeSourcePosition } from "./nativeSourceTime";
+import { rebaseNativeCropPivotSegments } from "./nativeCropPivotSegments";
 import {
-  DEFAULT_NATIVE_PLAYBACK_RATE,
   NativeProjectDocumentValidationError,
+  nativeAssetConsumesSourceFrames,
   parseNativeProjectDocument,
   serializeNativeProjectDocument,
   type NativeClipDomBinding,
@@ -8,11 +10,11 @@ import {
   type NativeProjectDocument,
   type NativeProjectTrack,
 } from "./nativeProjectDocument";
-import { sliceNativeInterpolation } from "./nativeInterpolationSlice";
-import { evaluateNativeParameterTrack } from "./nativeKeyframeEvaluator";
+import { vkfEngine } from "../engine/vkfEngine";
 import {
   createNativeParameterTrack,
   type NativeParameterTrack,
+  type NativeParameterValue,
   type NativeValueType,
 } from "./nativeKeyframeTypes";
 
@@ -224,17 +226,11 @@ const replaceClip = (
     },
   });
 
-const cloneOutgoing = <K extends NativeValueType>(
-  outgoing: NativeParameterTrack<K>["keyframes"][number]["outgoing"],
-) =>
-  outgoing.type === "cubic-bezier"
-    ? { type: outgoing.type, controlPoints: { ...outgoing.controlPoints } }
-    : { type: outgoing.type };
-
 /**
- * Rebase a native parameter track to a playable subrange. A generated frame-0
- * sample carries the original segment's outgoing interpolation, retaining the
- * exact value at a trim/split boundary without leaving invalid keyframes.
+ * Rebase a native parameter track to a playable subrange. The engine cuts the
+ * track (timing curves and motion paths included) so every remaining frame
+ * evaluates exactly as before; authored keyframes keep their identity and
+ * generated ones get deterministic split-baseline IDs.
  */
 const rebaseTrack = (
   track: NativeParameterTrack,
@@ -243,56 +239,22 @@ const rebaseTrack = (
   nextTrackId: string,
 ): NativeParameterTrack => {
   const typed = track as NativeParameterTrack<NativeValueType>;
-  const sample = (frame: number) => {
-    const authored = typed.keyframes.find((key) => key.frame === frame);
-    return authored ?? {
-      id: nativeSplitBaselineKeyframeId(track.id, frame),
-      frame,
-      value: evaluateNativeParameterTrack(typed, frame),
-      outgoing: { type: "hold" as const },
-    };
-  };
-  const frames = [fromFrame, ...typed.keyframes
-    .filter((key) => key.frame > fromFrame && key.frame < untilFrameExclusive)
-    .map((key) => key.frame)];
-  // Keep the final visible sample if the trim cuts an animated segment.
-  const lastVisible = untilFrameExclusive - 1;
-  if (lastVisible > frames[frames.length - 1]! && typed.keyframes.some((key) => key.frame > lastVisible)) {
-    frames.push(lastVisible);
-  }
-  const keyframes = frames.map((frame) => ({
-    ...sample(frame), frame: frame - fromFrame,
-    outgoing: cloneOutgoing(sample(frame).outgoing),
+  const authoredIdByFrame = new Map(typed.keyframes.map((key) => [key.frame, key.id]));
+  const keyframes = vkfEngine().slice(typed, fromFrame, untilFrameExclusive).map((key) => ({
+    id: (!key.generated && authoredIdByFrame.get(key.sourceFrame)) ||
+      nativeSplitBaselineKeyframeId(track.id, key.sourceFrame),
+    frame: key.frame,
+    value: key.value as NativeParameterValue,
+    outgoing: key.outgoing,
+    ...(key.outgoingPath ? { outgoingPath: key.outgoingPath } : {}),
   }));
-  for (let i = 0; i + 1 < frames.length; i++) {
-    const start = frames[i]!;
-    const end = frames[i + 1]!;
-    const left = typed.keyframes.findLast((key) => key.frame <= start);
-    const right = typed.keyframes.find((key) => key.frame > start);
-    if (!left || !right) {
-      keyframes[i]!.outgoing = { type: "hold" };
-      continue;
-    }
-    const span = right.frame - left.frame;
-    const interpolation = sliceNativeInterpolation(left.outgoing,
-      (start - left.frame) / span, (end - left.frame) / span);
-    if (interpolation) {
-      keyframes[i]!.outgoing = interpolation;
-    } else {
-      // Equal-endpoint returning Bezier segments need explicit frame samples.
-      keyframes[i]!.outgoing = { type: "linear" };
-      for (let frame = start + 1; frame < end; frame++) {
-        keyframes.push({ ...sample(frame), frame: frame - fromFrame, outgoing: { type: "linear" } });
-      }
-    }
-  }
-  keyframes.sort((a, b) => a.frame - b.frame);
   return createNativeParameterTrack({
     id: nextTrackId,
     parameterId: typed.parameterId,
     valueType: typed.valueType,
     frameRate: typed.frameRate,
     keyframes,
+    autoRotate: typed.autoRotate,
   }) as NativeParameterTrack;
 };
 
@@ -303,24 +265,6 @@ const rebasedTracks = (
   idForTrack: (track: NativeParameterTrack) => string,
 ): NativeParameterTrack[] =>
   clip.parameterTracks.map((track) => rebaseTrack(track, fromFrame, untilFrameExclusive, idForTrack(track)));
-
-/**
- * Convert a timeline-frame delta to an exact integral source-frame delta.
- * Fractional source boundaries are not silently rounded because that would
- * make repeated trims/splits drift depending on command order.
- */
-const exactSourceFrameDelta = (
-  clip: NativeProjectClip,
-  timelineFrameDelta: number,
-): number | null => {
-  const rate = clip.playbackRate ?? DEFAULT_NATIVE_PLAYBACK_RATE;
-  const numerator = BigInt(timelineFrameDelta) * BigInt(rate.numerator);
-  const denominator = BigInt(rate.denominator);
-  if (numerator % denominator !== 0n) return null;
-  const sourceDelta = numerator / denominator;
-  if (sourceDelta > BigInt(Number.MAX_SAFE_INTEGER)) return null;
-  return Number(sourceDelta);
-};
 
 const applyTrimIn = (
   document: NativeProjectDocument,
@@ -334,26 +278,23 @@ const applyTrimIn = (
     return reject(document, "invalid-trim", "Trim-in start must be a nonnegative integer before the clip end");
   }
   const clip = location.clip;
-  const isImage = document.assets.find((asset) => asset.id === clip.assetId)?.kind === "image";
-  const sourceDelta = isImage ? 0 : exactSourceFrameDelta(clip, delta);
-  if (sourceDelta === null) {
-    return reject(
-      document,
-      "non-integral-source-boundary",
-      "Trim boundary does not map to an exact integral source frame at this playback rate",
-    );
+  const assetKind = document.assets.find((asset) => asset.id === clip.assetId)?.kind;
+  let sourcePosition: NativeSourcePosition;
+  try {
+    sourcePosition = advanceSourcePosition(clip, assetKind && !nativeAssetConsumesSourceFrames(assetKind) ? 0 : delta);
+  } catch (error) {
+    return reject(document, "invalid-trim", error instanceof Error ? error.message : "Invalid source boundary");
   }
-  if (clip.sourceInFrame + sourceDelta < 0) {
-    return reject(document, "invalid-trim", "Cannot extend before the beginning of the source media");
-  }
+  const parameterTracks = rebasedTracks(clip, delta, clip.durationFrames, (track) => track.id);
   return succeed(
     document,
     replaceClip(document, location, {
       ...clip,
       startFrame,
-      sourceInFrame: clip.sourceInFrame + sourceDelta,
+      ...sourcePosition,
       durationFrames: clip.durationFrames - delta,
-      parameterTracks: rebasedTracks(clip, delta, clip.durationFrames, (track) => track.id),
+      parameterTracks,
+      cropPivotSegments: rebaseNativeCropPivotSegments(clip, parameterTracks, delta, clip.durationFrames),
     }),
   );
 };
@@ -371,20 +312,21 @@ const applyTrimOut = (
   }
   const clip = location.clip;
   const asset = document.assets.find((candidate) => candidate.id === clip.assetId)!;
-  const rate = clip.playbackRate ?? DEFAULT_NATIVE_PLAYBACK_RATE;
-  if (asset.kind !== "image" &&
-      BigInt(clip.sourceInFrame) * BigInt(rate.denominator) + BigInt(nextDuration) * BigInt(rate.numerator) >
-      BigInt(asset.durationFrames) * BigInt(rate.denominator)) {
+  if (nativeAssetConsumesSourceFrames(asset.kind) && !sourceRangeFits(clip, nextDuration, asset.durationFrames)) {
     return reject(document, "invalid-trim", "Cannot extend beyond the end of the source media");
   }
+  const parameterTracks = nextDuration >= clip.durationFrames
+    ? clip.parameterTracks
+    : rebasedTracks(clip, 0, nextDuration, (track) => track.id);
   return succeed(
     document,
     replaceClip(document, location, {
       ...clip,
       durationFrames: nextDuration,
-      parameterTracks: nextDuration >= clip.durationFrames
-        ? clip.parameterTracks
-        : rebasedTracks(clip, 0, nextDuration, (track) => track.id),
+      parameterTracks,
+      cropPivotSegments: nextDuration >= clip.durationFrames
+        ? clip.cropPivotSegments
+        : rebaseNativeCropPivotSegments(clip, parameterTracks, 0, nextDuration),
     }),
   );
 };
@@ -402,13 +344,12 @@ const applySplit = (
   if (!Number.isSafeInteger(splitFrame) || localFrame <= 0 || localFrame >= clip.durationFrames) {
     return reject(document, "invalid-split", "Split frame must be an integer strictly inside the clip");
   }
-  const sourceDelta = exactSourceFrameDelta(clip, localFrame);
-  if (sourceDelta === null) {
-    return reject(
-      document,
-      "non-integral-source-boundary",
-      "Split boundary does not map to an exact integral source frame at this playback rate",
-    );
+  let sourcePosition: NativeSourcePosition;
+  try {
+    const asset = document.assets.find(candidate => candidate.id === clip.assetId)!;
+    sourcePosition = advanceSourcePosition(clip, nativeAssetConsumesSourceFrames(asset.kind) ? localFrame : 0);
+  } catch (error) {
+    return reject(document, "invalid-split", error instanceof Error ? error.message : "Invalid source boundary");
   }
   if (clip.binding && !rightBinding) {
     return reject(
@@ -421,24 +362,29 @@ const applySplit = (
   if (document.sequence.tracks.some((track) => track.clips.some((candidate) => candidate.id === rightId))) {
     return reject(document, "generated-id-collision", `Split clip ID ${rightId} already exists`);
   }
+  const leftTracks = rebasedTracks(clip, 0, localFrame, (track) => track.id);
+  const rightTracks = rebasedTracks(
+    clip, localFrame, clip.durationFrames,
+    (track) => nativeSplitTrackId(track.id, rightId, track.parameterId),
+  );
   const left: NativeProjectClip = {
     ...clip,
     durationFrames: localFrame,
-    parameterTracks: rebasedTracks(clip, 0, localFrame, (track) => track.id),
+    parameterTracks: leftTracks,
+    cropPivotSegments: rebaseNativeCropPivotSegments(clip, leftTracks, 0, localFrame),
   };
   const right: NativeProjectClip = {
     ...clip,
     id: rightId,
+    // A divided audio clip no longer represents the whole video's sound.
+    // Keep its playable media, but leave only the original half linked.
+    ...(clip.audioDetachedFrom ? { audioDetachedFrom: undefined } : {}),
     startFrame: splitFrame,
     durationFrames: clip.durationFrames - localFrame,
-    sourceInFrame: clip.sourceInFrame + sourceDelta,
+    ...sourcePosition,
     ...(rightBinding ? { binding: rightBinding } : {}),
-    parameterTracks: rebasedTracks(
-      clip,
-      localFrame,
-      clip.durationFrames,
-      (track) => nativeSplitTrackId(track.id, rightId, track.parameterId),
-    ),
+    parameterTracks: rightTracks,
+    cropPivotSegments: rebaseNativeCropPivotSegments(clip, rightTracks, localFrame, clip.durationFrames),
   };
   try {
     return succeed(document, replaceClip(document, location, [left, right]));
@@ -478,6 +424,7 @@ const applyDeleteMany = (
     trackId: location.track.id,
     clipId: location.clip.id,
   })));
+  const removedClipIds = new Set(locations.map((location) => location.clip.id));
   return succeed(
     document,
     parseNativeProjectDocument({
@@ -488,7 +435,8 @@ const applyDeleteMany = (
           ...track,
           clips: track.clips.filter(
             (clip) => !removed.has(moveAddressKey({ sequenceId: document.sequence.id, trackId: track.id, clipId: clip.id })),
-          ),
+          ).map((clip) => clip.audioDetachedFrom && removedClipIds.has(clip.audioDetachedFrom)
+            ? { ...clip, audioDetachedFrom: undefined } : clip),
         })),
       },
     }),

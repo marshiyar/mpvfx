@@ -75,7 +75,17 @@ export interface DomEditActionsValue extends Pick<
   | "moveNativeKeyframes"
   | "setNativeKeyframeInterpolation"
   | "setNativeKeyframesInterpolation"
+  | "setNativePositionPath"
   | "commitNativeProject"
+  | "commitRemoteInspectorEdit"
+  | "commitRemoteStackingPatches"
+  | "commitRemoteNativeMedia"
+  | "commitRemoteLegacyGrade"
+  | "loadRemoteGsapAnimations"
+  | "commitRemoteGsapProperty"
+  | "commitRemoteGsapKeyframe"
+  | "commitRemoteGsapAnimation"
+  | "commitRemoteGsapCanvasGesture"
   | "nativeDocument"
   | "handleSetArcPath"
   | "handleUpdateArcSegment"
@@ -92,6 +102,7 @@ export interface DomEditActionsValue extends Pick<
 export interface DomEditSelectionValue extends Pick<
   DomEditValue,
   | "domEditSelection"
+  | "remoteSelection"
   | "domEditGroupSelections"
   | "domEditHoverSelection"
   | "activeGroupElement"
@@ -148,6 +159,7 @@ export function useDomEditContext(): DomEditValue {
 export function DomEditProvider({
   value: {
     domEditSelection,
+    remoteSelection,
     domEditGroupSelections,
     domEditHoverSelection,
     domEditSelectionRef,
@@ -225,7 +237,17 @@ export function DomEditProvider({
     moveNativeKeyframes,
     setNativeKeyframeInterpolation,
     setNativeKeyframesInterpolation,
+    setNativePositionPath,
     commitNativeProject,
+    commitRemoteInspectorEdit,
+    commitRemoteStackingPatches,
+    commitRemoteNativeMedia,
+    commitRemoteLegacyGrade,
+    loadRemoteGsapAnimations,
+    commitRemoteGsapProperty,
+    commitRemoteGsapKeyframe,
+    commitRemoteGsapAnimation,
+    commitRemoteGsapCanvasGesture,
     nativeDocument,
     handleSetArcPath,
     handleUpdateArcSegment,
@@ -321,7 +343,17 @@ export function DomEditProvider({
       moveNativeKeyframes,
       setNativeKeyframeInterpolation,
       setNativeKeyframesInterpolation,
+      setNativePositionPath,
       commitNativeProject,
+      commitRemoteInspectorEdit,
+      commitRemoteStackingPatches,
+      commitRemoteNativeMedia,
+      commitRemoteLegacyGrade,
+      loadRemoteGsapAnimations,
+      commitRemoteGsapProperty,
+      commitRemoteGsapKeyframe,
+      commitRemoteGsapAnimation,
+      commitRemoteGsapCanvasGesture,
       nativeDocument,
       handleSetArcPath,
       handleUpdateArcSegment,
@@ -403,7 +435,17 @@ export function DomEditProvider({
       moveNativeKeyframes,
       setNativeKeyframeInterpolation,
       setNativeKeyframesInterpolation,
+      setNativePositionPath,
       commitNativeProject,
+      commitRemoteInspectorEdit,
+      commitRemoteStackingPatches,
+      commitRemoteNativeMedia,
+      commitRemoteLegacyGrade,
+      loadRemoteGsapAnimations,
+      commitRemoteGsapProperty,
+      commitRemoteGsapKeyframe,
+      commitRemoteGsapAnimation,
+      commitRemoteGsapCanvasGesture,
       nativeDocument,
       handleSetArcPath,
       handleUpdateArcSegment,
@@ -421,6 +463,7 @@ export function DomEditProvider({
   const selection = useMemo<DomEditSelectionValue>(
     () => ({
       domEditSelection,
+      remoteSelection,
       domEditGroupSelections,
       domEditHoverSelection,
       activeGroupElement,
@@ -433,6 +476,7 @@ export function DomEditProvider({
     }),
     [
       domEditSelection,
+      remoteSelection,
       domEditGroupSelections,
       domEditHoverSelection,
       activeGroupElement,

@@ -1,3 +1,8 @@
+import { importLibraryUpload } from "./library/libraryUpload";
+import { thumbnailMayReadResource } from "./preview/thumbnailResourcePolicy";
+import { readProjectMediaMetadata } from "./media/metadata";
+import { analyzeProjectMediaSilence } from "./media/silenceAnalysis";
+import type { LibraryService } from "./library/libraryService";
 import {
   lstatSync,
   readFileSync,
@@ -5,7 +10,7 @@ import {
   realpathSync,
 } from "node:fs";
 import { createRequire } from "node:module";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { watch } from "chokidar";
 import type { ResolvedProject } from "@hyperframes/studio-server";
 import {
@@ -21,6 +26,8 @@ import { validateStandaloneExportHttpRequest } from "./export/requestPolicy";
 import { ffmpegEnvironmentResponse } from "./media/ffmpegStatus";
 import { createDurableFileTransactionHttpController } from "./projects/fileTransactionHttp";
 import { mediaFileOperationResponse } from "./projects/mediaFileOperations";
+import { importLocalMedia } from "./media/localImport";
+import type { LocalMediaImportResult } from "../shared/desktopBridge";
 import { applyUploadedVideoCodecPolicy } from "./media/importCodecs";
 import { resolvePreviewResponseContentType } from "./media/importMime";
 import { matchRenderHeartbeatRequest } from "./export/heartbeat";
@@ -29,6 +36,7 @@ import { stabilizeStandalonePreviewRuntime } from "./preview/audioStability";
 import { synchronizeStandaloneTransportDuration } from "./preview/transportDuration";
 import { enableStandaloneLutUrls } from "./preview/lutUrls";
 import { ensureStandaloneProject } from "./projects/standaloneProject";
+import { projectIdFromPreviewHost } from "../shared/desktopPreviewOrigin";
 import { createProjectAccessQueue } from "./projects/projectAccess";
 import { decodeNativeVideoFrames } from "./media/videoFrames";
 import type { VideoFramesRequest } from "../shared/desktopBridge";
@@ -45,6 +53,7 @@ interface StudioServerModule {
 }
 
 export interface StudioRuntimeOptions {
+  libraries?: LibraryService;
   projectsDir: string;
   adapterHost: StudioServerHost;
   onFileChange?(data: { projectId?: string; path: string; kind?: "media"; version?: string | null; writeToken?: string }): void;
@@ -54,6 +63,8 @@ export interface StudioRuntimeOptions {
 export interface RuntimeEvent { type: string; data: string }
 
 export interface StudioRuntime {
+  withProject<T>(projectId: string, operation: () => Promise<T>): Promise<T>;
+  importFiles(projectId: string, paths: string[], directory?: string): Promise<LocalMediaImportResult>;
   handle(request: Request): Promise<Response>;
   subscribe(path: string, listener: (event: RuntimeEvent) => void): Promise<() => void>;
   close(): Promise<void>;
@@ -67,6 +78,15 @@ function installedRuntimeSource(): string | null {
     )));
   } catch (error) {
     console.warn("[Studio] Failed to load the installed preview runtime:", error);
+    return null;
+  }
+}
+
+function installedPreviewAgentSource(studioDir: string): string | null {
+  try {
+    return readFileSync(join(studioDir, ".build/runtime/preview-agent.js"), "utf8");
+  } catch (error) {
+    console.warn("[Studio] Failed to load the isolated preview agent:", error);
     return null;
   }
 }
@@ -124,6 +144,19 @@ export function createStudioRuntime(options: StudioRuntimeOptions): StudioRuntim
   }
 
   const adapter = createStandaloneAdapter(options.projectsDir, adapterHost, signatureCache);
+  if (options.libraries) {
+    const legacyResolve = adapter.resolveProject.bind(adapter);
+    const legacyList = adapter.listProjects.bind(adapter);
+    const legacyRenders = adapter.rendersDir.bind(adapter);
+    adapter.resolveProject = async (id) => {
+      const project = options.libraries!.resolveProject(id) ?? await legacyResolve(id);
+      if (project) { projectRoots.set(id, project.dir); projectWatcher.add(project.dir); }
+      return project;
+    };
+    adapter.listProjects = async () => [...options.libraries!.listProjects(), ...await legacyList()];
+    adapter.rendersDir = (project) => options.libraries!.outputDirectory(project.id) ?? legacyRenders(project);
+  }
+  const exportSnapshots = new Map<string, NonNullable<Awaited<ReturnType<LibraryService['snapshot']>>>>();
   const projectAccess = createProjectAccessQueue();
   const inProject = async <T>(projectId: string, operation: () => Promise<T>): Promise<T> => {
     const project = await adapter.resolveProject(projectId);
@@ -153,12 +186,18 @@ export function createStudioRuntime(options: StudioRuntimeOptions): StudioRuntim
   const fileListeners = new Set<(event: RuntimeEvent) => void>();
   const subscriptions = new Set<() => void>();
   const renderJobs = new Map<string, ReturnType<StudioServerAdapter["startRender"]>>();
+  const optionsLibraries = options.libraries;
   const startRender = adapter.startRender.bind(adapter);
   adapter.startRender = (options) => {
     for (const [id, previous] of renderJobs) {
       if (previous.status !== "rendering") renderJobs.delete(id);
     }
-    const job = startRender(options);
+    const snapshot = exportSnapshots.get(options.project.id);
+    const job = startRender(snapshot ? {...options, project: {...options.project, dir: snapshot.dir}} : options);
+    if (snapshot) {
+      exportSnapshots.delete(options.project.id);
+      optionsLibraries?.trackExport(snapshot, job, () => { adapter.heartbeatRender(options.jobId); });
+    }
     renderJobs.set(options.jobId, job);
     return job;
   };
@@ -168,9 +207,12 @@ export function createStudioRuntime(options: StudioRuntimeOptions): StudioRuntim
   const publishFileChange = async (filePath: string) => {
     // Watchers report the real location of linked projects. Translate back to
     // every project identity through which that source is open in the editor.
+    let canonicalPath = resolve(filePath);
+    try { canonicalPath = realpathSync(filePath); }
+    catch { try { canonicalPath = join(realpathSync(dirname(filePath)), basename(filePath)); } catch { /* Removed directory. */ } }
     const paths = new Set<string>([resolve(filePath)]);
     for (const [id, root] of projectRoots) {
-      const offset = relative(root, resolve(filePath));
+      const offset = relative(root, canonicalPath);
       if (!offset || isAbsolute(offset) || offset === ".." || offset.startsWith(`..${sep}`)) continue;
       paths.add(join(options.projectsDir, id, offset));
     }
@@ -218,6 +260,34 @@ export function createStudioRuntime(options: StudioRuntimeOptions): StudioRuntim
 
   const handleApi = async (request: Request, url: URL): Promise<Response> => {
     url.pathname = url.pathname.slice(4);
+    const silenceRoute = /^\/projects\/([^/]+)\/media\/silences$/.exec(url.pathname);
+    if (silenceRoute && request.method === "POST") {
+      const project = await adapter.resolveProject(decodeURIComponent(silenceRoute[1]));
+      if (!project) return Response.json({ error: "Project not found" }, { status: 404 });
+      try {
+        const input = await request.json();
+        return Response.json({ ranges: await analyzeProjectMediaSilence(project.dir, input, request.signal) }, {
+          headers: { "cache-control": "no-store" },
+        });
+      } catch (error) {
+        if (request.signal.aborted) throw error;
+        return Response.json({ error: error instanceof Error ? error.message : "Could not analyze media audio" }, { status: 422 });
+      }
+    }
+    const metadataRoute = /^\/projects\/([^/]+)\/media\/streams$/.exec(url.pathname);
+    if (metadataRoute && request.method === "GET") {
+      const project = await adapter.resolveProject(decodeURIComponent(metadataRoute[1]));
+      if (!project) return Response.json({ error: "Project not found" }, { status: 404 });
+      const source = url.searchParams.get("source");
+      if (!source) return Response.json({ error: "A media source is required" }, { status: 400 });
+      return Response.json(await readProjectMediaMetadata(project.dir, source, request.signal), {
+        headers: { "cache-control": "no-store" },
+      });
+    }
+    const libraryUpload = /^\/projects\/([^/]+)\/upload$/.exec(url.pathname);
+    if (libraryUpload && request.method === 'POST' && options.libraries?.forProject(decodeURIComponent(libraryUpload[1]))) {
+      return importLibraryUpload(request, decodeURIComponent(libraryUpload[1]), options.libraries);
+    }
     const framesRoute = /^\/projects\/([^/]+)\/media\/frames$/.exec(url.pathname);
     if (framesRoute && request.method === "POST") {
       const project = await adapter.resolveProject(decodeURIComponent(framesRoute[1]));
@@ -356,6 +426,10 @@ export function createStudioRuntime(options: StudioRuntimeOptions): StudioRuntim
     if (/^\/projects\/[^/]+\/(?:preview|waveform)(?:\/|$)/.test(url.pathname)) {
       filtered.headers.set("cache-control", "no-store");
     }
+    if (request.method === 'POST' && /^\/projects\/[^/]+\/render$/.test(url.pathname) && filtered.ok &&
+        options.libraries?.forProject(decodeURIComponent(url.pathname.split('/')[2]))) {
+      return Response.json({...await filtered.json(), persistent: true}, {status:filtered.status});
+    }
     return filtered;
   };
 
@@ -363,9 +437,16 @@ export function createStudioRuntime(options: StudioRuntimeOptions): StudioRuntim
     if (closed) return Response.json({ error: "Runtime is closed" }, { status: 503 });
     const url = new URL(request.url);
     if (url.pathname === "/api/runtime.js" || url.pathname === "/api/motion-path-plugin.js") {
-      const source = url.pathname === "/api/runtime.js"
+      let source = url.pathname === "/api/runtime.js"
         ? (options.loadRuntimeSource ?? installedRuntimeSource)()
         : installedMotionPathPluginSource();
+      // The DOM adapter belongs only to a project-scoped preview origin. Export
+      // capture and thumbnails use the plain runtime and receive no editor link.
+      if (source && url.pathname === "/api/runtime.js" && url.protocol === "mpvfx:" &&
+          projectIdFromPreviewHost(url.host) !== null) {
+        const agent = installedPreviewAgentSource(options.adapterHost.studioDir);
+        source = agent ? `${agent}\n;${source}` : null;
+      }
       return new Response(source ?? "Runtime not available", {
         status: source ? 200 : 404,
         headers: { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store" },
@@ -381,8 +462,22 @@ export function createStudioRuntime(options: StudioRuntimeOptions): StudioRuntim
         !/^\/api\/projects\/[^/]+\/file-mutations\/probe-element\//.test(url.pathname);
       const dispatch = async () => {
         request.signal.throwIfAborted();
-        try { return await handleApi(request, url); }
+        try {
+          if (projectRoute && projectRoute[2] === 'render' && request.method === 'POST' && options.libraries) {
+            const projectId = decodeURIComponent(projectRoute[1]);
+            const settings = await request.clone().json().catch(() => ({}));
+            const snapshot = await options.libraries.snapshot(projectId, settings);
+            if (snapshot) exportSnapshots.set(projectId, snapshot);
+          }
+          return await handleApi(request, url);
+        }
         finally {
+          if (projectRoute) {
+            const id = decodeURIComponent(projectRoute[1]);
+            const unused = exportSnapshots.get(id);
+            exportSnapshots.delete(id);
+            if (unused) await options.libraries?.failSnapshot(unused, 'Export request was not accepted');
+          }
           // A following read must see the save immediately, even before chokidar
           // delivers its delayed event. Failed writes may also have recovered.
           if (projectRoute && mutatesSource) {
@@ -408,11 +503,30 @@ export function createStudioRuntime(options: StudioRuntimeOptions): StudioRuntim
   // Chromium used for thumbnails receives resources directly, without a server.
   adapter.generateThumbnail = async (options) => {
     const { generateThumbnail } = await import("./preview/browser");
-    return generateThumbnail({ ...options, readResource: handle });
+    return generateThumbnail({
+      ...options,
+      readResource: request => thumbnailMayReadResource(options.previewUrl, request, options.project.dir)
+        ? handle(request)
+        : Promise.resolve(new Response("Forbidden", { status: 403 })),
+    });
   };
 
   return {
+    withProject: inProject,
     handle,
+    async importFiles(projectId, paths, directory) {
+      if (closed) throw new Error("Runtime is closed");
+      return inProject(projectId, async () => {
+        const project = await adapter.resolveProject(projectId);
+        if (!project) throw new Error("Project not found");
+        try {
+          return options.libraries?.forProject(projectId)
+            ? await options.libraries.importForProject(projectId, paths)
+            : await importLocalMedia({ projectRoot: project.dir, paths, directory });
+        }
+        finally { signatureCache.invalidateProject(project.dir); }
+      });
+    },
     async subscribe(path, listener) {
       if (closed) throw new Error("Runtime is closed");
       if (path === "/api/events") {

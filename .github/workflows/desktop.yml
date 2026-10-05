@@ -2,29 +2,58 @@ name: Desktop builds
 
 on:
   pull_request:
-    paths:
-      - "studio/**"
-      - "scripts/**"
-      - ".github/workflows/desktop.yml"
   push:
     branches:
       - main
     paths:
       - "studio/**"
+      - "third_party/video-keyframing/**"
       - "scripts/**"
       - ".github/workflows/desktop.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: desktop-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Relevant changes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    outputs:
+      run: ${{ steps.filter.outputs.run }}
+    steps:
+      - name: Check changed paths
+        id: filter
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if (( CHANGED_FILES > 3000 )); then
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          paths="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)')"
+          relevant=false
+          while IFS= read -r path; do
+            case "$path" in
+              studio/*|third_party/video-keyframing/*|scripts/*|.github/workflows/desktop.yml) relevant=true; break ;;
+            esac
+          done <<< "$paths"
+          echo "run=$relevant" >> "$GITHUB_OUTPUT"
+
   make:
     name: ${{ matrix.label }}
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.run == 'true') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
@@ -67,12 +96,23 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --yes rpm
+          sudo apt-get install --yes rpm libsqlite3-dev
+
+      - name: Install Windows SQLite development library
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not $env:VCPKG_INSTALLATION_ROOT) { throw 'Windows runner has no Vcpkg installation root' }
+          & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install sqlite3:x64-windows-static-md
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "CMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" >> $env:GITHUB_ENV
 
       - name: Install dependencies
         run: npm ci --prefix studio
 
+      - name: Prepare Electron Windows headers
+        if: runner.os == 'Windows'
+        run: npm --prefix studio run prepare:electron-windows-headers
+
       - name: Build native installer
         run: npm --prefix studio run ${{ matrix.script }}
-
-      # Main-branch validation only.

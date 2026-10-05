@@ -231,6 +231,9 @@ export function buildTimelineMoveTimingPatch(
     );
     return original;
   }
+  // A root-duration adjustment must never make a missed clip edit look like a
+  // successful source patch. Native transactions use equality to reject it.
+  if (!findTagByTarget(original, target)) return original;
   let patched = applyPatchByTarget(original, target, {
     type: "attribute",
     property: "start",
@@ -246,6 +249,7 @@ export function buildTimelineMoveTimingPatch(
       value: formatTimelineAttributeNumber(track),
     });
   }
+  if (patched === original) return original;
   // Content-driven duration: sync data-duration to the furthest clip end read
   // from the PATCHED SOURCE (raw data-duration), so it grows if a clip moved
   // past the end and shrinks if the furthest clip moved left. Measured from the
@@ -265,6 +269,7 @@ export function buildTimelineResizeTimingPatch(
     readonly playbackStart: string;
   },
 ): string {
+  if (!findTagByTarget(original, target)) return original;
   const pbs = exactAttributes
     ? {
         attrName: playbackStartAttributeForElement(element).slice("data-".length),
@@ -291,6 +296,7 @@ export function buildTimelineResizeTimingPatch(
           : formatTimelineAttributeNumber(pbs.value),
     });
   }
+  if (patched === original) return original;
   // Content-driven duration from the PATCHED SOURCE (raw data-duration) —
   // grows/shrinks to the furthest clip end. Not from the store, whose
   // durations are runtime-truncated.

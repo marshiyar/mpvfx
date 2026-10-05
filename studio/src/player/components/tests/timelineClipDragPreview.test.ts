@@ -198,6 +198,35 @@ describe("computeDragPreview — plain horizontal drag never arms a phantom inse
   });
 });
 
+describe("computeDragPreview — selected formation row move", () => {
+  it("shifts all selected rows by one index instead of relocating the grabbed clip alone", () => {
+    const a = clip("a", 0, 2, 2, 0);
+    const b = clip("b", 1, 8, 2, 0);
+    const { drag } = horizontalDrag(a, 0.5, 3);
+    const next = computeDragPreview(drag, drag.originClientX + 3 * PPS, yForRow(1.5), {
+      ...ctx(undefined, [a, b]),
+      selectedKeys: new Set(["a", "b"]),
+    });
+    expect(next.previewStart).toBe(5);
+    expect(next.previewTrack).toBe(1);
+    expect(next.groupRowDelta).toBe(1);
+    expect(next.insertRow).toBeNull();
+  });
+
+  it("keeps the whole formation at its origin when a passenger would leave existing rows", () => {
+    const a = clip("a", 0, 2, 2, 0);
+    const b = clip("b", 2, 8, 2, 0);
+    const { drag } = horizontalDrag(a, 0.5, 3);
+    const next = computeDragPreview(drag, drag.originClientX + 3 * PPS, yForRow(1.5), {
+      ...ctx(undefined, [a, b]),
+      selectedKeys: new Set(["a", "b"]),
+    });
+    expect(next.previewStart).toBe(a.start);
+    expect(next.previewTrack).toBe(a.track);
+    expect(next.groupRowDelta).toBe(0);
+  });
+});
+
 describe("computeResizePreview — composition source continuity", () => {
   it("preserves the native rational-frame boundary through the real trim preview seam", () => {
     const frameRate = { numerator: 30_000, denominator: 1_001 };

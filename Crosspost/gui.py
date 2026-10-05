@@ -1,5 +1,7 @@
 import os
+import argparse
 import threading
+import queue
 from tkinter import filedialog
 import customtkinter as ctk
 
@@ -21,8 +23,12 @@ class VideoCrossPosterApp(ctk.CTk):
     Constructs the GUI layout, gathers metadata inputs, and triggers background
     upload threads to deliver media to YouTube and Facebook simultaneously.
     """
-    def __init__(self):
+    def __init__(self, video_path=None):
         super().__init__()
+        self.ui_updates = queue.Queue()
+        self.upload_in_progress = False
+        self.protocol("WM_DELETE_WINDOW", self.handle_close)
+        self.after(50, self.drain_ui_updates)
 
         # --- WINDOW GEOMETRY CONFIGURATION ---
         # Fixed resolution (620x780) prevents UI elements from resizing awkwardly or overlapping.
@@ -33,7 +39,7 @@ class VideoCrossPosterApp(ctk.CTk):
         # --- APP HEADER ---
         # Prominent visual anchor at the top of the interface
         self.header_label = ctk.CTkLabel(
-            self, 
+            self,
             text="Multi-Platform Video Publisher",
             font=ctk.CTkFont(size=20, weight="bold")
         )
@@ -45,16 +51,18 @@ class VideoCrossPosterApp(ctk.CTk):
         self.file_frame.pack(padx=30, pady=6, fill="x")
 
         self.file_path_entry = ctk.CTkEntry(
-            self.file_frame, 
-            placeholder_text="No video selected...", 
+            self.file_frame,
+            placeholder_text="No video selected...",
             width=420
         )
         self.file_path_entry.pack(side="left", padx=(10, 10), pady=10)
+        if video_path:
+            self.file_path_entry.insert(0, video_path)
 
         self.browse_btn = ctk.CTkButton(
-            self.file_frame, 
-            text="Browse Video", 
-            width=100, 
+            self.file_frame,
+            text="Browse Video",
+            width=100,
             command=self.browse_video
         )
         self.browse_btn.pack(side="right", padx=(0, 10), pady=10)
@@ -65,16 +73,16 @@ class VideoCrossPosterApp(ctk.CTk):
         self.thumb_frame.pack(padx=30, pady=6, fill="x")
 
         self.thumb_path_entry = ctk.CTkEntry(
-            self.thumb_frame, 
-            placeholder_text="Optional: Select thumbnail image...", 
+            self.thumb_frame,
+            placeholder_text="Optional: Select thumbnail image...",
             width=420
         )
         self.thumb_path_entry.pack(side="left", padx=(10, 10), pady=10)
 
         self.thumb_browse_btn = ctk.CTkButton(
-            self.thumb_frame, 
-            text="Browse Image", 
-            width=100, 
+            self.thumb_frame,
+            text="Browse Image",
+            width=100,
             command=self.browse_thumbnail
         )
         self.thumb_browse_btn.pack(side="right", padx=(0, 10), pady=10)
@@ -108,25 +116,25 @@ class VideoCrossPosterApp(ctk.CTk):
         self.opts_frame.pack(padx=30, pady=6, fill="x")
 
         self.platform_label = ctk.CTkLabel(
-            self.opts_frame, 
-            text="Publish To:", 
+            self.opts_frame,
+            text="Publish To:",
             font=ctk.CTkFont(weight="bold")
         )
         self.platform_label.pack(anchor="w", padx=15, pady=(8, 4))
 
-        # YouTube checkbox (Enabled by default)
+        # Each destination requires an explicit selection.
         self.chk_youtube = ctk.CTkCheckBox(self.opts_frame, text="YouTube")
-        self.chk_youtube.select()
+        self.chk_youtube.deselect()
         self.chk_youtube.pack(side="left", padx=15, pady=(0, 12))
 
         # Facebook Page checkbox (Targets your authenticated Mpvfx Page)
         self.chk_facebook = ctk.CTkCheckBox(self.opts_frame, text="Facebook (Mpvfx)")
-        self.chk_facebook.select()
+        self.chk_facebook.deselect()
         self.chk_facebook.pack(side="left", padx=15, pady=(0, 12))
 
         # Privacy State Dropdown (Defaults to 'unlisted' to allow review before going public)
         self.privacy_dropdown = ctk.CTkComboBox(
-            self.opts_frame, 
+            self.opts_frame,
             values=["unlisted", "private", "public"],
             width=130
         )
@@ -145,13 +153,40 @@ class VideoCrossPosterApp(ctk.CTk):
         # --- SECTION 6: EXECUTION TRIGGER ---
         # Action button that initiates validation and fires the background thread.
         self.upload_btn = ctk.CTkButton(
-            self, 
-            text="Start Cross-Posting", 
-            height=45, 
+            self,
+            text="Start Cross-Posting",
+            height=45,
             font=ctk.CTkFont(size=15, weight="bold"),
             command=self.start_upload_thread
         )
         self.upload_btn.pack(padx=30, pady=(5, 15), fill="x")
+
+    def post_ui(self, text=None, text_color=None, progress=None, button=None):
+        self.ui_updates.put((text, text_color, progress, button))
+
+    def drain_ui_updates(self):
+        try:
+            while True:
+                text, text_color, progress, button = self.ui_updates.get_nowait()
+                if text is not None:
+                    self.status_label.configure(text=text, text_color=text_color or "gray")
+                if progress is not None:
+                    self.progress_bar.set(progress)
+                if button is not None:
+                    self.upload_btn.configure(state=button)
+                    self.upload_in_progress = button == "disabled"
+        except queue.Empty:
+            pass
+        self.after(50, self.drain_ui_updates)
+
+    def handle_close(self):
+        if self.upload_in_progress:
+            self.status_label.configure(
+                text="Publishing is in progress. Keep this window open until it finishes.",
+                text_color="red",
+            )
+            return
+        self.destroy()
 
     def browse_video(self):
         """Launches the native OS file picker to locate an MP4, MOV, or MKV video."""
@@ -174,47 +209,34 @@ class VideoCrossPosterApp(ctk.CTk):
             self.thumb_path_entry.insert(0, file_selected)
 
     def start_upload_thread(self):
-        """
-        Threading Wrapper:
-        Launches run_upload inside a separate daemon thread. This prevents network uploads 
-        from freezing the GUI's main thread and keeping the window responsive.
-        """
-        upload_thread = threading.Thread(target=self.run_upload, daemon=True)
-        upload_thread.start()
-
-    def run_upload(self):
-        """
-        Background Worker Pipeline:
-        1. Reads values from all UI input widgets.
-        2. Validates paths and selections.
-        3. Authenticates and streams bytes to each selected platform API.
-        4. Dynamically scales the progress bar according to the active platforms.
-        """
-        # Retrieve and sanitize all inputs from the form
+        """Capture form values on the UI thread, then run network work in the background."""
+        if self.upload_in_progress:
+            return
         video_path = self.file_path_entry.get().strip()
         thumb_path = self.thumb_path_entry.get().strip()
         title = self.title_entry.get().strip() or "Untitled Video"
         description = self.desc_textbox.get("1.0", "end-1c").strip()
         tags = [t.strip() for t in self.tags_entry.get().split(",") if t.strip()]
         privacy = self.privacy_dropdown.get()
-
         post_to_yt = bool(self.chk_youtube.get())
         post_to_fb = bool(self.chk_facebook.get())
-
-        # Guard Clause: Verify a video file was actually selected
-        if not video_path:
-            self.status_label.configure(text="Please select a video file first.", text_color="red")
+        if not video_path or not os.path.isfile(video_path):
+            self.status_label.configure(text="Select an existing video file first.", text_color="red")
             return
-
-        # Guard Clause: Prevent running if no destination platform is toggled on
         if not post_to_yt and not post_to_fb:
             self.status_label.configure(text="Select at least one platform to publish to.", text_color="red")
             return
-
-        # Lock button during upload to prevent double-submissions and reset progress
+        self.upload_in_progress = True
         self.upload_btn.configure(state="disabled")
         self.progress_bar.set(0)
+        threading.Thread(
+            target=self.run_upload,
+            args=(video_path, thumb_path, title, description, tags, privacy, post_to_yt, post_to_fb),
+            daemon=True,
+        ).start()
 
+    def run_upload(self, video_path, thumb_path, title, description, tags, privacy, post_to_yt, post_to_fb):
+        """Publish selected targets while posting all widget updates to the UI thread."""
         results = []
 
         try:
@@ -222,15 +244,15 @@ class VideoCrossPosterApp(ctk.CTk):
             # 1. YOUTUBE UPLOAD PIPELINE
             # ==========================================
             if post_to_yt:
-                self.status_label.configure(text="YouTube: Authenticating...", text_color="#1f6aa5")
+                self.post_ui(text="YouTube: Authenticating...", text_color="#1f6aa5")
                 youtube_service = authenticate_youtube()
 
                 # Progress callback scaled to 0%–50% if Facebook follows, or 0%–100% if solo
                 def update_yt_progress(percent):
                     factor = 0.5 if post_to_fb else 1.0
-                    self.progress_bar.set(percent * factor)
-                    self.status_label.configure(
-                        text=f"YouTube Uploading: {int(percent * 100)}%", 
+                    self.post_ui(progress=percent * factor)
+                    self.post_ui(
+                        text=f"YouTube Uploading: {int(percent * 100)}%",
                         text_color="#1f6aa5"
                     )
 
@@ -249,7 +271,7 @@ class VideoCrossPosterApp(ctk.CTk):
 
                 # Attach custom thumbnail image if one was provided
                 if thumb_path and os.path.exists(thumb_path):
-                    self.status_label.configure(text="YouTube: Setting thumbnail...", text_color="#1f6aa5")
+                    self.post_ui(text="YouTube: Setting thumbnail...", text_color="#1f6aa5")
                     try:
                         set_video_thumbnail(youtube_service, yt_id, thumb_path)
                     except Exception as t_err:
@@ -259,15 +281,15 @@ class VideoCrossPosterApp(ctk.CTk):
             # 2. FACEBOOK PAGE UPLOAD PIPELINE
             # ==========================================
             if post_to_fb:
-                self.status_label.configure(text="Facebook: Uploading...", text_color="#1f6aa5")
+                self.post_ui(text="Facebook: Uploading...", text_color="#1f6aa5")
 
                 # Progress callback scaled to 50%–100% if YouTube ran, or 0%–100% if solo
                 def update_fb_progress(percent):
                     base = 0.5 if post_to_yt else 0.0
                     factor = 0.5 if post_to_yt else 1.0
-                    self.progress_bar.set(base + (percent * factor))
-                    self.status_label.configure(
-                        text=f"Facebook Uploading: {int(percent * 100)}%", 
+                    self.post_ui(progress=base + (percent * factor))
+                    self.post_ui(
+                        text=f"Facebook Uploading: {int(percent * 100)}%",
                         text_color="#1f6aa5"
                     )
 
@@ -281,21 +303,30 @@ class VideoCrossPosterApp(ctk.CTk):
                 results.append(f"FB: {fb_id}")
 
             # Complete progress and display success message with returned Video IDs
-            self.progress_bar.set(1.0)
-            self.status_label.configure(
-                text=f"Done! {', '.join(results)}", 
+            self.post_ui(progress=1.0)
+            self.post_ui(
+                text=f"Done! {', '.join(results)}",
                 text_color="green"
             )
 
         except Exception as e:
             # Catch API errors or missing credentials without crashing the application
-            self.status_label.configure(text=f"Upload Failed: {e}", text_color="red")
+            self.post_ui(text=f"Upload Failed: {e}" + (f". Already published: {', '.join(results)}" if results else ""), text_color="red")
         finally:
             # Re-enable the upload button once all work is finished
-            self.upload_btn.configure(state="normal")
+            self.post_ui(button="normal")
 
 
 # Application entry point: Only executes when running this script directly
 if __name__ == "__main__":
-    app = VideoCrossPosterApp()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--video")
+    parser.add_argument("--ready-file")
+    args = parser.parse_args()
+    app = VideoCrossPosterApp(args.video)
+    if args.ready_file:
+        def signal_ready():
+            with open(args.ready_file, "x", encoding="utf-8") as marker:
+                marker.write("ready")
+        app.after_idle(signal_ready)
     app.mainloop()

@@ -170,34 +170,35 @@ export function MediaSection({
                   ]}
                 />
               </div>
-              <div className="grid min-w-0 gap-1.5">
-                <span className={LABEL}>Muted</span>
-                <SegmentedControl
-                  trackName="Muted"
-                  value={hasMuted ? "on" : "off"}
-                  onChange={(next) => {
-                    void onSetHtmlAttribute("muted", next === "on" ? "true" : null);
-                  }}
-                  options={[
-                    { label: "On", value: "on" },
-                    { label: "Off", value: "off" },
-                  ]}
-                />
-              </div>
+              {!isVideo && (
+                <div className="grid min-w-0 gap-1.5">
+                  <span className={LABEL}>Muted</span>
+                  <SegmentedControl
+                    trackName="Muted"
+                    value={hasMuted ? "on" : "off"}
+                    onChange={(next) => {
+                      void onSetHtmlAttribute("muted", next === "on" ? "true" : null);
+                    }}
+                    options={[
+                      { label: "On", value: "on" },
+                      { label: "Off", value: "off" },
+                    ]}
+                  />
+                </div>
+              )}
             </div>
 
             {isVideo && (
               <div className="grid min-w-0 gap-1.5">
-                <span className={LABEL}>Has audio track</span>
+                <span className={LABEL}>Play video sound</span>
                 <SegmentedControl
-                  trackName="Has audio track"
-                  value={hasAudio ? "yes" : "no"}
+                  trackName="Play video sound"
+                  value={hasAudio && !hasMuted ? "yes" : "no"}
                   onChange={(next) => {
                     if (next === "yes") {
-                      void onSetAttribute("has-audio", "true");
+                      if (!hasAudio) void onSetAttribute("has-audio", "true");
                       void onSetHtmlAttribute("muted", null);
                     } else {
-                      void onSetAttribute("has-audio", "");
                       void onSetHtmlAttribute("muted", "true");
                     }
                   }}

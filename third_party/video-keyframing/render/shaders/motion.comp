@@ -1,0 +1,118 @@
+#version 450
+// Motion effect kernel for Vulkan. Mirrors render/src/CpuRenderer.cpp line for
+// line; Plan mirrors render/include/vkf/render/RenderPlan.h (std430 layout is
+// byte-identical). Images are float RGBA; strides and offsets are in floats.
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(std430, binding = 0) readonly buffer Plan {
+    ivec4 srcRect;
+    ivec4 window;
+    ivec4 srcLayout;  // origin x, origin y, row stride, base offset
+    ivec4 dstLayout;
+    ivec4 counts;     // matrix count, supersample n, filter, flags
+    vec4 params;      // opacity, anti-flicker, anti-flicker step, divisor
+    vec4 matrices[128];
+} p;
+
+layout(std430, binding = 1) readonly buffer Src { float srcData[]; };
+layout(std430, binding = 2) writeonly buffer Dst { float dstData[]; };
+
+vec4 fetchTexel(bool unpremult, int ix, int iy)
+{
+    if (ix < p.srcRect.x || ix >= p.srcRect.z || iy < p.srcRect.y || iy >= p.srcRect.w) return vec4(0.0);
+    const int i = p.srcLayout.w + (iy - p.srcLayout.y) * p.srcLayout.z + (ix - p.srcLayout.x) * 4;
+    vec4 t = vec4(srcData[i], srcData[i + 1], srcData[i + 2], srcData[i + 3]);
+    if (unpremult) {
+        t.x *= t.w;
+        t.y *= t.w;
+        t.z *= t.w;
+    }
+    return t;
+}
+
+vec4 cubicWeights(float t)
+{
+    const float t2 = t * t, t3 = t2 * t;
+    return vec4(0.5 * (-t3 + 2.0 * t2 - t), 0.5 * (3.0 * t3 - 5.0 * t2 + 2.0),
+                0.5 * (-3.0 * t3 + 4.0 * t2 + t), 0.5 * (t3 - t2));
+}
+
+vec4 sampleSource(bool unpremult, float sx, float sy)
+{
+    if (!(sx >= float(p.srcRect.x) - 3.0 && sx <= float(p.srcRect.z) + 3.0 &&
+          sy >= float(p.srcRect.y) - 3.0 && sy <= float(p.srcRect.w) + 3.0))
+        return vec4(0.0);
+    const float u = sx - 0.5, v = sy - 0.5;
+    const float fu = floor(u), fv = floor(v);
+    const int x0 = int(fu), y0 = int(fv);
+    const float fx = u - fu, fy = v - fv;
+    vec4 acc = vec4(0.0);
+    if (p.counts.z == 0) {
+        acc += fetchTexel(unpremult, x0, y0) * ((1.0 - fx) * (1.0 - fy));
+        acc += fetchTexel(unpremult, x0 + 1, y0) * (fx * (1.0 - fy));
+        acc += fetchTexel(unpremult, x0, y0 + 1) * ((1.0 - fx) * fy);
+        acc += fetchTexel(unpremult, x0 + 1, y0 + 1) * (fx * fy);
+        return acc;
+    }
+    const vec4 wx = cubicWeights(fx);
+    const vec4 wy = cubicWeights(fy);
+    for (int j = 0; j < 4; ++j)
+        for (int i = 0; i < 4; ++i) acc += fetchTexel(unpremult, x0 - 1 + i, y0 - 1 + j) * (wx[i] * wy[j]);
+    return acc;
+}
+
+void main()
+{
+    const int x = p.window.x + int(gl_GlobalInvocationID.x);
+    const int y = p.window.y + int(gl_GlobalInvocationID.y);
+    if (x >= p.window.z || y >= p.window.w) return;
+
+    const bool unpremult = (p.counts.w & 1) != 0;
+    const float px = float(x) + 0.5;
+    const float py = float(y) + 0.5;
+    const int n = p.counts.y;
+    const float invN = 1.0 / float(n);
+    const float af = p.params.y;
+    const float stepY = p.params.z;
+    const int taps = af > 0.0 ? 3 : 1;
+    const float tapDy[3] = float[3](taps == 3 ? -stepY : 0.0, 0.0, stepY);
+    const float tapW[3] = float[3](taps == 3 ? 0.25 * af : 1.0, 1.0 - 0.5 * af, 0.25 * af);
+
+    vec4 acc = vec4(0.0);
+    for (int k = 0; k < p.counts.x; ++k) {
+        const vec4 r0 = p.matrices[2 * k];
+        const vec4 r1 = p.matrices[2 * k + 1];
+        for (int t = 0; t < taps; ++t) {
+            for (int j = 0; j < n; ++j) {
+                const float dy = py + tapDy[t] + ((float(j) + 0.5) * invN - 0.5);
+                for (int i = 0; i < n; ++i) {
+                    const float dx = px + ((float(i) + 0.5) * invN - 0.5);
+                    const float sx = r0.x * dx + r0.y * dy + r0.z;
+                    const float sy = r1.x * dx + r1.y * dy + r1.z;
+                    acc += sampleSource(unpremult, sx, sy) * tapW[t];
+                }
+            }
+        }
+    }
+
+    const float divisor = p.params.w;
+    const float scale = divisor > 0.0 ? p.params.x / divisor : 0.0;
+    vec4 outc = vec4(acc.x * scale, acc.y * scale, acc.z * scale, clamp(acc.w * scale, 0.0, 1.0));
+    if (unpremult) {
+        if (outc.w > 0.0) {
+            outc.x /= outc.w;
+            outc.y /= outc.w;
+            outc.z /= outc.w;
+        } else {
+            outc.x = 0.0;
+            outc.y = 0.0;
+            outc.z = 0.0;
+        }
+    }
+    const int o = p.dstLayout.w + (y - p.dstLayout.y) * p.dstLayout.z + (x - p.dstLayout.x) * 4;
+    dstData[o] = outc.x;
+    dstData[o + 1] = outc.y;
+    dstData[o + 2] = outc.z;
+    dstData[o + 3] = outc.w;
+}

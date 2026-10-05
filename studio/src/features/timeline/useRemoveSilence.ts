@@ -1,15 +1,17 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
 import type { TimelineElement } from "../../player/index";
 import { usePlayerStore } from "../../player/index";
 import { resolveMediaPreviewUrl } from "../../player/components/thumbnailUtils";
 import { desktopRequest } from "../../lib/desktopClient";
 import type { RecordEditInput } from "./timelineEditingHelpers";
+import type { NativeProjectDocument } from "../../../shared/project/nativeProjectDocument";
+import type { NativeTimelineEditingDependencies } from "./useTimelineEditingTypes";
+import { commitNativeTimelineSilenceCut } from "../project/nativeTimelineSilenceCutTransaction";
 import { buildAtomicCutIntents, runAtomicCutTransaction } from "./razorSplitTransaction";
 import { canSplitElement } from "./timelineElementSplit";
 import {
-  DEFAULT_SILENCE_REMOVAL_OPTIONS,
-  detectSilences,
   planSilenceRemoval,
+  type SilenceRange,
   type SilenceRemovalPlan,
   type SilenceRemovalSegment,
 } from "./removeSilence";
@@ -28,13 +30,20 @@ interface UseRemoveSilenceOptions {
   reloadPreview: () => void;
   forceReloadSdkSession?: () => void;
   isRecordingRef?: React.RefObject<boolean>;
-  deleteElements: (elements: TimelineElement[]) => Promise<void>;
+  deleteElements: (
+    elements: TimelineElement[],
+    options?: { suppressSuccessToast?: boolean },
+  ) => Promise<void>;
   moveElement: (
     element: TimelineElement,
     updates: Pick<TimelineElement, "start" | "track">,
   ) => Promise<void>;
   splitElement: (element: TimelineElement, splitTime: number) => Promise<void>;
   isNativeElement: (element: TimelineElement) => boolean;
+  snapTimelineTime?: (time: number) => number;
+  nativeProjectEditing?: NativeTimelineEditingDependencies;
+  nativeDocumentRef?: MutableRefObject<NativeProjectDocument | null>;
+  editQueueRef?: MutableRefObject<Promise<unknown>>;
 }
 
 interface PlannedElement {
@@ -53,16 +62,20 @@ function sameClip(left: TimelineElement, right: TimelineElement): boolean {
   );
 }
 
-function sameSegment(
+export function sameSilenceSegment(
   element: TimelineElement,
   segment: SilenceRemovalSegment,
   original: TimelineElement,
 ): boolean {
   return (
-    element.tag.toLowerCase() === "video" &&
+    element.tag.toLowerCase() === original.tag.toLowerCase() &&
     element.track === original.track &&
     element.sourceFile === original.sourceFile &&
     element.src === original.src &&
+    Math.abs((element.playbackRate ?? 1) - (original.playbackRate ?? 1)) < 1e-6 &&
+    Math.abs((element.playbackStart ?? 0) - ((original.playbackStart ?? 0) +
+      (segment.start - original.start) * (original.playbackRate ?? 1))) <=
+      TIMING_MATCH_EPSILON * (original.playbackRate ?? 1) &&
     Math.abs(element.start - segment.start) <= TIMING_MATCH_EPSILON &&
     Math.abs(element.duration - (segment.end - segment.start)) <= TIMING_MATCH_EPSILON
   );
@@ -76,11 +89,12 @@ function collectPlannedElements(
   const used = new Set<string>();
   const result: PlannedElement[] = [];
   for (const segment of plan.segments) {
-    const element = elements.find(
+    const candidates = elements.filter(
       (candidate) =>
         !used.has(candidate.key ?? candidate.id) &&
-        sameSegment(candidate, segment, original),
+        sameSilenceSegment(candidate, segment, original),
     );
+    const element = candidates.length === 1 ? candidates[0] : null;
     if (!element) return null;
     used.add(element.key ?? element.id);
     result.push({ segment, element });
@@ -113,13 +127,27 @@ function waitForTimeline<T>(
   });
 }
 
-async function loadMediaBytes(src: string, projectId: string): Promise<ArrayBuffer> {
-  const url = resolveMediaPreviewUrl(src, projectId, window.location.href);
-  const response = new URL(url, window.location.href).protocol === "mpvfx:"
-    ? await desktopRequest(url)
-    : await fetch(url);
-  if (!response.ok) throw new Error(`Could not load clip media (${response.status})`);
-  return response.arrayBuffer();
+async function analyzeMediaSilence(
+  src: string, projectId: string, sourceStart: number, sourceDuration: number, signal: AbortSignal,
+): Promise<SilenceRange[]> {
+  const url = new URL(resolveMediaPreviewUrl(src, projectId, window.location.href), window.location.href);
+  const prefix = `/api/projects/${encodeURIComponent(projectId)}/preview/`;
+  if (url.protocol !== window.location.protocol || url.host !== window.location.host ||
+      !url.pathname.startsWith(prefix)) {
+    throw new Error("Silence removal requires imported project audio or video");
+  }
+  const source = decodeURIComponent(url.pathname.slice(prefix.length));
+  const response = await desktopRequest(`/api/projects/${encodeURIComponent(projectId)}/media/silences`, {
+    method: "POST",
+    signal,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ source, sourceStart, sourceDuration }),
+  });
+  const result = await response.json().catch(() => null) as { ranges?: SilenceRange[]; error?: string } | null;
+  if (!response.ok || !Array.isArray(result?.ranges)) {
+    throw new Error(result?.error ?? `Could not analyze media audio (${response.status})`);
+  }
+  return result.ranges;
 }
 
 export function useRemoveSilence({
@@ -137,10 +165,22 @@ export function useRemoveSilence({
   moveElement,
   splitElement,
   isNativeElement,
+  snapTimelineTime,
+  nativeProjectEditing,
+  nativeDocumentRef,
+  editQueueRef,
 }: UseRemoveSilenceOptions) {
   const [isRemovingSilence, setIsRemovingSilence] = useState(false);
   const isRunningRef = useRef(false);
   const projectIdRef = useRef(projectId);
+  const activeCompPathRef = useRef(activeCompPath);
+  activeCompPathRef.current = activeCompPath;
+  const mountedRef = useRef(true);
+  const analysisAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; analysisAbortRef.current?.abort(); };
+  }, [projectId, activeCompPath]);
   const deleteElementsRef = useRef(deleteElements);
   const moveElementRef = useRef(moveElement);
   projectIdRef.current = projectId;
@@ -173,37 +213,91 @@ export function useRemoveSilence({
         if (isRecordingRef?.current) throw new Error("Cannot edit timeline while recording");
         const pid = projectIdRef.current;
         if (!pid) throw new Error("No active project");
+        const composition = activeCompPathRef.current;
+        const assertCurrentProject = () => {
+          if (!mountedRef.current || projectIdRef.current !== pid || activeCompPathRef.current !== composition) {
+            throw new Error("Project changed during silence removal. No further edits were applied.");
+          }
+          if (isRecordingRef?.current) throw new Error("Cannot edit timeline while recording");
+        };
         const original = getElements().find((element) => sameClip(element, selectedElement));
-        if (!original || !original.src || original.tag.toLowerCase() !== "video") {
-          throw new Error("Select a video clip with a media source");
+        const tag = original?.tag.toLowerCase();
+        if (!original || !original.src || (tag !== "video" && tag !== "audio")) {
+          throw new Error("Select an audio or video clip with a media source");
         }
-        if (!canSplitElement(original)) throw new Error("This video clip cannot be edited");
+        if (!canSplitElement(original)) throw new Error("This media clip cannot be edited");
 
-        const bytes = await loadMediaBytes(original.src, pid);
-        const audioContext = new AudioContext();
-        let silenceRanges;
-        try {
-          const audio = await audioContext.decodeAudioData(bytes.slice(0));
-          const channels = Array.from({ length: audio.numberOfChannels }, (_, index) =>
-            audio.getChannelData(index),
-          );
-          silenceRanges = detectSilences(
-            channels,
-            audio.sampleRate,
-            DEFAULT_SILENCE_REMOVAL_OPTIONS,
-          );
-        } finally {
-          void audioContext.close();
+        const sourceStart = original.playbackStart ?? 0;
+        const rate = original.playbackRate ?? 1;
+        const analysisAbort = new AbortController();
+        analysisAbortRef.current = analysisAbort;
+        const silenceRanges = await analyzeMediaSilence(
+          original.src, pid, sourceStart, original.duration * rate, analysisAbort.signal,
+        );
+        analysisAbortRef.current = null;
+
+        assertCurrentProject();
+        const liveOriginal = getElements().find(element => (element.key ?? element.id) === (original.key ?? original.id));
+        if (!liveOriginal || liveOriginal.start !== original.start || liveOriginal.duration !== original.duration ||
+          liveOriginal.src !== original.src || liveOriginal.playbackStart !== original.playbackStart ||
+          liveOriginal.playbackRate !== original.playbackRate || liveOriginal.track !== original.track) {
+          throw new Error("The selected clip changed during analysis. Run silence removal again.");
         }
-
-        const plan = planSilenceRemoval(original, silenceRanges);
+        const snap = isNativeElement(original) ? snapTimelineTime : undefined;
+        const ranges = snap ? silenceRanges.map(range => ({
+          start: sourceStart + (snap(original.start + (range.start - sourceStart) / rate) - original.start) * rate,
+          end: sourceStart + (snap(original.start + (range.end - sourceStart) / rate) - original.start) * rate,
+        })) : silenceRanges;
+        const plan = planSilenceRemoval(original, ranges);
         if (plan.removedRanges.length === 0) {
           showToast("No silence found in the selected clip.", "info");
           return;
         }
 
+        if (isNativeElement(original)) {
+          if (!nativeProjectEditing || !nativeDocumentRef?.current || !editQueueRef) {
+            throw new Error("The authoritative native project is unavailable");
+          }
+          const controller = new AbortController();
+          analysisAbortRef.current = controller;
+          const operation = editQueueRef.current.then(async () => {
+            assertCurrentProject();
+            return commitNativeTimelineSilenceCut({
+              expectedRevision: nativeDocumentRef.current!.revision,
+              element: {
+                id: original.id, hfId: original.hfId,
+                sourceFile: original.sourceFile, selector: original.selector,
+                selectorIndex: original.selectorIndex,
+              },
+              playbackElement: original,
+              plan,
+              readOptionalProjectFile: nativeProjectEditing.readOptionalProjectFile,
+              writeProjectFile,
+              recordEdit,
+              commitFileTransaction: nativeProjectEditing.commitFileTransaction,
+              signal: controller.signal,
+              onCommitted: (document) => {
+                if (!mountedRef.current || projectIdRef.current !== pid) return;
+                nativeDocumentRef.current = document;
+                nativeProjectEditing.onNativeDocumentCommitted(document);
+              },
+            });
+          });
+          editQueueRef.current = operation.then(() => undefined, () => undefined);
+          await operation;
+          analysisAbortRef.current = null;
+          domEditSaveTimestampRef.current = Date.now();
+          synchronize();
+          showToast(
+            `Removed ${plan.removedRanges.length} silences, ${plan.removedSeconds.toFixed(1)}s`,
+            "info",
+          );
+          return;
+        }
+
         const skippedSelectors = new Set<string>();
         for (const splitTime of [...plan.cutTimes].sort((left, right) => right - left)) {
+          assertCurrentProject();
           const current = getElements().find((element) => sameClip(element, original));
           if (!current) throw new Error("The selected clip disappeared during silence removal.");
           const expectedDuration = splitTime - current.start;
@@ -241,7 +335,10 @@ export function useRemoveSilence({
         const silentElements = planned
           .filter(({ segment }) => segment.remove)
           .map(({ element }) => element);
-        await deleteElementsRef.current(silentElements);
+        assertCurrentProject();
+        // The compound action reports its own result after the delete and
+        // subsequent moves finish. Keep delete failures visible.
+        await deleteElementsRef.current(silentElements, { suppressSuccessToast: true });
         await waitForTimeline(getElements, (elements) =>
           silentElements.every(
             (silent) => !elements.some((element) => sameClip(element, silent)),
@@ -252,9 +349,10 @@ export function useRemoveSilence({
 
         let nextStart = original.start;
         for (const { segment } of planned) {
+          assertCurrentProject();
           if (segment.remove) continue;
           const liveElement = getElements().find((element) =>
-            sameSegment(element, segment, original),
+            sameSilenceSegment(element, segment, original),
           );
           if (!liveElement) throw new Error("A kept clip piece disappeared during silence removal.");
           if (Math.abs(liveElement.start - nextStart) > TIMING_MATCH_EPSILON) {
@@ -283,8 +381,10 @@ export function useRemoveSilence({
           "error",
         );
       } finally {
+        analysisAbortRef.current?.abort();
+        analysisAbortRef.current = null;
         isRunningRef.current = false;
-        setIsRemovingSilence(false);
+        if (mountedRef.current) setIsRemovingSilence(false);
       }
     },
     [
@@ -293,10 +393,14 @@ export function useRemoveSilence({
       getElements,
       isNativeElement,
       isRecordingRef,
+      nativeProjectEditing,
+      nativeDocumentRef,
+      editQueueRef,
       observeProjectFileVersion,
       recordEdit,
       showToast,
       splitElement,
+      snapTimelineTime,
       synchronize,
       writeProjectFile,
     ],

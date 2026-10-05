@@ -1,5 +1,6 @@
 import type {
   NativeClipDomBinding,
+  NativePlaybackRate,
   NativeProjectDocument,
 } from "./nativeProjectDocument";
 import type { NativeProjectClipAddress } from "./nativeProjectClipCommands";
@@ -24,13 +25,14 @@ export interface NativeTimelineMultiRangeEditPlanInput {
 
 export interface NativeTimelineMultiRangePlannedEdit {
   readonly address: NativeProjectClipAddress;
-  readonly sourceFile: string;
-  readonly binding: Readonly<NativeClipDomBinding>;
+  readonly sourceFile: string | null;
+  readonly binding: Readonly<NativeClipDomBinding> | null;
   readonly kind: NativeTimelineRangeEditKind;
   readonly startFrame: number;
   readonly durationFrames: number;
   readonly endFrameExclusive: number;
   readonly sourceInFrame: number;
+  readonly sourceInFraction?: NativePlaybackRate;
   readonly compatibility: NativeTimelineCompatibilityRange;
 }
 
@@ -97,8 +99,8 @@ export function planNativeTimelineMultiRangeEdit(
   const preflight: Array<{
     readonly change: NativeTimelineMultiRangeEditChange;
     readonly address: NativeProjectClipAddress;
-    readonly sourceFile: string;
-    readonly binding: Readonly<NativeClipDomBinding>;
+    readonly sourceFile: string | null;
+    readonly binding: Readonly<NativeClipDomBinding> | null;
   }> = [];
 
   for (const [changeIndex, change] of input.changes.entries()) {
@@ -123,14 +125,7 @@ export function planNativeTimelineMultiRangeEdit(
     addressed.add(key);
 
     const binding = locateBinding(input.document, candidate.address);
-    if (!binding) {
-      return fail(
-        "unbound-clip",
-        `Native clip ${candidate.address.clipId} has no compatibility source binding`,
-        changeIndex,
-      );
-    }
-    if (binding.sourceFile !== candidate.sourceFile) {
+    if (binding && binding.sourceFile !== candidate.sourceFile) {
       return fail(
         "binding-source-mismatch",
         `Resolved source ${candidate.sourceFile} does not match native binding ${binding.sourceFile}`,
@@ -141,7 +136,7 @@ export function planNativeTimelineMultiRangeEdit(
       change,
       address: candidate.address,
       sourceFile: candidate.sourceFile,
-      binding: { ...binding },
+      binding: binding ? { ...binding } : null,
     });
   }
 
@@ -167,6 +162,7 @@ export function planNativeTimelineMultiRangeEdit(
       durationFrames: result.durationFrames,
       endFrameExclusive: result.endFrameExclusive,
       sourceInFrame: result.sourceInFrame,
+      ...(result.sourceInFraction ? { sourceInFraction: { ...result.sourceInFraction } } : {}),
       compatibility: result.compatibility,
     });
   }
@@ -175,6 +171,6 @@ export function planNativeTimelineMultiRangeEdit(
     ok: true,
     document,
     edits,
-    sourceFiles: [...new Set(edits.map((edit) => edit.sourceFile))].sort(),
+    sourceFiles: [...new Set(edits.flatMap((edit) => edit.sourceFile === null ? [] : [edit.sourceFile]))].sort(),
   };
 }

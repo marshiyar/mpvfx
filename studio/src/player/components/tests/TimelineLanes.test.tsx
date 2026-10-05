@@ -71,6 +71,8 @@ interface RenderLanesOptions {
   expandedClipIds?: string[];
   selectedElementIds?: Set<string>;
   multiDragPreview?: MultiDragPreviewInput | null;
+  virtualRowIndexes?: number[];
+  rowsVirtualized?: boolean;
   draggedClip?: DraggedClipState | null;
   onToggleTrackHidden?: TimelineEditCallbacks["onToggleTrackHidden"];
   onContextMenuLane?: (e: React.MouseEvent, track: number, time: number) => void;
@@ -127,8 +129,9 @@ function renderLanes(options: RenderLanesOptions = {}): {
           displayTrackOrder={displayTrackOrder}
           rowHeights={rowHeights}
           rowGeometry={getTimelineRowGeometry(rowHeights)}
-          virtualRows={displayTrackOrder.map((_, index) => ({ index, rowKey: index }))}
-          rowsVirtualized={false}
+          virtualRows={(next.virtualRowIndexes ?? displayTrackOrder.map((_, index) => index))
+            .map((index) => ({ index, rowKey: index }))}
+          rowsVirtualized={next.rowsVirtualized ?? false}
           focusedTargetId={null}
           logicalRows={buildTimelineLogicalRows({
             tracks,
@@ -620,6 +623,45 @@ describe("TimelineLanes disclosure target", () => {
       multiDragPreview: preview(0),
     });
     expect(passengerClip?.style.borderTopLeftRadius).toBe("0px");
+    act(() => view.root.unmount());
+  });
+
+  it("projects a selected passenger onto its shifted row without changing source data", () => {
+    const elements = [element("clip-a", 0), element("clip-b", 1), element("empty", 2)];
+    const selectedElementIds = new Set(["clip-a", "clip-b"]);
+    const view = renderLanes({
+      elements,
+      selectedElementIds,
+      multiDragPreview: {
+        dragStarted: true,
+        draggedKey: "clip-a",
+        draggedOriginStart: 0,
+        draggedPreviewStart: 0.5,
+        groupRowDelta: 1,
+        selectedKeys: selectedElementIds,
+      },
+    });
+    const passenger = view.host.querySelector<HTMLElement>('[data-el-id="clip-b"]');
+    expect(passenger?.parentElement?.style.transform).toBe("translate(50px, 48px)");
+    expect(elements[1]?.track).toBe(1);
+    act(() => view.root.unmount());
+  });
+
+  it("mounts a virtualized passenger origin row when its shifted destination is visible", () => {
+    const elements = [element("clip-a", 0), element("clip-b", 1), element("empty", 2)];
+    const selectedElementIds = new Set(["clip-a", "clip-b"]);
+    const view = renderLanes({
+      elements,
+      selectedElementIds,
+      rowsVirtualized: true,
+      virtualRowIndexes: [0, 2],
+      multiDragPreview: {
+        dragStarted: true, draggedKey: "clip-a", draggedOriginStart: 0,
+        draggedPreviewStart: 0.5, groupRowDelta: 1, selectedKeys: selectedElementIds,
+      },
+    });
+    expect(view.host.querySelector('[data-el-id="clip-b"]')).not.toBeNull();
+    expect(view.host.querySelector('[data-timeline-row="1"]')).not.toBeNull();
     act(() => view.root.unmount());
   });
 });

@@ -1,4 +1,5 @@
 // Local server adapter: filesystem projects, preview rendering, and export jobs.
+import { prepareExportVideoAudio } from "./export/videoAudio";
 
 import {
   readFileSync,
@@ -504,11 +505,21 @@ export function createStandaloneAdapter(
               return;
             }
             const renderBodyScripts = createStudioDevRenderBodyScripts(opts.project.dir);
+            const exportSourceFiles = new Set<string>();
+            const exportEntryFile = requestedCompositionPath
+              ? relative(opts.project.dir, requestedCompositionPath)
+              : opts.composition ?? "index.html";
+            const htmlOverrides = await prepareExportVideoAudio({
+              projectDir: opts.project.dir,
+              entryFile: exportEntryFile,
+              onComposition: sourceFile => exportSourceFiles.add(sourceFile),
+              signal: cancellation.signal,
+            });
             const producerProjectDir = createNativeProjectExportMaterialization(
               opts.project.dir,
               join(staging.directory, "native-project"),
               staging.directory,
-              { renderBodyScripts, entryFile: opts.composition ?? "index.html" },
+              { renderBodyScripts, entryFile: exportEntryFile, htmlOverrides, sourceFiles: exportSourceFiles },
             );
             const producerConfig = buildStandaloneProducerRenderConfig({
               fps: opts.fps,

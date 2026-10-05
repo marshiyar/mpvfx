@@ -50,6 +50,45 @@ function validDocument(): NativeProjectDocumentInput {
 }
 
 describe("native project document", () => {
+  it("round-trips optional crop pivot intervals and rejects malformed offsets", () => {
+    const document = validDocument();
+    const clip = document.sequence.tracks[0]!.clips[0]!;
+    clip.cropPivotSegments = [{
+      startRotationKeyId: "rotation:first", endRotationKeyId: "rotation:last",
+      offsetFraction: { x: 0.05, y: -0.1 },
+    }];
+    const restored = parseNativeProjectDocument(JSON.parse(serializeNativeProjectDocument(document)));
+    expect(restored.sequence.tracks[0]!.clips[0]!.cropPivotSegments).toEqual(clip.cropPivotSegments);
+    expect(parseNativeProjectDocument(validDocument()).sequence.tracks[0]!.clips[0]!.cropPivotSegments).toBeUndefined();
+    clip.cropPivotSegments[0]!.offsetFraction.x = 0.6;
+    expect(() => parseNativeProjectDocument(document)).toThrow("Crop pivot segment needs two key IDs");
+  });
+
+  it("round-trips optional audio buses and native clip membership without changing timing", () => {
+    const document = validDocument();
+    document.assets.push({ id: "asset:voice", kind: "audio", name: "voice.wav", durationFrames: 300 });
+    document.sequence.audioGroups = [{ id: "dialogue", label: "Dialogue", volume: 0.5, muted: false, fxChain: '{"version":1,"nodes":[]}' }];
+    document.sequence.tracks[0]!.clips[0]!.audioGroupId = "dialogue";
+    document.sequence.tracks[0]!.clips[0]!.sourceInFraction = { numerator: 1, denominator: 3 };
+    const restored = parseNativeProjectDocument(JSON.parse(serializeNativeProjectDocument(document)));
+    expect(restored.sequence.audioGroups).toEqual(document.sequence.audioGroups);
+    expect(restored.sequence.tracks[0]!.clips[0]).toMatchObject({
+      id: "clip:camera-a-1", audioGroupId: "dialogue", sourceInFraction: { numerator: 1, denominator: 3 },
+    });
+    expect(parseNativeProjectDocument(validDocument()).sequence.audioGroups).toBeUndefined();
+  });
+
+  it("rejects dangling, duplicate, or non-media audio memberships", () => {
+    const document = validDocument();
+    document.sequence.tracks[0]!.clips[0]!.audioGroupId = "missing";
+    expect(() => parseNativeProjectDocument(document)).toThrow("Clip audio group must name a defined bus");
+    document.sequence.audioGroups = [{ id: "missing" }, { id: "missing" }];
+    expect(() => parseNativeProjectDocument(document)).toThrow("Duplicate stable ID missing");
+    document.sequence.audioGroups.pop();
+    document.assets[0]!.kind = "image";
+    expect(() => parseNativeProjectDocument(document)).toThrow("Only audio and video clips can join an audio group");
+  });
+
   it("preserves native engine ownership, media paths, and authored blank tails across saves", () => {
     const document = validDocument();
     document.mediaEngine = "ffmpeg";
@@ -427,6 +466,39 @@ describe("native project document", () => {
     expect(() => parseNativeProjectDocument(overrun)).toThrowError(NativeProjectDocumentValidationError);
   });
 
+  it("accepts HTML element layers on picture tracks without source-file rules", () => {
+    const layered = validDocument();
+    layered.assets.push({ id: "asset:title", kind: "element", name: "Title", durationFrames: 40 });
+    layered.sequence.tracks[0]!.clips.push({
+      id: "clip:title",
+      assetId: "asset:title",
+      startFrame: 90,
+      // Longer than the asset: an HTML layer has no source range to exceed.
+      durationFrames: 120,
+      sourceInFrame: 0,
+      effects: [],
+      parameterTracks: [],
+    });
+    const parsed = parseNativeProjectDocument(layered);
+    expect(parsed.assets[1]).toEqual({ id: "asset:title", kind: "element", name: "Title", durationFrames: 40 });
+    expect(parsed.sequence.tracks[0]!.clips[1]!.id).toBe("clip:title");
+
+    const onAudio = validDocument();
+    onAudio.assets = [{ id: "asset:title", kind: "element", name: "Title", durationFrames: 40 }];
+    onAudio.sequence.tracks[0]!.kind = "audio";
+    onAudio.sequence.tracks[0]!.clips[0]!.assetId = "asset:title";
+    expect(() => parseNativeProjectDocument(onAudio)).toThrowError(NativeProjectDocumentValidationError);
+
+    const withSource = validDocument();
+    withSource.assets.push({ id: "asset:title", kind: "element", name: "Title", source: "title.html", durationFrames: 40 });
+    expect(() => parseNativeProjectDocument(withSource)).toThrowError(/no source file/);
+
+    const ffmpegOnly = validDocument();
+    ffmpegOnly.mediaEngine = "ffmpeg";
+    ffmpegOnly.assets.push({ id: "asset:title", kind: "element", name: "Title", durationFrames: 40 });
+    expect(() => parseNativeProjectDocument(ffmpegOnly)).toThrowError(/HTML element layers/);
+  });
+
   it("delegates parameter-track and keyframe integrity to the native keyframe contract", () => {
     const document = validDocument();
     document.sequence.tracks[0]!.clips[0]!.parameterTracks.push(
@@ -449,6 +521,26 @@ describe("native project document", () => {
     );
 
     expect(() => parseNativeProjectDocument(document)).toThrowError(NativeProjectDocumentValidationError);
+  });
+
+  it("rejects auto-rotation on a scalar track when reopening a saved document", () => {
+    const document = validDocument();
+    document.sequence.tracks[0]!.clips[0]!.parameterTracks.push({
+      schemaVersion: 1, id: "position", parameterId: "transform.position",
+      valueType: "number", autoRotate: true,
+      frameRate: { numerator: 30_000, denominator: 1_001 },
+      keyframes: [{ id: "position:0", frame: 0, value: 0, outgoing: { type: "linear" } }],
+    } as never);
+    expect(() => parseNativeProjectDocument(document)).toThrow("auto-rotate needs a 2D value");
+
+    const malformed = validDocument();
+    malformed.sequence.tracks[0]!.clips[0]!.parameterTracks.push({
+      schemaVersion: 1, id: "path", parameterId: "transform.position",
+      valueType: "vec2", autoRotate: "true",
+      frameRate: { numerator: 30_000, denominator: 1_001 },
+      keyframes: [{ id: "path:0", frame: 0, value: { x: 0, y: 0 }, outgoing: { type: "linear" } }],
+    } as never);
+    expect(() => parseNativeProjectDocument(malformed)).toThrow("Auto-rotate must be true when present");
   });
 
   it("turns a core duplicate-keyframe failure into a project-scoped structured issue", () => {
