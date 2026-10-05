@@ -1,4 +1,5 @@
 import type { NativeProjectAssetKind } from "./nativeProjectDocument";
+import { previewOriginForProject } from "../desktopPreviewOrigin";
 
 /**
  * Canonical project-owned source. Transport URLs are decoded once; plain paths
@@ -8,11 +9,12 @@ import type { NativeProjectAssetKind } from "./nativeProjectDocument";
 export function nativeMediaSource(source: string, projectId: string): string | null {
   let path = source;
   if (/^[a-z][a-z\d+.-]*:/i.test(source) || source.startsWith("/api/")) {
-    const match = /^(?:mpvfx:\/\/editor)?\/api\/projects\/([^/]+)\/preview\/([^?#]+)(?:[?#].*)?$/.exec(source);
+    const match = /^(?:(mpvfx:\/\/[^/?#]+))?\/api\/projects\/([^/]+)\/preview\/([^?#]+)(?:[?#].*)?$/.exec(source);
     if (!match) return null;
     try {
-      if (decodeURIComponent(match[1]) !== projectId) return null;
-      path = decodeURIComponent(match[2]);
+      if (match[1] && match[1] !== "mpvfx://editor" && match[1] !== previewOriginForProject(projectId)) return null;
+      if (decodeURIComponent(match[2]) !== projectId) return null;
+      path = decodeURIComponent(match[3]);
     } catch { return null; }
   }
   path = path.replace(/\\/g, "/");

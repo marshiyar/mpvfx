@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { parseNativeProjectDocument } from "../../../shared/project/nativeProjectDocument";
 import { planMediaReferences } from "../mediaReferences";
+import { previewOriginForProject } from "../../../shared/desktopPreviewOrigin";
 
 const roots: string[] = [];
 async function project(files: Record<string, string>) {
@@ -64,6 +65,7 @@ describe("owned media reference planning", () => {
   it("resolves nested owners and preserves same-project transport URLs, suffixes, and HTML entities", async () => {
     const html = `<video src="../media/a%20%26%20b.mov?v=1&amp;quality=2#t=1"></video>
 <video src="mpvfx://editor/api/projects/demo/preview/media/a%20%26%20b.mov?version=2"></video>
+<video src="${previewOriginForProject("demo")}/api/projects/demo/preview/media/a%20%26%20b.mov?version=3"></video>
 <audio src=/api/projects/demo/preview/media/a%20%26%20b.mov></audio>
 <video src="mpvfx://editor/api/projects/other/preview/media/a%20%26%20b.mov"></video>
 <video src="https://example.com/media/a%20%26%20b.mov"></video>`;
@@ -71,6 +73,7 @@ describe("owned media reference planning", () => {
     const result = await planMediaReferences({ projectRoot: root, projectId: "demo", oldPath: "media/a & b.mov", newPath: "renamed/new.mov" });
     expect(result.files[0]?.after).toBe(html
       .replace("../media/a%20%26%20b.mov?v=1", "../renamed/new.mov?v=1")
+      .replace("projects/demo/preview/media/a%20%26%20b.mov", "projects/demo/preview/renamed/new.mov")
       .replace("projects/demo/preview/media/a%20%26%20b.mov", "projects/demo/preview/renamed/new.mov")
       .replace("projects/demo/preview/media/a%20%26%20b.mov", "projects/demo/preview/renamed/new.mov"));
   });

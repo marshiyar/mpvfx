@@ -10,6 +10,7 @@ import {
   parseNativeProjectDocument,
 } from "../../shared/project/nativeProjectDocument";
 import type { DurableFileTransactionChange } from "./fileTransaction";
+import { previewOriginForProject } from "../../shared/desktopPreviewOrigin";
 
 export interface MediaReferencePlan {
   files: DurableFileTransactionChange[];
@@ -50,11 +51,13 @@ function encodedPath(path: string): string {
 function reference(value: string, context: ReferenceContext): string | null {
   const text = value.trim();
   if (!text || text.startsWith("#") || text.startsWith("//")) return null;
-  const transport = /^(mpvfx:\/\/editor)?\/api\/projects\/([^/]+)\/preview\/([^?#]+)([?#].*)?$/.exec(text);
+  const transport = /^(mpvfx:\/\/[^/?#]+)?\/api\/projects\/([^/]+)\/preview\/([^?#]+)([?#].*)?$/.exec(text);
   let path: string;
   let suffix: string;
   try {
     if (transport) {
+      if (transport[1] && transport[1] !== "mpvfx://editor" &&
+          transport[1] !== previewOriginForProject(context.projectId)) return null;
       if (decodeURIComponent(transport[2]) !== context.projectId) return null;
       path = decodeURIComponent(transport[3]);
       suffix = transport[4] ?? "";
@@ -230,8 +233,10 @@ function htmlReferences(source: string, context: ReferenceContext): string {
   if (base !== undefined && base !== null) {
     try {
       const prefix = `/api/projects/${encodeURIComponent(context.projectId)}/preview/`;
-      const resolved = new URL(base, `mpvfx://editor${prefix}${encodedPath(context.owner)}`);
-      context.resolutionOwner = resolved.protocol === "mpvfx:" && resolved.host === "editor" && resolved.pathname.startsWith(prefix)
+      const resolved = new URL(base, `${previewOriginForProject(context.projectId)}${prefix}${encodedPath(context.owner)}`);
+      context.resolutionOwner = resolved.protocol === "mpvfx:" && !resolved.username && !resolved.password && !resolved.port &&
+        (resolved.host === "editor" || `mpvfx://${resolved.host}` === previewOriginForProject(context.projectId)) &&
+        resolved.pathname.startsWith(prefix)
         ? decodeURIComponent(resolved.pathname.slice(prefix.length)) + (resolved.pathname.endsWith("/") ? "__base__" : "")
         : null;
     } catch {

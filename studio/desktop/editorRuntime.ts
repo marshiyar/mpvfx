@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url";
 import { ipcMain, protocol, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from "electron";
 import { createStudioRuntime } from "../runtime/index";
 import { DESKTOP_CHANNELS, DESKTOP_ORIGIN, type DesktopRequest, type DesktopResponse } from "../shared/desktopBridge";
+import { projectIdFromPreviewHost } from "../shared/desktopPreviewOrigin";
 
 const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
@@ -17,7 +18,7 @@ const CONTENT_TYPES: Record<string, string> = {
 };
 const EDITOR_CSP = [
   "default-src 'self' blob: data:", "script-src 'self'", "style-src 'self' 'unsafe-inline'",
-  "connect-src 'self'", "frame-src 'self' blob:", "worker-src 'self' blob:",
+  "connect-src 'self'", "frame-src mpvfx://*.preview blob:", "worker-src 'self' blob:",
   "object-src 'none'", "base-uri 'self'", "frame-ancestors 'none'",
 ].join("; ");
 
@@ -30,15 +31,49 @@ export function isEditorDocument(url: string): boolean {
   try {
     const parsed = new URL(url);
     return parsed.protocol === "mpvfx:" && parsed.host === "editor" &&
-      parsed.pathname === "/";
+      !parsed.username && !parsed.password && !parsed.port && parsed.pathname === "/";
   } catch { return false; }
 }
 
-export function isResourcePath(path: string): boolean {
+const SHARED_PREVIEW_PATHS = new Set(["/api/runtime.js", "/api/motion-path-plugin.js", "/api/fonts/file"]);
+const EDITOR_RESOURCE_CSP = "default-src 'none'; sandbox; frame-ancestors 'none'";
+
+export function isEditorResourcePath(path: string): boolean {
   return /^\/api\/projects\/[^/]+\/(?:preview|thumbnail|waveform)(?:\/|$)/.test(path) ||
-    /^\/api\/projects\/[^/]+\/renders\/file\//.test(path) ||
-    /^\/api\/render\/[^/]+\/(?:view|download)$/.test(path) ||
-    ["/api/runtime.js", "/api/motion-path-plugin.js", "/api/fonts/file"].includes(path);
+    /^\/api\/projects\/[^/]+\/renders\/file\/[^?#]+\.(?:mp4|webm|mov)$/i.test(path) ||
+    /^\/api\/render\/[^/]+\/(?:view|download)$/.test(path);
+}
+
+export function isPreviewResourcePath(path: string, projectId: string): boolean {
+  if (SHARED_PREVIEW_PATHS.has(path)) return true;
+  const match = /^\/api\/projects\/([^/]+)\/preview(?:\/|$)/.exec(path);
+  if (!match) return false;
+  try {
+    return match[1] === encodeURIComponent(projectId) && decodeURIComponent(match[1]) === projectId;
+  } catch { return false; }
+}
+
+function protectEditorResource(response: Response, path: string): Response {
+  const type = response.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase();
+  const safeTypes = new Set([
+    "image/jpeg", "image/png", "image/gif", "image/webp", "image/avif", "image/bmp",
+    "video/mp4", "video/webm", "video/quicktime", "video/x-msvideo", "video/mxf", "video/mp2t",
+    "audio/mpeg", "audio/mp4", "audio/wav", "audio/wave", "audio/x-wav", "audio/ogg", "audio/flac", "audio/aac",
+    "font/woff", "font/woff2", "font/ttf", "font/otf", "font/collection",
+    "application/font-woff", "application/vnd.ms-fontobject", "application/json",
+  ]);
+  // Older project markup can contain absolute editor-origin media URLs. Keep
+  // only passive media there; authored HTML, SVG, CSS and scripts belong to the
+  // project preview origin even when embedded as a nested frame.
+  if (response.ok && (!safeTypes.has(type ?? "") ||
+      (/^\/api\/projects\/[^/]+\/preview(?:\/|$)/.test(path) && type === "application/json"))) {
+    return new Response(null, { status: 403 });
+  }
+  const headers = new Headers(response.headers);
+  headers.set("Content-Security-Policy", EDITOR_RESOURCE_CSP);
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("Referrer-Policy", "no-referrer");
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
 interface Options {
@@ -164,10 +199,17 @@ export async function startEditorRuntime(options: Options) {
 
   protocol.handle("mpvfx", async (request) => {
     const url = new URL(request.url);
-    if (closed || url.host !== "editor") return new Response("Not found", { status: 404 });
+    if (closed || url.username || url.password || url.port) return new Response("Not found", { status: 404 });
     if (request.method !== "GET" && request.method !== "HEAD") return new Response(null, { status: 405 });
+    const previewProject = projectIdFromPreviewHost(url.host);
+    if (previewProject !== null) {
+      return isPreviewResourcePath(url.pathname, previewProject)
+        ? runtime.handle(request) : new Response(null, { status: 403 });
+    }
+    if (url.host !== "editor") return new Response("Not found", { status: 404 });
     if (url.pathname.startsWith("/api/")) {
-      return isResourcePath(url.pathname) ? runtime.handle(request) : new Response(null, { status: 403 });
+      return isEditorResourcePath(url.pathname)
+        ? protectEditorResource(await runtime.handle(request), url.pathname) : new Response(null, { status: 403 });
     }
     try {
       const root = await realpath(options.staticDir);

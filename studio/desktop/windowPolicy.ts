@@ -63,7 +63,8 @@ function sameOrigin(url: string, allowedOrigin: string): boolean {
   try {
     const target = new URL(url);
     const allowed = new URL(allowedOrigin);
-    return target.protocol === allowed.protocol && target.host === allowed.host &&
+    return !target.username && !target.password && !target.port &&
+      target.protocol === allowed.protocol && target.host === allowed.host &&
       target.pathname === "/";
   } catch {
     return false;
