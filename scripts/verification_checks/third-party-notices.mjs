@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -13,6 +13,12 @@ const licenseOverrides = new Map([
   ["color-convert", "MIT"],
   ["parse-cache-control", "BSD-3-Clause"],
 ]);
+// color-convert 0.5.3 is an optional development dependency. npm ci may omit
+// it on another OS, so retain the exact audited tarball identity as evidence.
+const optionalColorConvert = {
+  version: "0.5.3",
+  integrity: "sha512-RwBeO/B/vZR3dfKL1ye/vx8MHZ40ugzpyfeVG5GsiuGnrlMWe2o8wxBbLCpw9CsxV+wHuzYlCiWnybrIA0ling==",
+};
 
 function packageName(path) {
   return path.slice(path.lastIndexOf("node_modules/") + "node_modules/".length);
@@ -22,7 +28,12 @@ function licenseFor(name, metadata, path) {
   if (metadata.license) return metadata.license;
   const override = name.startsWith("@hyperframes/") ? "Apache-2.0" : licenseOverrides.get(name);
   if (!override) return undefined;
-  const licenseFile = readFileSync(resolve(root, "studio", path, "LICENSE"), "utf8");
+  const installedLicense = resolve(root, "studio", path, "LICENSE");
+  if (!existsSync(installedLicense) && metadata.optional && name === "color-convert" &&
+      metadata.version === optionalColorConvert.version && metadata.integrity === optionalColorConvert.integrity) {
+    return override;
+  }
+  const licenseFile = readFileSync(installedLicense, "utf8");
   const marker = override === "Apache-2.0" ? /Apache License\s+Version 2\.0/
     : override === "MIT" ? /Permission is hereby granted, free of charge/
       : /Redistribution and use in source and binary forms/;
