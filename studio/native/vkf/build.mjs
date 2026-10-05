@@ -72,5 +72,7 @@ run("cmake", [
   ...(electronHook ? [`-DVKF_NODE_API_DELAY_LOAD_HOOK=${electronHook}`] : []),
 ]);
 run("cmake", ["--build", buildDir, "--target", "vkf_node", "--config", "Release"]);
-copyFileSync(join(buildDir, "node/vkf.node"), join(outDir, "vkf.node"));
+const builtModule = join(buildDir, "node", ...(process.platform === "win32" ? ["Release"] : []), "vkf.node");
+if (!existsSync(builtModule)) throw new Error(`Built keyframe module missing: ${builtModule}`);
+copyFileSync(builtModule, join(outDir, "vkf.node"));
 console.log(`video-keyframing engine module: ${join(outDir, "vkf.node")}`);
