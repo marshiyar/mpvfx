@@ -1,6 +1,6 @@
 const { spawnSync } = require("node:child_process");
 const { existsSync, lstatSync, mkdtempSync, readFileSync, rmSync } = require("node:fs");
-const { join } = require("node:path");
+const { dirname, join } = require("node:path");
 const { tmpdir } = require("node:os");
 
 function packagedPublisherPath(outputPath, platform) {
@@ -18,6 +18,17 @@ function assertPackagedCrosspostBundle(packageResult) {
     try { info = lstatSync(executable); }
     catch { throw new Error(`Packaged publisher is missing: ${executable}`); }
     if (!info.isFile()) throw new Error(`Packaged publisher is not a regular file: ${executable}`);
+    const legal = join(dirname(dirname(executable)), "legal");
+    let licenses;
+    try { licenses = JSON.parse(readFileSync(join(legal, "manifest.json"), "utf8")); }
+    catch { throw new Error(`Packaged Publisher Python licenses are missing: ${legal}`); }
+    if (!Array.isArray(licenses) || licenses.length === 0) throw new Error("Packaged Publisher Python license manifest is empty");
+    for (const entry of licenses) {
+      for (const file of entry.files ?? []) {
+        if (typeof file !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.-]*\/(?:LICENSE|COPYING|NOTICE)[A-Za-z0-9_.-]*$/i.test(file) ||
+            !lstatSync(join(legal, file)).isFile()) throw new Error(`Packaged Publisher license is invalid: ${file}`);
+      }
+    }
     const scratch = mkdtempSync(join(tmpdir(), "mpvfx-packaged-publisher-"));
     try {
       const marker = join(scratch, "ready");

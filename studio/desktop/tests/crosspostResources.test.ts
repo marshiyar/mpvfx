@@ -63,3 +63,17 @@ it("accepts only the generated publisher binary and removes stale output in sour
   writeFileSync(join(output, "bin", "token.json"), "private");
   expect(() => buildCrosspostResources(source, output)).toThrow("Unexpected Crosspost staging entry");
 });
+
+it("retains only manifest-listed Python license texts between bundled builds", () => {
+  const { source, output } = fixture();
+  buildCrosspostResources(source, output);
+  const legal = join(output, "legal");
+  mkdirSync(join(legal, "sample-1.0"), { recursive: true });
+  writeFileSync(join(legal, "sample-1.0", "LICENSE"), "license text");
+  writeFileSync(join(legal, "manifest.json"), JSON.stringify([{
+    name: "sample", version: "1.0", files: ["sample-1.0/LICENSE"],
+  }]));
+  expect(() => buildCrosspostResources(source, output)).not.toThrow();
+  writeFileSync(join(legal, "sample-1.0", "token.json"), "private token");
+  expect(() => buildCrosspostResources(source, output)).toThrow("Unexpected Crosspost staging entry");
+});

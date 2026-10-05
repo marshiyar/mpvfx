@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,9 +18,11 @@ export function buildCrosspostBundle(options = {}) {
   const platform = options.platform ?? process.platform;
   const bundle = options.bundle ?? process.env.MPVFX_BUNDLE_CROSSPOST === "1";
   const bin = join(output, "bin");
+  const legal = join(output, "legal");
   // A source-only local build must not accidentally package a stale frozen GUI.
   if (!bundle) {
     rmSync(bin, { recursive: true, force: true });
+    rmSync(legal, { recursive: true, force: true });
     return null;
   }
   const python = options.python ?? process.env.MPVFX_PUBLISHER_BUILD_PYTHON ??
@@ -52,10 +54,18 @@ export function buildCrosspostBundle(options = {}) {
         !existsSync(marker) || readFileSync(marker, "utf8") !== "mpvfx-publisher-ready") {
       throw new Error(`Bundled publisher preflight failed: ${preflight.error?.message ?? preflight.stderr?.trim() ?? preflight.status}`);
     }
+    const notices = spawnSync(python, [
+      fileURLToPath(new URL("collect-crosspost-licenses.py", import.meta.url)), join(scratch, "licenses"),
+    ], { cwd: source, encoding: "utf8", timeout: 30_000 });
+    if (notices.error || notices.status !== 0) {
+      throw new Error(`Could not collect Python license texts: ${notices.error?.message ?? notices.stderr?.trim() ?? notices.status}`);
+    }
     rmSync(bin, { recursive: true, force: true });
+    rmSync(legal, { recursive: true, force: true });
     mkdirSync(bin, { recursive: true });
     const destination = join(bin, crosspostBundleName(platform));
     copyFileSync(built, destination);
+    cpSync(join(scratch, "licenses"), legal, { recursive: true });
     if (platform !== "win32") chmodSync(destination, 0o755);
     return destination;
   } finally {

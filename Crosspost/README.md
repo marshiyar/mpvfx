@@ -6,7 +6,7 @@ The tool currently supports YouTube and Facebook Pages. TikTok is not implemente
 
 ## Local setup
 
-Official MpVFX installers bundle a Python executable and the GUI dependencies inside the app's `Crosspost/bin` resources. No separate Python installation is needed for **Publish…** in those builds. You still need credentials for whichever destination you choose. A local source-only build, or a build made without `MPVFX_BUNDLE_CROSSPOST=1`, uses the external Python fallback below.
+Official MpVFX installers bundle a Python executable and the GUI dependencies inside the app's `Crosspost/bin` resources, with their dependency inventory and license texts in `Crosspost/legal`. No separate Python installation is needed for **Publish…** in those builds. You still need credentials for whichever destination you choose. A local source-only build, or a build made without `MPVFX_BUNDLE_CROSSPOST=1`, uses the external Python fallback below.
 
 ```sh
 python3 -m venv Crosspost/.venv
