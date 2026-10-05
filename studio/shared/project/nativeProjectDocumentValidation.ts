@@ -149,6 +149,8 @@ export function validateNativeProjectDocument(
   const authoredLaneIds = new Set<string>();
   const displayLaneIds = new Set<number>();
   const clipIds = new Set<string>();
+  const clipAssetsById = new Map<string, RecordValue>();
+  const detachedAudioLinks: Array<{ path: string; videoId: string; audioAsset: RecordValue }> = [];
   const bindingIdentities = new Set<string>();
   input.sequence.tracks.forEach((track, trackIndex) => {
     const trackPath = `sequence.tracks[${trackIndex}]`;
@@ -206,6 +208,9 @@ export function validateNativeProjectDocument(
         pushIssue(issues, "missing-reference", `${clipPath}.assetId`, "Clip assetId must be a non-empty string");
       }
       const asset = isNonEmptyString(clip.assetId) ? assetsById.get(clip.assetId) : undefined;
+      if (isNonEmptyString(clip.id) && asset && !clipAssetsById.has(clip.id)) {
+        clipAssetsById.set(clip.id, asset);
+      }
       if (!asset && isNonEmptyString(clip.assetId)) {
         pushIssue(issues, "missing-reference", `${clipPath}.assetId`, `Missing asset ${clip.assetId}`);
       }
@@ -220,6 +225,8 @@ export function validateNativeProjectDocument(
       if (clip.audioDetachedFrom !== undefined &&
           (!isNonEmptyString(clip.audioDetachedFrom) || asset?.kind !== "audio")) {
         pushIssue(issues, "invalid-clip", `${clipPath}.audioDetachedFrom`, "Only an audio clip can link to a source video clip");
+      } else if (isNonEmptyString(clip.audioDetachedFrom) && asset?.kind === "audio") {
+        detachedAudioLinks.push({ path: `${clipPath}.audioDetachedFrom`, videoId: clip.audioDetachedFrom, audioAsset: asset });
       }
       for (const name of ["audioFxChain", "audioAutomation"] as const) {
         if (clip[name] !== undefined && (typeof clip[name] !== "string" || !clip[name])) {
@@ -282,12 +289,26 @@ export function validateNativeProjectDocument(
             pairs.add(pair);
             if (segment.reference !== undefined) {
               const reference = segment.reference;
-              if (!isRecord(reference) || !isNonNegativeInteger(reference.frameOffset) ||
+              if (!isRecord(reference) || typeof reference.frameOffset !== "number" ||
+                  !Number.isSafeInteger(reference.frameOffset) ||
                   !isPositiveInteger(reference.durationFrames) ||
                   !isNonEmptyString(reference.startRotationKeyId) ||
                   !isNonEmptyString(reference.endRotationKeyId)) {
                 pushIssue(issues, "invalid-clip", `${path}.reference`, "Invalid crop pivot reference");
               } else {
+                if (reference.frameOffset < 0) {
+                  const rotation = Array.isArray(clip.parameterTracks) ? clip.parameterTracks.find(
+                    (track) => isRecord(track) && track.parameterId === "transform.rotation",
+                  ) : undefined;
+                  const startKey = isRecord(rotation) && Array.isArray(rotation.keyframes)
+                    ? rotation.keyframes.find((key) => isRecord(key) && key.id === segment.startRotationKeyId)
+                    : undefined;
+                  if (!isRecord(startKey) || !isNonNegativeInteger(startKey.frame) ||
+                      startKey.frame + reference.frameOffset < 0) {
+                    pushIssue(issues, "invalid-clip", `${path}.reference.frameOffset`,
+                      "Crop pivot reference cannot read before its original frame zero");
+                  }
+                }
                 validateParameterTracks(reference.parameterTracks, projectFrameRate,
                   reference.durationFrames, `${path}.reference.parameterTracks`, issues);
                 validateStaticParameters(reference.staticParameters,
@@ -361,6 +382,22 @@ export function validateNativeProjectDocument(
       );
     });
   });
+
+  const linkedVideoIds = new Set<string>();
+  for (const link of detachedAudioLinks) {
+    const targetAsset = clipAssetsById.get(link.videoId);
+    if (targetAsset?.kind !== "video") {
+      pushIssue(issues, "missing-reference", link.path, "Detached audio must link to an existing video clip");
+    } else if (!isNonEmptyString(targetAsset.source) ||
+               !isNonEmptyString(link.audioAsset.source) ||
+               targetAsset.source !== link.audioAsset.source) {
+      pushIssue(issues, "invalid-clip", link.path, "Detached audio and its video must share one source file");
+    }
+    if (linkedVideoIds.has(link.videoId)) {
+      pushIssue(issues, "invalid-clip", link.path, "Only one detached audio clip may link to a video clip");
+    }
+    linkedVideoIds.add(link.videoId);
+  }
 
   return issues;
 }

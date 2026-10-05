@@ -200,6 +200,30 @@ describe("native library workflow", () => {
     await rm(join(f.engine.resolveProject(f.first)!.dir, path));
     expect(await readFile(moved)).toEqual(png);
   });
+  it("registers linked media without staging a duplicate", async () => {
+    const f = await fixture();
+    const staging = join(f.library, "Staging");
+    await rm(staging, { recursive: true });
+    await writeFile(staging, "staging unavailable");
+    try {
+      const result = await f.engine.import(f.libraryId, f.eventId, [f.source], "linked");
+      expect(result.invalid).toEqual([]);
+      expect(result.files).toHaveLength(1);
+      expect((await f.engine.views())[0]!.assets[0]).toMatchObject({ mode: "linked", state: "ready" });
+    } finally {
+      await rm(staging);
+      await mkdir(staging);
+    }
+  });
+  it("keeps video codec validation when linking without staging", async () => {
+    const f = await fixture();
+    const invalidVideo = join(f.root, "invalid.mp4");
+    await writeFile(invalidVideo, "not an MP4");
+    const result = await f.engine.import(f.libraryId, f.eventId, [invalidVideo], "linked");
+    expect(result.files).toEqual([]);
+    expect(result.invalid[0]?.reason).toMatch(/codec|container/i);
+    expect((await f.engine.views())[0]!.assets).toEqual([]);
+  });
   it("opens a moved managed library without original sources or old app settings", async () => {
     const f = await fixture();
     const { files } = await f.engine.import(
@@ -332,6 +356,50 @@ describe("native library workflow", () => {
     expect(result.invalid).toEqual([]);
     expect(result.files).toHaveLength(1);
     expect((await f.engine.views())[0]!.assets[0]!.name).toBe("clipboard.png");
+  });
+  it.each(["missing", "understated"])("bounds multipart bytes when Content-Length is %s", async headerKind => {
+    const f = await fixture();
+    const single = new FormData();
+    single.append("files", new File([png], "first.png", { type: "image/png" }));
+    const oneRequest = new Request("http://local/upload", { method: "POST", body: single });
+    const maxRequestBytes = (await oneRequest.arrayBuffer()).byteLength + 1;
+    const form = new FormData();
+    form.append("files", new File([png], "first.png", { type: "image/png" }));
+    form.append("files", new File([png], "second.png", { type: "image/png" }));
+    const source = new Request("http://local/upload", { method: "POST", body: form });
+    const headers = new Headers(source.headers);
+    if (headerKind === "missing") headers.delete("content-length");
+    else headers.set("content-length", "1");
+    const request = new Request(source.url, {
+      method: "POST", headers, body: source.body, duplex: "half",
+    } as RequestInit & { duplex: "half" });
+    const response = await importLibraryUpload(request, f.first, f.engine, maxRequestBytes);
+    expect(response.status).toBe(413);
+    expect((await f.engine.views())[0]!.assets).toEqual([]);
+  });
+  it("uses the 64 MiB generated upload ceiling with multipart framing allowance", async () => {
+    const f = await fixture();
+    const maxRequestBytes = 65 * 1024 * 1024;
+    const form = new FormData();
+    form.append("files", new File([png], "small.png", { type: "image/png" }));
+    const source = new Request("http://local/upload", { method: "POST", body: form });
+    const headers = new Headers(source.headers);
+    headers.set("content-length", String(maxRequestBytes + 1));
+    const oversized = new Request(source.url, {
+      method: "POST", headers, body: source.body, duplex: "half",
+    } as RequestInit & { duplex: "half" });
+    expect((await importLibraryUpload(oversized, f.first, f.engine)).status).toBe(413);
+    expect((await f.engine.views())[0]!.assets).toEqual([]);
+
+    const allowedForm = new FormData();
+    allowedForm.append("files", new File([png], "small.png", { type: "image/png" }));
+    const allowedSource = new Request("http://local/upload", { method: "POST", body: allowedForm });
+    const allowedHeaders = new Headers(allowedSource.headers);
+    allowedHeaders.set("content-length", String(maxRequestBytes));
+    const allowed = new Request(allowedSource.url, {
+      method: "POST", headers: allowedHeaders, body: allowedSource.body, duplex: "half",
+    } as RequestInit & { duplex: "half" });
+    expect((await importLibraryUpload(allowed, f.first, f.engine)).status).toBe(200);
   });
   it("rejects symbolic links during export rather than capturing external mutable files", async () => {
     const f = await fixture();

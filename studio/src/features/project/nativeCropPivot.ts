@@ -20,11 +20,20 @@ const GEOMETRY_PARAMETERS = new Set([
   "layout.width", "layout.height",
 ]);
 
+function resolvedBoxDimension(element: HTMLElement, axis: "width" | "height"): number {
+  const parsePixels = (value: string | undefined): number => {
+    const match = /^\s*([\d.]+)px\s*$/i.exec(value ?? "");
+    return match ? Number(match[1]) : 0;
+  };
+  const computed = element.ownerDocument.defaultView?.getComputedStyle(element);
+  const layoutSize = axis === "width" ? element.offsetWidth : element.offsetHeight;
+  // Match the saved crop fraction's CSS-pixel basis, never parse "50%" as 50px.
+  return parsePixels(computed?.[axis]) || layoutSize || parsePixels(element.style[axis]);
+}
+
 function sourceSize(element: HTMLElement, pose: CropPivotPose): Vec2Value | null {
-  const view = element.ownerDocument.defaultView;
-  const computed = view?.getComputedStyle(element);
-  const width = pose.width ?? Number.parseFloat(element.style.width || computed?.width || "");
-  const height = pose.height ?? Number.parseFloat(element.style.height || computed?.height || "");
+  const width = pose.width ?? resolvedBoxDimension(element, "width");
+  const height = pose.height ?? resolvedBoxDimension(element, "height");
   return Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0
     ? { x: width, y: height } : null;
 }
@@ -36,8 +45,8 @@ function centeredOrigin(element: HTMLElement, size: Vec2Value): boolean {
   const px = /^(-?[\d.]+)px\s+(-?[\d.]+)px(?:\s+0px)?$/.exec(value);
   // Computed percentages resolve against the element's CURRENT DOM box. The
   // native frame's new width/height have not been applied at this point.
-  const currentWidth = Number.parseFloat(element.style.width || computed?.width || "");
-  const currentHeight = Number.parseFloat(element.style.height || computed?.height || "");
+  const currentWidth = resolvedBoxDimension(element, "width");
+  const currentHeight = resolvedBoxDimension(element, "height");
   const basis = { x: currentWidth > 0 ? currentWidth : size.x,
     y: currentHeight > 0 ? currentHeight : size.y };
   return Boolean(px && Math.abs(Number(px[1]) - basis.x / 2) < 1e-6 &&

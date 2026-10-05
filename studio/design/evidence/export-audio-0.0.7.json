@@ -1,5 +1,5 @@
 {
-  "root": "/var/folders/kw/3mxjyk010l95rk_7swmw657h0000gn/T/mpvfx-audio-packaged-bXxSQq",
+  "root": "<isolated-test-root>",
   "response": {
     "jobId": "AudioRegression_2026-09-27_17-44-03",
     "status": "rendering"
@@ -11,23 +11,23 @@
   },
   "streamFacts": [
     {
-      "name": "gemini_generated_video_1d97f86b.mp4",
+      "name": "source-with-audio.mp4",
       "status": 200,
       "body": "{\"duration\":10.005,\"hasVideo\":true,\"hasAudio\":true}"
     },
     {
-      "name": "dreamina-2026-09-27-6199.mp4",
+      "name": "source-without-audio-1.mp4",
       "status": 200,
       "body": "{\"duration\":5.016667,\"hasVideo\":true,\"hasAudio\":false}"
     },
     {
-      "name": "ashrox_Zoom_in_and_Zoom_out_High_fashion_VOGUE_magazine_cover_703c5b6c-839d-4b35-8356-beed9985818c_2.mp4",
+      "name": "source-without-audio-2.mp4",
       "status": 200,
       "body": "{\"duration\":5.208333,\"hasVideo\":true,\"hasAudio\":false}"
     }
   ],
   "sourceUnchanged": true,
-  "output": "/var/folders/kw/3mxjyk010l95rk_7swmw657h0000gn/T/mpvfx-audio-packaged-bXxSQq/data/renders/AudioRegression_2026-09-27_17-44-03.mp4",
+  "output": "<isolated-test-root>/data/renders/AudioRegression_2026-09-27_17-44-03.mp4",
   "probe": {
     "programs": [],
     "stream_groups": [],
@@ -59,5 +59,5 @@
     "16": -120
   },
   "packagedApp": "0.0.7",
-  "verifiedOutput": "/Users/ash/Documents/Becoming-A-deciplined-dev/mpvfx-vkf/studio/out/verification/0.0.7/project-export.mp4"
+  "verifiedOutput": "<local-verification-output>/project-export.mp4"
 }

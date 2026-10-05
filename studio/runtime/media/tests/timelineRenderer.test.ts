@@ -103,6 +103,26 @@ describe("native timeline rendering from project data", () => {
     expect(streams).toEqual([{ codec_type: "video" }]);
   }, 30_000);
 
+  it("encodes grouped audio as Opus when exporting WebM", async () => {
+    const document = project();
+    document.sequence.tracks[0]!.clips.pop();
+    const clip = document.sequence.tracks[0]!.clips[0]!;
+    clip.durationFrames = 10;
+    clip.sourceInFrame = 0;
+    clip.playbackRate = { numerator: 1, denominator: 1 };
+    clip.audioGroupId = "dialogue";
+    document.sequence.audioGroups = [{ id: "dialogue", volume: 0.5 }];
+    const output = join(root, "grouped-webm.webm");
+    await renderNativeTimeline({ project: document, projectDir: root, outputPath: output, format: "webm" }, binary);
+    const streams = JSON.parse(execFileSync(ffprobe, ["-v", "error", "-show_entries",
+      "stream=codec_type,codec_name", "-of", "json", output]).toString()).streams;
+    expect(streams).toEqual(expect.arrayContaining([
+      expect.objectContaining({ codec_type: "video", codec_name: "vp9" }),
+      expect.objectContaining({ codec_type: "audio", codec_name: "opus" }),
+    ]));
+    expect(rms(output, 0.2)).toBeGreaterThan(0.005);
+  }, 30_000);
+
   it("rejects grouping a video without an audio stream", async () => {
     const document = project();
     document.assets[0]!.source = "silent.mp4";

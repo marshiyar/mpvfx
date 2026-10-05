@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { detachNativeVideoAudio, reattachNativeVideoAudio } from "./nativeProjectAudioCommands";
+import { applyNativeProjectClipCommand, nativeSplitClipId } from "./nativeProjectClipCommands";
 import { parseNativeProjectDocument } from "./nativeProjectDocument";
 
 const ids = { assetId: "audio-asset", clipId: "audio-clip", trackId: "audio-track" };
@@ -72,5 +73,49 @@ describe("native video audio detach and reattach", () => {
     expect(() => reattachNativeVideoAudio(detached, "audio-clip")).toThrow("moved, trimmed, or retimed");
     expect(audio.staticParameters!["audio.volume"]).toBe(0.2);
     expect(detached.sequence.tracks[1]!.clips).toHaveLength(1);
+  });
+
+  it("rejects dangling, duplicate and different-source detached links on reopen", () => {
+    const detached = detachNativeVideoAudio(project(), "video-clip", true, ids);
+    const dangling = structuredClone(detached);
+    dangling.sequence.tracks[1]!.clips[0]!.audioDetachedFrom = "missing-video";
+    expect(() => parseNativeProjectDocument(dangling)).toThrow("existing video clip");
+
+    const duplicate = structuredClone(detached);
+    duplicate.sequence.tracks[1]!.clips.push({ ...duplicate.sequence.tracks[1]!.clips[0]!, id: "audio-copy" });
+    expect(() => parseNativeProjectDocument(duplicate)).toThrow("Only one detached audio clip");
+
+    const differentSource = structuredClone(detached);
+    differentSource.assets.find(asset => asset.id === ids.assetId)!.source = "assets/other.mp4";
+    expect(() => parseNativeProjectDocument(differentSource)).toThrow("share one source file");
+
+    // A timing edit remains valid: the link is an identity, while reattach
+    // checks alignment separately before discarding either clip.
+    const moved = structuredClone(detached);
+    moved.sequence.tracks[1]!.clips[0]!.startFrame += 1;
+    expect(parseNativeProjectDocument(moved).sequence.tracks[1]!.clips[0]!.startFrame).toBe(38);
+    expect(() => reattachNativeVideoAudio(moved, ids.clipId)).toThrow("moved, trimmed, or retimed");
+  });
+
+  it("unlinks independent audio after a split or source-video delete", () => {
+    const detached = detachNativeVideoAudio(project(), "video-clip", true, ids);
+    const audioAddress = { sequenceId: "sequence", trackId: ids.trackId, clipId: ids.clipId };
+    const split = applyNativeProjectClipCommand(detached, { type: "split", address: audioAddress, splitFrame: 67 });
+    expect(split.ok).toBe(true);
+    if (!split.ok) return;
+    expect(split.document.sequence.tracks[1]!.clips.map(clip => clip.audioDetachedFrom))
+      .toEqual(["video-clip", undefined]);
+    expect(split.document.sequence.tracks[1]!.clips[1]).toMatchObject({
+      id: nativeSplitClipId(ids.clipId, 67), sourceInFrame: 62,
+      sourceInFraction: { numerator: 1, denominator: 3 }, playbackRate: { numerator: 3, denominator: 2 },
+    });
+
+    const deleted = applyNativeProjectClipCommand(detached, {
+      type: "delete", address: { sequenceId: "sequence", trackId: "video-track", clipId: "video-clip" },
+    });
+    expect(deleted.ok).toBe(true);
+    if (!deleted.ok) return;
+    expect(deleted.document.sequence.tracks[1]!.clips[0]!.audioDetachedFrom).toBeUndefined();
+    expect(deleted.document.sequence.tracks[1]!.clips[0]!.assetId).toBe(ids.assetId);
   });
 });

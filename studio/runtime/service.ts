@@ -1,4 +1,5 @@
 import { importLibraryUpload } from "./library/libraryUpload";
+import { thumbnailMayReadResource } from "./preview/thumbnailResourcePolicy";
 import { readProjectMediaMetadata } from "./media/metadata";
 import { analyzeProjectMediaSilence } from "./media/silenceAnalysis";
 import type { LibraryService } from "./library/libraryService";
@@ -485,7 +486,12 @@ export function createStudioRuntime(options: StudioRuntimeOptions): StudioRuntim
   // Chromium used for thumbnails receives resources directly, without a server.
   adapter.generateThumbnail = async (options) => {
     const { generateThumbnail } = await import("./preview/browser");
-    return generateThumbnail({ ...options, readResource: handle });
+    return generateThumbnail({
+      ...options,
+      readResource: request => thumbnailMayReadResource(options.previewUrl, request, options.project.dir)
+        ? handle(request)
+        : Promise.resolve(new Response("Forbidden", { status: 403 })),
+    });
   };
 
   return {

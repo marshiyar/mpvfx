@@ -1,6 +1,7 @@
 // Shared Puppeteer browser management and thumbnail generation for the desktop editor.
 
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { join, win32 as pathWin32 } from "node:path";
 import { thumbnailDeviceScaleFactor } from "@hyperframes/studio-server";
@@ -10,6 +11,14 @@ import { seekThumbnailPreview } from "./thumbnail";
 let browser: import("puppeteer-core").Browser | null = null;
 let browserLaunch: Promise<import("puppeteer-core").Browser | null> | null = null;
 let browserClose: Promise<void> | null = null;
+const require = createRequire(import.meta.url);
+const LOCAL_GSAP_SCRIPT = /^https:\/\/cdn\.jsdelivr\.net\/npm\/gsap@(?:3|3\.15\.0)\/dist\/(gsap\.min\.js|CustomEase\.min\.js|MotionPathPlugin\.min\.js)$/;
+
+function bundledGsapScript(url: string): Buffer | null {
+  const filename = LOCAL_GSAP_SCRIPT.exec(url)?.[1];
+  if (!filename) return null;
+  return readFileSync(require.resolve(`gsap/dist/${filename}`));
+}
 
 function systemChromePaths(env: NodeJS.ProcessEnv, platform: NodeJS.Platform): string[] {
   if (platform === "win32") {
@@ -231,7 +240,17 @@ async function prepareThumbnailPage(
     page.on("request", (request) => {
       void (async () => {
         const url = new URL(request.url());
-        if (url.origin !== virtualOrigin) { await request.continue(); return; }
+        if (url.origin !== virtualOrigin) {
+          // Preview generation itself inserts these pinned GSAP scripts. Serve
+          // them locally; authored external requests never reach the network.
+          const gsap = bundledGsapScript(request.url());
+          if (gsap) {
+            await request.respond({ status: 200, contentType: "text/javascript", body: gsap });
+          } else {
+            await request.abort();
+          }
+          return;
+        }
         if (!["GET", "HEAD"].includes(request.method())) { await request.abort(); return; }
         const response = await opts.readResource!(new Request(request.url(), {
           method: request.method(), headers: request.headers(), signal: opts.signal,

@@ -7,6 +7,7 @@ on:
       - main
     paths:
       - "studio/**"
+      - "third_party/video-keyframing/**"
       - "scripts/**"
       - ".github/workflows/desktop.yml"
   workflow_dispatch:
@@ -44,7 +45,7 @@ jobs:
           relevant=false
           while IFS= read -r path; do
             case "$path" in
-              studio/*|scripts/*|.github/workflows/desktop.yml) relevant=true; break ;;
+              studio/*|third_party/video-keyframing/*|scripts/*|.github/workflows/desktop.yml) relevant=true; break ;;
             esac
           done <<< "$paths"
           echo "run=$relevant" >> "$GITHUB_OUTPUT"

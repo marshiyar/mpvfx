@@ -523,6 +523,26 @@ describe("native project document", () => {
     expect(() => parseNativeProjectDocument(document)).toThrowError(NativeProjectDocumentValidationError);
   });
 
+  it("rejects auto-rotation on a scalar track when reopening a saved document", () => {
+    const document = validDocument();
+    document.sequence.tracks[0]!.clips[0]!.parameterTracks.push({
+      schemaVersion: 1, id: "position", parameterId: "transform.position",
+      valueType: "number", autoRotate: true,
+      frameRate: { numerator: 30_000, denominator: 1_001 },
+      keyframes: [{ id: "position:0", frame: 0, value: 0, outgoing: { type: "linear" } }],
+    } as never);
+    expect(() => parseNativeProjectDocument(document)).toThrow("auto-rotate needs a 2D value");
+
+    const malformed = validDocument();
+    malformed.sequence.tracks[0]!.clips[0]!.parameterTracks.push({
+      schemaVersion: 1, id: "path", parameterId: "transform.position",
+      valueType: "vec2", autoRotate: "true",
+      frameRate: { numerator: 30_000, denominator: 1_001 },
+      keyframes: [{ id: "path:0", frame: 0, value: { x: 0, y: 0 }, outgoing: { type: "linear" } }],
+    } as never);
+    expect(() => parseNativeProjectDocument(malformed)).toThrow("Auto-rotate must be true when present");
+  });
+
   it("turns a core duplicate-keyframe failure into a project-scoped structured issue", () => {
     const document = validDocument();
     document.sequence.tracks[0]!.clips[0]!.parameterTracks.push({

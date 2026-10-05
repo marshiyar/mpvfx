@@ -219,6 +219,10 @@ export function validateParameterTracks(
         "Parameter-track frame rate must match the project frame rate",
       );
     }
+    if (rawTrack.autoRotate !== undefined && rawTrack.autoRotate !== true) {
+      pushIssue(issues, "invalid-parameter-track", `${trackPath}.autoRotate`,
+        "Auto-rotate must be true when present");
+    }
     try {
       // The core owns keyframe, interpolation, value, and duplicate-keyframe
       // validation. Its constructor also sorts, but we intentionally discard that
@@ -229,6 +233,7 @@ export function validateParameterTracks(
         valueType: rawTrack.valueType as never,
         frameRate: rawTrack.frameRate as unknown as RationalFrameRate,
         keyframes: rawTrack.keyframes as never,
+        autoRotate: rawTrack.autoRotate as boolean | undefined,
       });
     } catch (error) {
       const message =

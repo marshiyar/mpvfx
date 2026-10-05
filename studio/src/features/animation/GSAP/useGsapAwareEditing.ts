@@ -176,6 +176,14 @@ export function useGsapAwareEditing({
       // layers the native project cannot address go through the GSAP writer.
       const nativeUpdates = allUpdates.filter(({ selection }) => projectPropertyCommit.isNativeSelection(selection));
       const updates = allUpdates.filter((update) => !nativeUpdates.includes(update));
+      if (nativeUpdates.length > 0 && updates.length > 0) {
+        // These routes have separate file transactions and history writers.
+        // Reject before either side saves so a failed second write cannot
+        // leave half the selection moved or require two undos for one drag.
+        const message = "Move native and authored layers separately; a mixed group move cannot be saved as one undoable edit";
+        showToast(message, "error");
+        throw new Error(message);
+      }
       const commitNativeMembers = async () => {
         if (nativeUpdates.length === 0) return;
         try {
@@ -306,7 +314,7 @@ export function useGsapAwareEditing({
         throw error;
       }
     },
-    [gsapCommitMutation, previewIframeRef, makeFetchFallback, trackGsapInteractionFailure, projectPropertyCommit],
+    [gsapCommitMutation, previewIframeRef, makeFetchFallback, trackGsapInteractionFailure, projectPropertyCommit, showToast],
   );
 
   const handleGsapAwareBoxSizeCommit = useCallback(

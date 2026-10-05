@@ -376,6 +376,9 @@ const applySplit = (
   const right: NativeProjectClip = {
     ...clip,
     id: rightId,
+    // A divided audio clip no longer represents the whole video's sound.
+    // Keep its playable media, but leave only the original half linked.
+    ...(clip.audioDetachedFrom ? { audioDetachedFrom: undefined } : {}),
     startFrame: splitFrame,
     durationFrames: clip.durationFrames - localFrame,
     ...sourcePosition,
@@ -421,6 +424,7 @@ const applyDeleteMany = (
     trackId: location.track.id,
     clipId: location.clip.id,
   })));
+  const removedClipIds = new Set(locations.map((location) => location.clip.id));
   return succeed(
     document,
     parseNativeProjectDocument({
@@ -431,7 +435,8 @@ const applyDeleteMany = (
           ...track,
           clips: track.clips.filter(
             (clip) => !removed.has(moveAddressKey({ sequenceId: document.sequence.id, trackId: track.id, clipId: clip.id })),
-          ),
+          ).map((clip) => clip.audioDetachedFrom && removedClipIds.has(clip.audioDetachedFrom)
+            ? { ...clip, audioDetachedFrom: undefined } : clip),
         })),
       },
     }),
