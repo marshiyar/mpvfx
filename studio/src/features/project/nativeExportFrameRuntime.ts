@@ -24,6 +24,7 @@ export interface NativeExportFrameInput {
   readonly project: NativeProjectDocument;
   readonly engineVersion: string;
   readonly baked: readonly (readonly VkfBakedTrack[])[];
+  readonly bakedReferences: readonly (readonly (readonly VkfBakedTrack[])[])[];
 }
 
 export interface NativeExportFrameWindow extends Window {
@@ -42,6 +43,9 @@ export function installNativeExportFrameRuntime(
   if (input.baked.length !== clips.length) {
     throw new Error("Engine samples do not match the project's clips");
   }
+  if (input.bakedReferences.length !== clips.length) {
+    throw new Error("Engine reference samples do not match the project's clips");
+  }
   const samples = new WeakMap<VkfTrack, VkfBakedTrack>();
   clips.forEach((clip, clipIndex) => {
     const bakedTracks = input.baked[clipIndex]!;
@@ -49,6 +53,19 @@ export function installNativeExportFrameRuntime(
       throw new Error(`Engine samples do not match the tracks of clip ${clip.clipId}`);
     }
     clip.parameterTracks.forEach((track, trackIndex) => samples.set(track, bakedTracks[trackIndex]!));
+    const referenceSamples = input.bakedReferences[clipIndex]!;
+    const segments = clip.cropPivotSegments ?? [];
+    if (referenceSamples.length !== segments.length) {
+      throw new Error(`Engine reference samples do not match the segments of clip ${clip.clipId}`);
+    }
+    segments.forEach((segment, segmentIndex) => {
+      const tracks = segment.reference?.parameterTracks ?? [];
+      const bakedReference = referenceSamples[segmentIndex]!;
+      if (bakedReference.length !== tracks.length) {
+        throw new Error(`Engine reference samples do not match the tracks of clip ${clip.clipId}`);
+      }
+      tracks.forEach((track, trackIndex) => samples.set(track, bakedReference[trackIndex]!));
+    });
   });
   // Samples answer this project's tracks; anything else keeps whatever engine
   // this realm already had (none on a real capture page).

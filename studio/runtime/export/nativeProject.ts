@@ -321,7 +321,11 @@ export function createNativeProjectRenderBodyScript(content: string): string | n
   const engine = vkfEngine();
   const baked = project.sequence.tracks.flatMap((track) => track.clips).map((clip) =>
     clip.parameterTracks.map((track) => bakeTrackSamples(engine, track, clip.durationFrames)));
-  const input = { project, engineVersion: engine.version, baked };
+  const bakedReferences = project.sequence.tracks.flatMap((track) => track.clips).map((clip) =>
+    (clip.cropPivotSegments ?? []).map((segment) =>
+      segment.reference?.parameterTracks.map((track) =>
+        bakeTrackSamples(engine, track, segment.reference!.durationFrames)) ?? []));
+  const input = { project, engineVersion: engine.version, baked, bakedReferences };
   return `${nativeExportFrameRuntimeSource()}
 ;(() => { window.__studioInstallNativeExportFrameRuntime(window, document, ${scriptSafeJson(input)}); })();`;
 }
