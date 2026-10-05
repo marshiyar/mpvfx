@@ -19,7 +19,10 @@ afterEach(() => {
   delete (window as unknown as { mpvfx?: unknown }).mpvfx;
 });
 
-it("reconciles the open project after a desktop file-change subscription reconnects", async () => {
+it.each([
+  { label: "active composition", activeCompPath: "index.html", previewFilePath: undefined },
+  { label: "master composition with no active path", activeCompPath: null, previewFilePath: "index.html" },
+])("reconciles the $label after a desktop file-change subscription reconnects", async ({ activeCompPath, previewFilePath }) => {
   vi.useFakeTimers();
   const listeners: Array<(event: { type: string; data: string }) => void> = [];
   const stops: Array<ReturnType<typeof vi.fn>> = [];
@@ -44,7 +47,8 @@ it("reconciles the open project after a desktop file-change subscription reconne
   function Probe() {
     useExternalFileChangeCoordinator({
       projectId: "project-a",
-      activeCompPath: "index.html",
+      activeCompPath,
+      previewFilePath,
       pendingTimelineEditPathRef: { current: new Set<string>() },
       drainPendingChanges,
       discardPendingChanges: vi.fn(),

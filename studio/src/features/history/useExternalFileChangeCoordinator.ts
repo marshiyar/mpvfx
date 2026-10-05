@@ -44,6 +44,7 @@ export type ExternalFileChangeBlockedState =
 interface ExternalFileChangeCoordinatorOptions {
   projectId: string | null;
   activeCompPath: string | null;
+  previewFilePath?: string | null;
   recoveryFilePath?: string | null;
   pendingTimelineEditPathRef: MutableRefObject<Set<string>>;
   drainPendingChanges: () => Promise<ExternalChangeDrainResult>;
@@ -139,6 +140,7 @@ function eventIdentity(path: string, payload: unknown): string | null {
 export function useExternalFileChangeCoordinator({
   projectId,
   activeCompPath,
+  previewFilePath = activeCompPath,
   recoveryFilePath = activeCompPath,
   pendingTimelineEditPathRef,
   drainPendingChanges,
@@ -436,7 +438,7 @@ export function useExternalFileChangeCoordinator({
           for (const path of mediaPaths) {
             void processChange({ projectId, kind: "media", path }, true);
           }
-          if (activeCompPath) void processChange({ projectId, path: activeCompPath }, true);
+          if (previewFilePath) void processChange({ projectId, path: previewFilePath }, true);
         },
         () => setEventStreamUnavailable(true),
         () => setEventStreamUnavailable(false),
@@ -447,7 +449,7 @@ export function useExternalFileChangeCoordinator({
       return () => import.meta.hot?.off?.("hf:file-change", handler);
     }
     return undefined;
-  }, [activeCompPath, processChange, projectId]);
+  }, [previewFilePath, processChange, projectId]);
 
   const retry = useCallback(async () => {
     const current = blockedRef.current;
