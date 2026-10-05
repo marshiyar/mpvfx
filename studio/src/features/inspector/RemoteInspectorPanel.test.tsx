@@ -15,6 +15,32 @@ const selection: PreviewElementState = {
 afterEach(() => document.body.replaceChildren());
 
 describe("remote inspector", () => {
+  it("sends only a selected authored keyframe ease through the bounded callback", async () => {
+    const loadGsap = vi.fn(async () => [{ id: "a1", label: "to #card", properties: { x: 40 },
+      keyframes: [{ percentage: 0, properties: { x: 0 } },
+        { percentage: 100, properties: { x: 40 } }] }]);
+    const commitGsapKeyframe = vi.fn(async () => true);
+    const root = mountReactHarness(<RemoteInspectorPanel selection={selection}
+      loadGsap={loadGsap} commitGsap={vi.fn(async () => true)}
+      commitGsapKeyframe={commitGsapKeyframe} />);
+    const section = document.querySelector<HTMLElement>('[aria-label="Authored animations"]')!;
+    const load = [...section.querySelectorAll("button")].find(button => button.textContent?.includes("Load"))!;
+    await act(async () => { load.click(); });
+    const position = document.querySelector<HTMLInputElement>('[aria-label="Keyframe position"]')!;
+    const ease = document.querySelector<HTMLSelectElement>('[aria-label="Keyframe easing"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(position, "100");
+      position.dispatchEvent(new Event("input", { bubbles: true }));
+      ease.value = "power2.in";
+      ease.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () => {
+      [...section.querySelectorAll("button")].find(button => button.textContent === "Save keyframe easing")!.click();
+    });
+    expect(commitGsapKeyframe).toHaveBeenCalledWith(selection,
+      { animationId: "a1", action: "ease", percentage: 100, ease: "power2.in" });
+    act(() => root.unmount());
+  });
   it("shows no destructive text editor without a proven leaf flag", () => {
     const root = mountReactHarness(<RemoteInspectorPanel selection={selection} commit={vi.fn(async () => true)} />);
     expect(document.querySelector('[aria-label="Text"]')).toBeNull();
@@ -180,6 +206,80 @@ describe("remote inspector", () => {
     });
     expect(commitGsapAnimation).toHaveBeenLastCalledWith(selection,
       { action: "remove", animationId: "tween-1" });
+    act(() => root.unmount());
+  });
+
+  it("exposes a verified fromTo start value and flat easing", async () => {
+    const loadGsap = vi.fn(async () => [{ id: "tween-1", label: "fromTo #card", method: "fromTo" as const,
+      properties: { x: 40 }, fromProperties: { x: 10 }, ease: "none" }]);
+    const commitGsap = vi.fn(async () => true);
+    const commitGsapAnimation = vi.fn(async () => true);
+    const root = mountReactHarness(<RemoteInspectorPanel selection={selection}
+      loadGsap={loadGsap} commitGsap={commitGsap} commitGsapAnimation={commitGsapAnimation} />);
+    const section = document.querySelector<HTMLElement>('[aria-label="Authored animations"]')!;
+    await act(async () => { section.querySelector<HTMLButtonElement>("button")!.click(); });
+    const from = section.querySelector<HTMLInputElement>('[aria-label="Animation from value"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(from, "20");
+      from.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => { [...section.querySelectorAll("button")]
+      .find(button => button.textContent === "Save from value")!.click(); });
+    expect(commitGsap).toHaveBeenCalledWith(selection,
+      { animationId: "tween-1", property: "x", value: 20, endpoint: "from" });
+    const ease = section.querySelector<HTMLSelectElement>('[aria-label="Animation easing"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(ease, "sine.in");
+      ease.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () => { [...section.querySelectorAll("button")]
+      .find(button => button.textContent === "Save easing")!.click(); });
+    expect(commitGsapAnimation).toHaveBeenCalledWith(selection,
+      { action: "ease", animationId: "tween-1", ease: "sine.in" });
+    act(() => root.unmount());
+  });
+
+  it("edits a source-bound motion point without offering a scalar value field", async () => {
+    const points = [{ x: 0, y: 0 }, { x: 20, y: 30 }, { x: 40, y: 0 }];
+    const loadGsap = vi.fn(async () => [{ id: "path-1", label: "to #card", method: "to" as const,
+      properties: {}, motionPath: { points, curviness: 1, autoRotate: false, isCubic: false } }]);
+    const commitGsapAnimation = vi.fn(async () => true);
+    const root = mountReactHarness(<RemoteInspectorPanel selection={selection}
+      loadGsap={loadGsap} commitGsap={vi.fn(async () => true)}
+      commitGsapAnimation={commitGsapAnimation} />);
+    const section = document.querySelector<HTMLElement>('[aria-label="Authored animations"]')!;
+    await act(async () => { section.querySelector<HTMLButtonElement>("button")!.click(); });
+    expect(section.querySelector('[aria-label="Animation value"]')).toBeNull();
+    const point = section.querySelector<HTMLSelectElement>('[aria-label="Motion path point"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(point, "1");
+      point.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const y = section.querySelector<HTMLInputElement>('[aria-label="Motion path point Y"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(y, "35");
+      y.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => { [...section.querySelectorAll("button")]
+      .find(button => button.textContent === "Save motion point")!.click(); });
+    expect(commitGsapAnimation).toHaveBeenCalledWith(selection,
+      { action: "motion-point", animationId: "path-1", index: 1, x: 20, y: 35 });
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(point, "1");
+      point.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () => { [...section.querySelectorAll("button")]
+      .find(button => button.textContent?.trim() === "Insert point before selected")!.click(); });
+    expect(commitGsapAnimation).toHaveBeenCalledWith(selection,
+      { action: "add-motion-point", animationId: "path-1", index: 1, x: 20, y: 30 });
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(point, "1");
+      point.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () => { [...section.querySelectorAll("button")]
+      .find(button => button.textContent?.trim() === "Remove selected point")!.click(); });
+    expect(commitGsapAnimation).toHaveBeenCalledWith(selection,
+      { action: "remove-motion-point", animationId: "path-1", index: 1 });
     act(() => root.unmount());
   });
 

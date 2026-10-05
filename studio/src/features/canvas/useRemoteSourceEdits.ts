@@ -164,7 +164,7 @@ export function useRemoteSourceEdits({
   }, [activeCompPath, previewIframeRef, projectId, readProjectFile, showToast]);
   const commitRemoteGsapProperty = useCallback(async (
     state: PreviewElementState,
-    edit: { animationId: string; property: PreviewGsapChannel; value: number },
+    edit: { animationId: string; property: PreviewGsapChannel; value: number; endpoint?: "from" | "to" },
   ): Promise<boolean> => {
     const client = previewAgentForIframe(previewIframeRef.current);
     if (!projectId || !client?.isReady) return false;
