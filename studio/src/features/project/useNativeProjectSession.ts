@@ -37,6 +37,8 @@ export interface UseNativeProjectSessionOptions {
   getPlaybackRate?: () => number;
   /** Editor playhead may hydrate before the native sidecar/iframe arrives. */
   getPlayheadSeconds?: () => number;
+  /** A Play click can reach the legacy adapter before native installation. */
+  getIsPlaying?: () => boolean;
 }
 
 const idleState: NativeProjectSessionState = {
@@ -157,15 +159,21 @@ export function useNativeProjectSession(
       if (saved?.projectId === nativeDocument.id) {
         runtime.player.seek(saved.time);
         if (saved.playing) runtime.player.play();
-      } else if (options.getPlayheadSeconds) {
-        runtime.player.seek(options.getPlayheadSeconds());
+      } else {
+        if (options.getPlayheadSeconds) runtime.player.seek(options.getPlayheadSeconds());
+        // On first installation there is no native transport to snapshot yet.
+        // Preserve an early Play click already accepted by the editor/legacy
+        // adapter instead of replacing it with a paused native transport.
+        if (options.getIsPlaying?.()) runtime.player.play();
       }
       // The save promise can resolve before this async sidecar reload installs.
       // Retire the committed picture only once the replacement has successfully
       // painted. Reapply synchronously after retiring it, before the browser can
       // show another frame or a newer gesture loses its own draft.
       releaseCommittedNativeGestureDrafts(iframeDocument, nativeDocument.id, nativeDocument.revision);
-      runtime.player.seek(runtime.player.getTime());
+      runtime.player.seek(runtime.player.getTime(), {
+        keepPlaying: runtime.player.isPlaying(),
+      });
       options.onNativeDuration?.(
         (runtime.durationFrames * nativeDocument.frameRate.denominator) /
           nativeDocument.frameRate.numerator,
@@ -200,6 +208,7 @@ export function useNativeProjectSession(
     iframeWindow,
     options.getPlaybackRate,
     options.getPlayheadSeconds,
+    options.getIsPlaying,
     options.onNativeDuration,
     options.activeSourceFile,
     options.projectId,

@@ -553,4 +553,25 @@ it("installs at the restored editor playhead when native data arrives after URL 
   }, () => {});
   await act(async () => {});
   expect(iframeWindow.__studioNativePlayer!.getTime()).toBe(0.5);
+  expect(iframeWindow.__studioNativePlayer!.isPlaying()).toBe(false);
+});
+
+it("keeps an early Play click active when the native sidecar arrives afterward", async () => {
+  const native = project("project:early-play");
+  const response = deferred<string>();
+  const iframeWindow = {} as import("./nativeProjectRuntime").NativeProjectRuntimeWindow;
+  let playRequested = false;
+  renderSession({
+    projectId: "early-play",
+    readOptionalProjectFile: () => response.promise,
+    iframe: { contentWindow: iframeWindow, contentDocument: document } as HTMLIFrameElement,
+    getPlayheadSeconds: () => 0.2,
+    getIsPlaying: () => playRequested,
+  }, () => {});
+  expect(iframeWindow.__studioNativePlayer).toBeUndefined();
+
+  playRequested = true;
+  await act(async () => response.resolve(serializeNativeProjectDocument(native)));
+  expect(iframeWindow.__studioNativePlayer!.isPlaying()).toBe(true);
+  expect(iframeWindow.__studioNativePlayer!.getTime()).toBeGreaterThanOrEqual(0.2);
 });

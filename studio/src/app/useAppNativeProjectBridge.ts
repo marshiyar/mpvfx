@@ -50,6 +50,10 @@ export function useAppNativeProjectBridge({
     () => usePlayerStore.getState().currentTime,
     [],
   );
+  const getNativeIsPlaying = useCallback(
+    () => usePlayerStore.getState().isPlaying,
+    [],
+  );
   const nativeProjectSession = useNativeProjectSession({
     projectId,
     activeSourceFile: activeCompPath ?? "index.html",
@@ -59,6 +63,7 @@ export function useAppNativeProjectBridge({
     onNativeDuration: handleNativeDuration,
     getPlaybackRate: getNativePlaybackRate,
     getPlayheadSeconds: getNativePlayheadSeconds,
+    getIsPlaying: getNativeIsPlaying,
   });
   const readLegacyAnimations = useCallback(
     async (legacyProjectId: string, sourceFile: string) =>
