@@ -133,6 +133,7 @@ describe("useGsapAwareEditing anchored resize", () => {
   it("commits cropped rotation and its pivot position in one native revision", async () => {
     mocks.isNativeSelection.mockReturnValue(true);
     const h = mountResizeHandler([]);
+    h.selection.element.style.cssText = "width: 200px; height: 100px; clip-path: inset(10px 20px 30px 40px)";
     h.selection.element.setAttribute("data-hf-drag-gsap-base-x", "240");
     h.selection.element.setAttribute("data-hf-drag-gsap-base-y", "180");
     await act(() => h.api.handleGsapAwareRotationCommit(
@@ -140,7 +141,8 @@ describe("useGsapAwareEditing anchored resize", () => {
     ));
     expect(mocks.projectCommitAnimatedProperties).toHaveBeenCalledTimes(1);
     expect(mocks.projectCommitAnimatedProperties).toHaveBeenCalledWith(
-      h.selection, { rotation: 90, x: 250, y: 170 }, { intent: "edit" },
+      h.selection, { rotation: 90, x: 250, y: 170 },
+      { intent: "edit", cropPivotFraction: { x: 0.05, y: -0.1 } },
     );
     act(() => h.root.unmount());
   });

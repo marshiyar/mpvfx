@@ -6,6 +6,8 @@ import {
   type NativeProjectKeyframeFailure,
 } from "../../../shared/project/nativeProjectKeyframeCommands";
 import { applyNativeProjectPropertyCommand } from "../../../shared/project/nativeProjectPropertyCommands";
+import { markNativeCropPivotIntervals } from "../../../shared/project/nativeCropPivotSegments";
+import type { Vec2Value } from "../../../shared/project/nativeKeyframeTypes";
 import type { NativeProjectDocument } from "../../../shared/project/nativeProjectDocument";
 import {
   createNativeProjectRepository,
@@ -32,6 +34,8 @@ export interface ProjectAnimatedPropertyCommitOptions {
   readonly intent?: ProjectAnimatedPropertyCommitIntent;
   /** Compatibility styles that must land atomically with native geometry. */
   readonly sourceStyles?: Readonly<Record<string, string>>;
+  /** Native cropped rotation only: opt in the adjacent rotation intervals. */
+  readonly cropPivotFraction?: Vec2Value;
 }
 
 export interface UseProjectAnimatedPropertyCommitOptions {
@@ -159,6 +163,7 @@ export function useProjectAnimatedPropertyCommit(
       // Capture authoring identity before persistence waits behind another edit.
       const authoringDependencies = dependenciesRef.current;
       const sourceStyles = { ...commitOptions.sourceStyles };
+      const cropPivotFraction = commitOptions.cropPivotFraction && { ...commitOptions.cropPivotFraction };
       const gestureDraft = captureNativeGestureCommitCandidate(selection.element);
       const sourceFile = selection.sourceFile;
       const sourceTarget = { id: selection.id, hfId: selection.hfId,
@@ -234,7 +239,9 @@ export function useProjectAnimatedPropertyCommit(
           if (!plan.ok) throw new NativeProjectEditRoutingError(plan.failure);
           const result = applyNativeProjectPropertyCommand(draft, plan.command);
           if (!result.ok) throw new NativeProjectEditRoutingError(result.failure);
-          return result.document;
+          return cropPivotFraction
+            ? markNativeCropPivotIntervals(result.document, plan.clipId, plan.clipLocalFrame, cropPivotFraction)
+            : result.document;
         };
         const label = editLabel(properties, intent);
         let committed;

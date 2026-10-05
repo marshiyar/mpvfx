@@ -1,4 +1,5 @@
 import { parseHTML } from "linkedom";
+import { remapNativeCropPivotKeyIds } from "../../../shared/project/nativeCropPivotSegments";
 import { NATIVE_PROJECT_DOCUMENT_PATH, parseNativeProjectDocument, serializeNativeProjectDocument, type NativeProjectAsset, type NativeProjectClip, type NativeProjectDocument, type NativeProjectTrack } from "../../../shared/project/nativeProjectDocument";
 import { projectFrameFromSeconds } from "../../../shared/project/nativePropertyEditPlan";
 import { sourceFrameValue } from "../../../shared/project/nativeSourceTime";
@@ -104,7 +105,18 @@ export async function pasteNativeClipboard(input: {
       node.setAttribute("data-hf-id", hfId);
       node.setAttribute("data-studio-clip-id", clip.id);
       clip.binding = { sourceFile: targetPath, hfId, ...(node.id ? { domId: node.id } : {}) };
-      clip.parameterTracks = clip.parameterTracks.map(track => ({ ...track, id: `native-parameter:${generateId()}`, keyframes: track.keyframes.map(key => ({ ...key, id: `native-key:${generateId()}` })) }));
+      const rotationKeyIds = new Map<string, string>();
+      clip.parameterTracks = clip.parameterTracks.map(track => ({
+        ...track, id: `native-parameter:${generateId()}`,
+        keyframes: track.keyframes.map(key => {
+          const id = `native-key:${generateId()}`;
+          if (track.parameterId === "transform.rotation") rotationKeyIds.set(key.id, id);
+          return { ...key, id };
+        }),
+      }));
+      if (clip.cropPivotSegments) {
+        clip.cropPivotSegments = remapNativeCropPivotKeyIds(clip.cropPivotSegments, rotationKeyIds);
+      }
       clip.effects = clip.effects.map(effect => ({ ...effect, id: `native-effect:${generateId()}` }));
       let asset = project.assets.find(candidate => candidate.id === clip.assetId);
       if (!asset) { asset = structuredClone(entry.asset); project.assets.push(asset); }

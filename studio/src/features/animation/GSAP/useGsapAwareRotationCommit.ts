@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import type { DomEditSelection } from "../../canvas/domEditingTypes";
+import { readCropCenterOffsetFraction } from "../../canvas/domEditOverlayCrop";
 import { runGestureTransaction } from "../../canvas/gestureTransaction";
 import { computeDraggedGsapPosition } from "./draggedGsapPosition";
 import { tryGsapDragIntercept, tryGsapRotationIntercept } from "./gsapRuntimeBridge";
@@ -32,10 +33,11 @@ export function useGsapAwareRotationCommit({
         const position = offset
           ? computeDraggedGsapPosition(selection.element, offset, { x: 0, y: 0 })
           : null;
+        const cropPivotFraction = position ? readCropCenterOffsetFraction(selection.element) : null;
         await projectPropertyCommit.commitAnimatedProperties(
           selection,
           { rotation: next.angle, ...(position ? { x: position.newX, y: position.newY } : {}) },
-          { intent: "edit" },
+          { intent: "edit", ...(cropPivotFraction ? { cropPivotFraction } : {}) },
         );
         return;
       } catch (error) {

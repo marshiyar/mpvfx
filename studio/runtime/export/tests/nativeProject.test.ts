@@ -630,6 +630,49 @@ describe("native project render body script", () => {
     expect(visibleCenter.y).toBeCloseTo(-10, 6);
   });
 
+  it("renders an opted-in cropped pivot at the same midpoint in preview and export", () => {
+    const project = projectDocument();
+    const clip = project.sequence.tracks[0]!.clips[0]!;
+    const numeric = (id: string, first: number, last: number) => createNativeParameterTrack({
+      id, parameterId: id, valueType: "number", frameRate: project.frameRate,
+      keyframes: [
+        { id: `${id}:first`, frame: 0, value: first, outgoing: { type: "linear" } },
+        { id: `${id}:last`, frame: 90, value: last, outgoing: { type: "linear" } },
+      ],
+    });
+    clip.parameterTracks = [
+      numeric("transform.position.x", 0, 0),
+      numeric("transform.position.y", 0, -20),
+      numeric("transform.rotation", 0, 90),
+    ];
+    clip.cropPivotSegments = [{
+      startRotationKeyId: "transform.rotation:first",
+      endRotationKeyId: "transform.rotation:last",
+      offsetFraction: { x: 0.05, y: -0.1 },
+    }];
+    const preview = document.createElement("div");
+    preview.setAttribute("data-studio-clip-id", clip.id);
+    preview.style.cssText = "width: 200px; height: 100px; clip-path: inset(10px 20px 30px 40px)";
+    const exported = document.createElement("div");
+    exported.style.cssText = preview.style.cssText;
+    document.body.replaceChildren(preview, exported);
+    applyNativeFrameToDocument(document, [{
+      clipId: clip.id, startFrame: clip.startFrame, durationFrames: clip.durationFrames,
+      staticParameters: clip.staticParameters, parameterTracks: clip.parameterTracks,
+      cropPivotSegments: clip.cropPivotSegments,
+    }], 75);
+    const expected = preview.style.transform;
+    expect(expected).toContain("translate3d(-4.142135623731px, -10px");
+
+    preview.removeAttribute("data-studio-clip-id");
+    exported.id = clip.id;
+    clip.binding = { sourceFile: "index.html", domId: clip.id };
+    window.eval(createNativeProjectRenderBodyScript(serializeNativeProjectDocument(project))!);
+    window.dispatchEvent(new CustomEvent("hf-seek", { detail: { time: 2.5 } }));
+    expect(exported.style.transform).toBe(expected);
+    expect(exported.style.clipPath).toBe("inset(10px 20px 30px 40px)");
+  });
+
   it("renders curved, auto-rotating motion paths identically in preview and export", () => {
     const project = projectDocument();
     const clip = project.sequence.tracks[0]!.clips[0]!;

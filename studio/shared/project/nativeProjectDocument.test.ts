@@ -50,6 +50,20 @@ function validDocument(): NativeProjectDocumentInput {
 }
 
 describe("native project document", () => {
+  it("round-trips optional crop pivot intervals and rejects malformed offsets", () => {
+    const document = validDocument();
+    const clip = document.sequence.tracks[0]!.clips[0]!;
+    clip.cropPivotSegments = [{
+      startRotationKeyId: "rotation:first", endRotationKeyId: "rotation:last",
+      offsetFraction: { x: 0.05, y: -0.1 },
+    }];
+    const restored = parseNativeProjectDocument(JSON.parse(serializeNativeProjectDocument(document)));
+    expect(restored.sequence.tracks[0]!.clips[0]!.cropPivotSegments).toEqual(clip.cropPivotSegments);
+    expect(parseNativeProjectDocument(validDocument()).sequence.tracks[0]!.clips[0]!.cropPivotSegments).toBeUndefined();
+    clip.cropPivotSegments[0]!.offsetFraction.x = 0.6;
+    expect(() => parseNativeProjectDocument(document)).toThrow("Crop pivot segment needs two key IDs");
+  });
+
   it("round-trips optional audio buses and native clip membership without changing timing", () => {
     const document = validDocument();
     document.assets.push({ id: "asset:voice", kind: "audio", name: "voice.wav", durationFrames: 300 });

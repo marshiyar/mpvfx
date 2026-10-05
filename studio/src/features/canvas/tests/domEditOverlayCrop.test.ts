@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import { describe, expect, it } from "vitest";
 import {
   resolveLinkedCropInsets,
@@ -6,6 +8,7 @@ import {
   hugRectForElement,
   hugOrientedRectForElement,
   readElementCropFrame,
+  readCropCenterOffsetFraction,
   readElementCropInsets,
   resolveCropInsetFromEdgeDrag,
   rotateDeltaIntoFrame,
@@ -14,6 +17,20 @@ import {
 import { individualRotateDegrees } from "../domEditOverlayTransform";
 
 describe("cropped rotation pivot", () => {
+  it("stores the asymmetric visible center as a resize-stable local fraction", () => {
+    const element = document.createElement("div");
+    element.style.cssText = "width: 200px; height: 100px; clip-path: inset(10px 20px 30px 40px)";
+    document.body.append(element);
+    expect(readCropCenterOffsetFraction(element)).toEqual({ x: 0.05, y: -0.1 });
+    element.style.width = "400px";
+    element.style.height = "200px";
+    element.style.clipPath = "inset(20px 40px 60px 80px)";
+    expect(readCropCenterOffsetFraction(element)).toEqual({ x: 0.05, y: -0.1 });
+    element.style.transformOrigin = "0px 0px";
+    expect(readCropCenterOffsetFraction(element)).toBeNull();
+    element.remove();
+  });
+
   it.each([90, 180, -45])("keeps an asymmetric visible center fixed at %s degrees", (angle) => {
     const offset = { x: 10, y: -10 };
     const translation = croppedRotationPivotTranslation(offset, 0, angle);

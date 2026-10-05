@@ -1,4 +1,6 @@
 import { applyNativeGestureDraft } from "./nativeGestureDraft";
+import { nativeCropPivotCorrection } from "./nativeCropPivot";
+import type { NativeCropPivotSegment } from "../../../shared/project/nativeProjectDocumentTypes";
 import { evaluateNativeParameterTrack } from "../../../shared/project/nativeKeyframeEvaluator";
 import { vkfEngine } from "../../../shared/engine/vkfEngine";
 import type {
@@ -17,6 +19,7 @@ export interface NativeClipFrameBinding {
   /** Non-animated parameter base values. Animated tracks take precedence. */
   readonly staticParameters?: Readonly<Record<string, NativeParameterValue>>;
   readonly parameterTracks: readonly NativeParameterTrack[];
+  readonly cropPivotSegments?: readonly NativeCropPivotSegment[];
 }
 
 export interface NativeFrameApplicationResult {
@@ -350,6 +353,21 @@ export function applyNativeFrameToDocument(
     element.style.visibility = visible ? "visible" : "hidden";
     if (!visible) continue;
     const state = evaluateVisualState(clip.staticParameters, clip.parameterTracks, localFrame);
+    const cropPivot = state.ownedComponents.has("x") && state.ownedComponents.has("y")
+      ? nativeCropPivotCorrection({
+          element, segments: clip.cropPivotSegments, tracks: clip.parameterTracks,
+          frame: localFrame, pose: state,
+          evaluateAt: (frame) => evaluateVisualState(clip.staticParameters, clip.parameterTracks, frame),
+          evaluateReferenceAt: (segment, frame) => evaluateVisualState(
+            segment.reference?.staticParameters,
+            segment.reference?.parameterTracks ?? clip.parameterTracks,
+            frame,
+          ),
+        }) : null;
+    if (cropPivot) state.position = {
+      x: state.position.x + cropPivot.x,
+      y: state.position.y + cropPivot.y,
+    };
     // A sidecar may include legacy-owned clips only to preserve timeline/media
     // structure. Do not claim their picture properties unless this revision has
     // native tracks, or an earlier revision already claimed them and now needs a reset.

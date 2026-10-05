@@ -20,6 +20,7 @@ import {
   type NativeProjectDocument,
 } from "./nativeProjectDocument";
 import { vkfEngine } from "../engine/vkfEngine";
+import { currentNativeCropPivotReferences, validNativeCropPivotSegments } from "./nativeCropPivotSegments";
 import {
   POSITION_PARAMETER_ID,
   POSITION_X_PARAMETER_ID,
@@ -243,7 +244,14 @@ const replaceParameterTracks = (
           : {
               ...track,
               clips: track.clips.map((clip, clipIndex) =>
-                clipIndex !== location.clipIndex ? clip : { ...clip, parameterTracks },
+                clipIndex !== location.clipIndex ? clip : {
+                  ...clip, parameterTracks,
+                  cropPivotSegments: currentNativeCropPivotReferences(
+                    validNativeCropPivotSegments(clip.cropPivotSegments, parameterTracks),
+                    clip.parameterTracks,
+                    parameterTracks,
+                  ),
+                },
               ),
             },
       ),

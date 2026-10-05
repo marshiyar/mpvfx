@@ -260,6 +260,51 @@ export function validateNativeProjectDocument(
       if (typeof clip.muted !== "undefined" && typeof clip.muted !== "boolean") {
         pushIssue(issues, "invalid-clip", `${clipPath}.muted`, "Muted must be a boolean");
       }
+      if (clip.cropPivotSegments !== undefined) {
+        if (!Array.isArray(clip.cropPivotSegments)) {
+          pushIssue(issues, "invalid-clip", `${clipPath}.cropPivotSegments`, "Crop pivot segments must be an array");
+        } else {
+          const pairs = new Set<string>();
+          clip.cropPivotSegments.forEach((segment, index) => {
+            const path = `${clipPath}.cropPivotSegments[${index}]`;
+            if (!isRecord(segment) || !isNonEmptyString(segment.startRotationKeyId) ||
+                !isNonEmptyString(segment.endRotationKeyId) ||
+                segment.startRotationKeyId === segment.endRotationKeyId ||
+                !isRecord(segment.offsetFraction) ||
+                ![segment.offsetFraction.x, segment.offsetFraction.y].every(
+                  (value) => typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= 0.5,
+                )) {
+              pushIssue(issues, "invalid-clip", path, "Crop pivot segment needs two key IDs and finite normalized offsets");
+              return;
+            }
+            const pair = JSON.stringify([segment.startRotationKeyId, segment.endRotationKeyId]);
+            if (pairs.has(pair)) pushIssue(issues, "invalid-clip", path, "Duplicate crop pivot segment");
+            pairs.add(pair);
+            if (segment.reference !== undefined) {
+              const reference = segment.reference;
+              if (!isRecord(reference) || !isNonNegativeInteger(reference.frameOffset) ||
+                  !isPositiveInteger(reference.durationFrames) ||
+                  !isNonEmptyString(reference.startRotationKeyId) ||
+                  !isNonEmptyString(reference.endRotationKeyId)) {
+                pushIssue(issues, "invalid-clip", `${path}.reference`, "Invalid crop pivot reference");
+              } else {
+                validateParameterTracks(reference.parameterTracks, projectFrameRate,
+                  reference.durationFrames, `${path}.reference.parameterTracks`, issues);
+                validateStaticParameters(reference.staticParameters,
+                  `${path}.reference.staticParameters`, issues);
+                if (!Array.isArray(reference.parameterTracks) || !reference.parameterTracks.some(
+                  (track) => isRecord(track) && track.parameterId === "transform.rotation" &&
+                    Array.isArray(track.keyframes) && track.keyframes.some(
+                      (key) => isRecord(key) && key.id === reference.startRotationKeyId,
+                    ) && track.keyframes.some(
+                      (key) => isRecord(key) && key.id === reference.endRotationKeyId,
+                    ),
+                )) pushIssue(issues, "invalid-clip", `${path}.reference`, "Missing reference rotation keys");
+              }
+            }
+          });
+        }
+      }
       validateStaticParameters(clip.staticParameters, `${clipPath}.staticParameters`, issues);
       if (
         asset &&

@@ -103,6 +103,28 @@ export function readElementCropInsets(
   return parseInsetClipPathSides(value);
 }
 
+/** Visible crop center relative to the source center, as a fraction of the
+ * untransformed box. A proportional resize keeps this pivot attached. */
+export function readCropCenterOffsetFraction(element: HTMLElement): { x: number; y: number } | null {
+  const crop = readElementCropInsets(element);
+  if (!crop || !(crop.top || crop.right || crop.bottom || crop.left)) return null;
+  const computed = element.ownerDocument.defaultView?.getComputedStyle(element);
+  const width = Number.parseFloat(element.style.width || computed?.width || "");
+  const height = Number.parseFloat(element.style.height || computed?.height || "");
+  if (!(width > 0 && height > 0)) return null;
+  const origin = (computed?.transformOrigin || element.style.transformOrigin).trim().toLowerCase();
+  const originPx = /^(-?[\d.]+)px\s+(-?[\d.]+)px(?:\s+0px)?$/.exec(origin);
+  const centered = !origin || ["center", "center center", "50% 50%"].includes(origin) ||
+    Boolean(originPx && Math.abs(Number(originPx[1]) - width / 2) < 1e-6 &&
+      Math.abs(Number(originPx[2]) - height / 2) < 1e-6);
+  if (!centered) {
+    return null;
+  }
+  const fraction = { x: (crop.left - crop.right) / (2 * width),
+    y: (crop.top - crop.bottom) / (2 * height) };
+  return Math.abs(fraction.x) <= 0.5 && Math.abs(fraction.y) <= 0.5 ? fraction : null;
+}
+
 export interface CropInsetDragInput {
   edge: CropEdge;
   startInsets: ClipPathInsetSides;

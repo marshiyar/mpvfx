@@ -75,6 +75,18 @@ export function parseNativeProjectDocument(input: unknown): NativeProjectDocumen
           },
           muted: clip.muted ?? false,
           staticParameters: cloneStaticParameters(clip.staticParameters),
+          ...(clip.cropPivotSegments ? { cropPivotSegments: clip.cropPivotSegments.map((segment) => ({
+            startRotationKeyId: segment.startRotationKeyId,
+            endRotationKeyId: segment.endRotationKeyId,
+            offsetFraction: { ...segment.offsetFraction },
+            ...(segment.reference ? { reference: {
+              ...segment.reference,
+              parameterTracks: segment.reference.parameterTracks.map((track) => track),
+              ...(segment.reference.staticParameters ? {
+                staticParameters: cloneStaticParameters(segment.reference.staticParameters),
+              } : {}),
+            } } : {}),
+          })) } : {}),
           effects: clip.effects.map((effect) => ({
             ...effect,
             ...(effect.parameters ? { parameters: { ...effect.parameters } } : {}),

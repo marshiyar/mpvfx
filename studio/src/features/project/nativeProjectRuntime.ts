@@ -69,6 +69,7 @@ export function flattenClips(project: NativeProjectDocument): RuntimeClipBinding
         ...(playbackRate !== undefined ? { playbackRate } : {}),
         staticParameters: clip.staticParameters,
         parameterTracks: clip.parameterTracks,
+        ...(clip.cropPivotSegments ? { cropPivotSegments: clip.cropPivotSegments } : {}),
         ...(clip.binding ? { binding: clip.binding } : {}),
       };
     }),

@@ -266,6 +266,41 @@ describe("native project clip move commands", () => {
 });
 
 describe("native project clip trim, split, and delete commands", () => {
+  it("rebases a crop pivot onto trim and split rotation keys and restores it on undo", () => {
+    const original = documentFixture();
+    const marker = { startRotationKeyId: "rotation:0", endRotationKeyId: "rotation:90",
+      offsetFraction: { x: 0.05, y: -0.1 } };
+    findClip(original, "clip:first")!.cropPivotSegments = [marker];
+    const assertBound = (clip: NonNullable<ReturnType<typeof findClip>>) => {
+      const [segment] = clip.cropPivotSegments ?? [];
+      const rotation = clip.parameterTracks.find((track) => track.parameterId === "transform.rotation")!;
+      expect(segment).toBeDefined();
+      expect(rotation.keyframes.some((key) => key.id === segment?.startRotationKeyId)).toBe(true);
+      expect(rotation.keyframes.some((key) => key.id === segment?.endRotationKeyId)).toBe(true);
+      expect(segment?.offsetFraction).toEqual(marker.offsetFraction);
+    };
+    const split = applyNativeProjectClipCommand(original, { type: "split", address: firstAddress, splitFrame: 60 });
+    expect(split.ok).toBe(true);
+    if (!split.ok) return;
+    assertBound(findClip(split.document, "clip:first")!);
+    assertBound(findClip(split.document, nativeSplitClipId("clip:first", 60))!);
+    const undone = applyNativeProjectClipCommand(split.document, split.inverse);
+    expect(undone.ok).toBe(true);
+    if (undone.ok) expect(serializeNativeProjectDocument(undone.document))
+      .toBe(serializeNativeProjectDocument(original));
+
+    const trimmedIn = applyNativeProjectClipCommand(original, {
+      type: "trim-in", address: firstAddress, startFrame: 30,
+    });
+    expect(trimmedIn.ok).toBe(true);
+    if (trimmedIn.ok) assertBound(findClip(trimmedIn.document, "clip:first")!);
+    const trimmedOut = applyNativeProjectClipCommand(original, {
+      type: "trim-out", address: firstAddress, endFrameExclusive: 60,
+    });
+    expect(trimmedOut.ok).toBe(true);
+    if (trimmedOut.ok) assertBound(findClip(trimmedOut.document, "clip:first")!);
+  });
+
   it("trims in on an integer frame, advancing source media and rebasing native keyframes without touching effects or static parameters", () => {
     const original = documentFixture();
     const before = findClip(original, "clip:first")!;

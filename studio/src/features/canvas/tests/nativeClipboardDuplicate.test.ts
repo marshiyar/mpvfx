@@ -22,10 +22,15 @@ it("copies clip-local effects and keyframes into a distinct undoable native clip
         binding: { sourceFile: "index.html", domId: "camera", hfId: "hf-camera" },
         startFrame: 0, durationFrames: 120, sourceInFrame: 0, muted: true,
         staticParameters: { "transform.position.x": 25 },
+        cropPivotSegments: [{ startRotationKeyId: "key:rotation",
+          endRotationKeyId: "key:rotation:end", offsetFraction: { x: 0.05, y: -0.1 } }],
         effects: [{ id: "fx:original", effectId: "blur", enabled: true }],
         parameterTracks: [createNativeParameterTrack({
           id: "track:rotation", parameterId: "transform.rotation", valueType: "number", frameRate,
-          keyframes: [{ id: "key:rotation", frame: 0, value: 30, outgoing: { type: "linear" } }],
+          keyframes: [
+            { id: "key:rotation", frame: 0, value: 30, outgoing: { type: "linear" } },
+            { id: "key:rotation:end", frame: 90, value: 90, outgoing: { type: "linear" } },
+          ],
         })],
       }],
     }] },
@@ -64,6 +69,12 @@ it("copies clip-local effects and keyframes into a distinct undoable native clip
   expect(duplicated.parameterTracks[0]?.id).not.toBe("track:rotation");
   expect(duplicated.parameterTracks[0]?.keyframes[0]?.id).not.toBe("key:rotation");
   expect(duplicated.parameterTracks[0]?.keyframes[0]?.value).toBe(30);
+  expect(duplicated.cropPivotSegments).toEqual([{
+    startRotationKeyId: duplicated.parameterTracks[0]!.keyframes[0]!.id,
+    endRotationKeyId: duplicated.parameterTracks[0]!.keyframes[1]!.id,
+    offsetFraction: { x: 0.05, y: -0.1 },
+  }]);
+  expect(duplicated.cropPivotSegments?.[0]?.startRotationKeyId).not.toBe("key:rotation");
   const savedHtml = files.get("index.html")!;
   expect(savedHtml).toContain('id="camera"');
   expect(savedHtml).toContain('data-end="4"');

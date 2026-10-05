@@ -302,6 +302,32 @@ describe("native project keyframe commands", () => {
     ]);
   });
 
+  it("keeps a crop pivot attached on key move and retires it on key deletion with Undo", () => {
+    let document = expectReversible(makeDocument(), {
+      type: "upsert", address, valueType: "number", frame: 0, value: 0, baselineValue: 0,
+    });
+    document = expectReversible(document, {
+      type: "upsert", address, valueType: "number", frame: 90, value: 90, baselineValue: 0,
+    });
+    const clip = clipById(document, "clip:first");
+    const rotation = clip.parameterTracks.find((track) => track.parameterId === "transform.rotation")!;
+    const marker = { startRotationKeyId: rotation.keyframes[0]!.id,
+      endRotationKeyId: rotation.keyframes[1]!.id,
+      offsetFraction: { x: 0.05, y: -0.1 } };
+    clip.cropPivotSegments = [marker];
+    const moved = expectReversible(document, {
+      type: "move", address, fromFrame: 90, toFrame: 80,
+    });
+    expect(clipById(moved, "clip:first").cropPivotSegments).toEqual([marker]);
+    const deleted = applyNativeProjectKeyframeCommand(moved, { type: "delete", address, frame: 80 });
+    expect(deleted.ok).toBe(true);
+    if (!deleted.ok) return;
+    expect(clipById(deleted.document, "clip:first").cropPivotSegments).toEqual([]);
+    const undone = applyNativeProjectKeyframeCommand(deleted.document, deleted.inverse);
+    expect(undone.ok).toBe(true);
+    if (undone.ok) expect(clipById(undone.document, "clip:first").cropPivotSegments).toEqual([marker]);
+  });
+
   it("applies a batch across independent parameters atomically and reversibly", () => {
     const original = makeDocument();
     const next = expectReversible(original, {

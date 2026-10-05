@@ -307,6 +307,40 @@ describe("useProjectAnimatedPropertyCommit", () => {
     ]);
   });
 
+  it("saves a cropped rotation pivot with its native keys in one undo entry", async () => {
+    const original = project();
+    const clip = original.sequence.tracks[0]!.clips[0]!;
+    const numeric = (id: string, first: number, last: number) => createNativeParameterTrack({
+      id, parameterId: id, valueType: "number", frameRate: original.frameRate,
+      keyframes: [
+        { id: `${id}:first`, frame: 0, value: first, outgoing: { type: "linear" } },
+        { id: `${id}:last`, frame: 30, value: last, outgoing: { type: "linear" } },
+      ],
+    });
+    clip.parameterTracks = [
+      numeric("transform.position.x", 0, 0),
+      numeric("transform.position.y", 0, -20),
+      numeric("transform.rotation", 0, 90),
+    ];
+    const memory = memoryOptions(original, 2);
+    const api = renderCommit(memory.options);
+    await api.commitAnimatedProperties(selection(), { rotation: 90, x: 0, y: -20 }, {
+      intent: "edit", cropPivotFraction: { x: 0.05, y: -0.1 },
+    });
+    expect(memory.writeProjectFile).toHaveBeenCalledTimes(1);
+    expect(memory.recordHistory).toHaveBeenCalledTimes(1);
+    const saved = parseNativeProjectDocument(JSON.parse(memory.getContent()!));
+    expect(saved.sequence.tracks[0]!.clips[0]!.cropPivotSegments).toEqual([{
+      startRotationKeyId: "transform.rotation:first",
+      endRotationKeyId: "transform.rotation:last",
+      offsetFraction: { x: 0.05, y: -0.1 },
+    }]);
+    const history = memory.recordHistory.mock.calls[0]![0];
+    expect(parseNativeProjectDocument(JSON.parse(history.before!)).sequence.tracks[0]!.clips[0]!.cropPivotSegments)
+      .toBeUndefined();
+    expect(history.after).toBe(memory.getContent());
+  });
+
   it("moves several native layers in one write and one history entry", async () => {
     const base = project();
     const second = { ...base.sequence.tracks[0]!.clips[0]!, id: "clip:second", startFrame: 200 };

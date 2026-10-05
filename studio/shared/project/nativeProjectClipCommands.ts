@@ -1,4 +1,5 @@
 import { advanceSourcePosition, sourceRangeFits, type NativeSourcePosition } from "./nativeSourceTime";
+import { rebaseNativeCropPivotSegments } from "./nativeCropPivotSegments";
 import {
   NativeProjectDocumentValidationError,
   nativeAssetConsumesSourceFrames,
@@ -284,6 +285,7 @@ const applyTrimIn = (
   } catch (error) {
     return reject(document, "invalid-trim", error instanceof Error ? error.message : "Invalid source boundary");
   }
+  const parameterTracks = rebasedTracks(clip, delta, clip.durationFrames, (track) => track.id);
   return succeed(
     document,
     replaceClip(document, location, {
@@ -291,7 +293,8 @@ const applyTrimIn = (
       startFrame,
       ...sourcePosition,
       durationFrames: clip.durationFrames - delta,
-      parameterTracks: rebasedTracks(clip, delta, clip.durationFrames, (track) => track.id),
+      parameterTracks,
+      cropPivotSegments: rebaseNativeCropPivotSegments(clip, parameterTracks, delta, clip.durationFrames),
     }),
   );
 };
@@ -312,14 +315,18 @@ const applyTrimOut = (
   if (nativeAssetConsumesSourceFrames(asset.kind) && !sourceRangeFits(clip, nextDuration, asset.durationFrames)) {
     return reject(document, "invalid-trim", "Cannot extend beyond the end of the source media");
   }
+  const parameterTracks = nextDuration >= clip.durationFrames
+    ? clip.parameterTracks
+    : rebasedTracks(clip, 0, nextDuration, (track) => track.id);
   return succeed(
     document,
     replaceClip(document, location, {
       ...clip,
       durationFrames: nextDuration,
-      parameterTracks: nextDuration >= clip.durationFrames
-        ? clip.parameterTracks
-        : rebasedTracks(clip, 0, nextDuration, (track) => track.id),
+      parameterTracks,
+      cropPivotSegments: nextDuration >= clip.durationFrames
+        ? clip.cropPivotSegments
+        : rebaseNativeCropPivotSegments(clip, parameterTracks, 0, nextDuration),
     }),
   );
 };
@@ -355,10 +362,16 @@ const applySplit = (
   if (document.sequence.tracks.some((track) => track.clips.some((candidate) => candidate.id === rightId))) {
     return reject(document, "generated-id-collision", `Split clip ID ${rightId} already exists`);
   }
+  const leftTracks = rebasedTracks(clip, 0, localFrame, (track) => track.id);
+  const rightTracks = rebasedTracks(
+    clip, localFrame, clip.durationFrames,
+    (track) => nativeSplitTrackId(track.id, rightId, track.parameterId),
+  );
   const left: NativeProjectClip = {
     ...clip,
     durationFrames: localFrame,
-    parameterTracks: rebasedTracks(clip, 0, localFrame, (track) => track.id),
+    parameterTracks: leftTracks,
+    cropPivotSegments: rebaseNativeCropPivotSegments(clip, leftTracks, 0, localFrame),
   };
   const right: NativeProjectClip = {
     ...clip,
@@ -367,12 +380,8 @@ const applySplit = (
     durationFrames: clip.durationFrames - localFrame,
     ...sourcePosition,
     ...(rightBinding ? { binding: rightBinding } : {}),
-    parameterTracks: rebasedTracks(
-      clip,
-      localFrame,
-      clip.durationFrames,
-      (track) => nativeSplitTrackId(track.id, rightId, track.parameterId),
-    ),
+    parameterTracks: rightTracks,
+    cropPivotSegments: rebaseNativeCropPivotSegments(clip, rightTracks, localFrame, clip.durationFrames),
   };
   try {
     return succeed(document, replaceClip(document, location, [left, right]));

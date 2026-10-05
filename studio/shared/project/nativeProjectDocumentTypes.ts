@@ -69,6 +69,23 @@ export interface NativeClipDomBinding {
   selectorIndex?: number;
 }
 
+/** Opt-in visible-crop pivot for one authored rotation interval. Key IDs keep
+ * the interval attached when its frames move; normalized offsets follow size. */
+export interface NativeCropPivotSegment {
+  startRotationKeyId: string;
+  endRotationKeyId: string;
+  offsetFraction: { x: number; y: number };
+  /** Original interpolation survives generated boundary keys from a split/trim. */
+  reference?: {
+    frameOffset: number;
+    durationFrames: number;
+    startRotationKeyId: string;
+    endRotationKeyId: string;
+    parameterTracks: NativeParameterTrack[];
+    staticParameters?: Record<string, NativeParameterValue>;
+  };
+}
+
 export interface NativeProjectClip {
   id: string;
   assetId: string;
@@ -95,6 +112,7 @@ export interface NativeProjectClip {
    * materializes it to an object (including `{}` when omitted).
    */
   staticParameters?: Record<string, NativeParameterValue>;
+  cropPivotSegments?: NativeCropPivotSegment[];
   effects: NativeClipEffect[];
   parameterTracks: NativeParameterTrack[];
 }
