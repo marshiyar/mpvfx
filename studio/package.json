@@ -52,7 +52,7 @@
     "check": "npm run check:architecture && npm run typecheck && npm test && npm run desktop:build",
     "build:renderer": "vite build --config .configurations/vite.config.ts",
     "build:library": "node native/library/build.mjs",
-    "build:crosspost": "node ../scripts/build/build-crosspost-resources.mjs"
+    "build:crosspost": "node ../scripts/build/build-crosspost-resources.mjs && node ../scripts/build/build-crosspost-bundle.mjs"
   },
   "dependencies": {
     "@ffprobe-installer/ffprobe": "^2.1.2",
