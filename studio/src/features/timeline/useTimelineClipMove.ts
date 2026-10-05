@@ -23,6 +23,8 @@ import {
   type NativeProjectDocument,
 } from "../../../shared/project/nativeProjectDocument";
 import { NativeProjectRevisionConflictError } from "../project/nativeProjectPersistence";
+import { applyRemoteTimelineStackingReorder } from "./remoteTimelineStackingReorder";
+import { generateId } from "../../lib/generateId";
 
 type MoveOptions = Pick<UseTimelineEditingOptions,
   "activeCompPath" | "timelineElements" | "showToast" | "writeProjectFile" |
@@ -87,16 +89,31 @@ export function useTimelineClipMove({
           patchIframeDomTiming(previewIframeRef.current, element, liveAttrs, activeCompPath);
         }
 
-        const reorderDone = applyTimelineStackingReorder({
-          element,
-          stackingReorder: updates.stackingReorder,
-          timelineElements,
-          iframe: previewIframeRef.current,
-          activeCompPath,
-          commit: handleDomZIndexReorderCommitRef?.current,
-        });
+        const coalesceKey = `timeline-move:${element.hfId ?? element.id}`;
+        const iframe = previewIframeRef.current;
+        let isolated = false;
+        try { isolated = Boolean(iframe && !iframe.contentDocument); } catch { isolated = true; }
+        const remoteGestureKey = isolated && nativeClipId && updates.stackingReorder
+          ? `timeline-move:${nativeClipId}:${generateId()}` : null;
+        let remoteZChanged = false;
+        const reorderDone = isolated && iframe && nativeAuthoritative && updates.stackingReorder &&
+          nativeProjectEditing && projectIdRef.current
+          ? applyRemoteTimelineStackingReorder({
+              iframe, projectId: projectIdRef.current, intent: updates.stackingReorder,
+              timelineElements, activeCompPath, coalesceKey: remoteGestureKey ?? coalesceKey,
+              deps: { readOptionalProjectFile: nativeProjectEditing.readOptionalProjectFile,
+                writeProjectFile, recordEdit,
+                commitFileTransaction: nativeProjectEditing.commitFileTransaction },
+            }).then(changed => { remoteZChanged = changed; })
+          : applyTimelineStackingReorder({
+              element, stackingReorder: updates.stackingReorder, timelineElements,
+              iframe, activeCompPath, commit: handleDomZIndexReorderCommitRef?.current,
+              coalesceKey,
+            });
 
-        if (!startChanged && !trackChanged) return reorderDone;
+        if (!startChanged && !trackChanged) return reorderDone.then(() => {
+          if (remoteZChanged) reloadPreview();
+        });
 
         // Snapshot the duration BEFORE the optimistic updates below so a failed
         // persist can roll the readout + live root back (see captureDurationRollback).
@@ -132,7 +149,6 @@ export function useTimelineClipMove({
             track,
           );
         };
-        const coalesceKey = `timeline-move:${element.hfId ?? element.id}`;
         const finishMoveGsapSync = () =>
           // Every timing writer converges the same GSAP positions after its
           // durable clip-start commit. The SDK owns the attribute write; this
@@ -171,6 +187,7 @@ export function useTimelineClipMove({
                 readOptionalProjectFile: dependencies.readOptionalProjectFile,
                 writeProjectFile,
                 recordEdit,
+                gestureCoalesceKey: remoteGestureKey ?? undefined,
                 commitFileTransaction: dependencies.commitFileTransaction,
                 patchCompatibilityContent: (original, exactStartSeconds, destinationLane, binding) => {
                   // The native binding identifies the authored source; the
@@ -251,7 +268,7 @@ export function useTimelineClipMove({
         return reorderDone
           .then(() => {
             if (nativeAuthoritative && (startChanged || trackChanged)) {
-              return enqueueNativeMove();
+              return enqueueNativeMove().then(() => { if (remoteZChanged) reloadPreview(); });
             }
             // The SDK setTiming path writes start only — a lane change must take
             // the fallback, whose patch builder writes data-track-index too.

@@ -77,6 +77,10 @@ export interface DomEditActionsValue extends Pick<
   | "setNativeKeyframesInterpolation"
   | "setNativePositionPath"
   | "commitNativeProject"
+  | "commitRemoteInspectorEdit"
+  | "commitRemoteStackingPatches"
+  | "loadRemoteGsapAnimations"
+  | "commitRemoteGsapProperty"
   | "nativeDocument"
   | "handleSetArcPath"
   | "handleUpdateArcSegment"
@@ -93,6 +97,7 @@ export interface DomEditActionsValue extends Pick<
 export interface DomEditSelectionValue extends Pick<
   DomEditValue,
   | "domEditSelection"
+  | "remoteSelection"
   | "domEditGroupSelections"
   | "domEditHoverSelection"
   | "activeGroupElement"
@@ -149,6 +154,7 @@ export function useDomEditContext(): DomEditValue {
 export function DomEditProvider({
   value: {
     domEditSelection,
+    remoteSelection,
     domEditGroupSelections,
     domEditHoverSelection,
     domEditSelectionRef,
@@ -228,6 +234,10 @@ export function DomEditProvider({
     setNativeKeyframesInterpolation,
     setNativePositionPath,
     commitNativeProject,
+    commitRemoteInspectorEdit,
+    commitRemoteStackingPatches,
+    loadRemoteGsapAnimations,
+    commitRemoteGsapProperty,
     nativeDocument,
     handleSetArcPath,
     handleUpdateArcSegment,
@@ -325,6 +335,10 @@ export function DomEditProvider({
       setNativeKeyframesInterpolation,
       setNativePositionPath,
       commitNativeProject,
+      commitRemoteInspectorEdit,
+      commitRemoteStackingPatches,
+      loadRemoteGsapAnimations,
+      commitRemoteGsapProperty,
       nativeDocument,
       handleSetArcPath,
       handleUpdateArcSegment,
@@ -408,6 +422,10 @@ export function DomEditProvider({
       setNativeKeyframesInterpolation,
       setNativePositionPath,
       commitNativeProject,
+      commitRemoteInspectorEdit,
+      commitRemoteStackingPatches,
+      loadRemoteGsapAnimations,
+      commitRemoteGsapProperty,
       nativeDocument,
       handleSetArcPath,
       handleUpdateArcSegment,
@@ -425,6 +443,7 @@ export function DomEditProvider({
   const selection = useMemo<DomEditSelectionValue>(
     () => ({
       domEditSelection,
+      remoteSelection,
       domEditGroupSelections,
       domEditHoverSelection,
       activeGroupElement,
@@ -437,6 +456,7 @@ export function DomEditProvider({
     }),
     [
       domEditSelection,
+      remoteSelection,
       domEditGroupSelections,
       domEditHoverSelection,
       activeGroupElement,

@@ -41,9 +41,19 @@ const MOTION_PATH_PLUGIN_URL = "/api/motion-path-plugin.js";
  * (the soft-reload async fallback in applySoftReload still covers that case).
  */
 export function ensureMotionPathPluginLoaded(iframe: HTMLIFrameElement | null): void {
-  if (!iframe?.contentWindow || !iframe.contentDocument) return;
-  const win = iframe.contentWindow as IframeWindow;
-  const doc = iframe.contentDocument;
+  // Authored previews run on their own origin. Reading a WindowProxy property
+  // from the editor can throw, so plugin bootstrap belongs to the preview
+  // runtime there; this same-origin compatibility path simply does nothing.
+  let win: IframeWindow | null;
+  let doc: Document | null;
+  try {
+    win = iframe?.contentWindow as IframeWindow | null;
+    doc = iframe?.contentDocument ?? null;
+    if (!win || !doc) return;
+    void win.gsap;
+  } catch {
+    return;
+  }
 
   // Already registered (composition shipped its own plugin, or a prior bootstrap
   // ran) — register it on gsap to be safe, then bail.
@@ -215,9 +225,9 @@ export function applySoftReloadFinalization(
   iframe: HTMLIFrameElement | null,
   currentTime: number,
 ): boolean {
-  const win = iframe?.contentWindow as IframeWindow | null;
-  if (!win?.__hfForceTimelineRebind) return false;
   try {
+    const win = iframe?.contentWindow as IframeWindow | null;
+    if (!iframe?.contentDocument || !win?.__hfForceTimelineRebind) return false;
     if (win.__hfSuppressSceneMutations) {
       win.__hfSuppressSceneMutations(() => finalizeSoftReload(win, currentTime));
     } else {
@@ -237,10 +247,17 @@ export function applySoftReload(
   const { onAsyncFailure, currentTimeOverride, authoredHtml } = options;
   if (!iframe || !scriptText) return "cannot-soft-reload";
 
-  const win = iframe.contentWindow as IframeWindow | null;
-  const doc = iframe.contentDocument;
-  if (!win || !doc) return "cannot-soft-reload";
-  if (!win.gsap || !win.__hfForceTimelineRebind) return "cannot-soft-reload";
+  let win: IframeWindow | null;
+  let doc: Document | null;
+  try {
+    win = iframe.contentWindow as IframeWindow | null;
+    doc = iframe.contentDocument;
+    if (!win || !doc || !win.gsap || !win.__hfForceTimelineRebind) {
+      return "cannot-soft-reload";
+    }
+  } catch {
+    return "cannot-soft-reload";
+  }
 
   // Which composition(s) does this script rebuild? A soft reload re-runs ONE
   // composition's GSAP script, which re-registers its own window.__timelines[key].

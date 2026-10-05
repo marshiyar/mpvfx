@@ -411,6 +411,7 @@ function StudioProjectApp({ projectId, resolving, waitingForRuntime }: ReturnTyp
     rightCollapsed: panelLayout.rightCollapsed,
     activeCompPathHydrated,
     domEditSelection: domEditSession.domEditSelection,
+    remoteSelection: domEditSession.remoteSelection,
     domEditGroupSelections: domEditSession.domEditGroupSelections,
     applyMarqueeSelection: domEditSession.applyMarqueeSelection,
     buildDomSelectionFromTarget: domEditSession.buildDomSelectionFromTarget,

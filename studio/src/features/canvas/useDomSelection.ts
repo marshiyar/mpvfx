@@ -20,6 +20,7 @@ import {
 import { reapplyPositionEditsAfterSeek } from "./manualEdits";
 import { useStudioTestHooks } from "../../app/useStudioTestHooks";
 import { logSelect } from "../../lib/selectDebug";
+import { useRemotePreviewSelection } from "./useRemotePreviewSelection";
 import { announceTimelineSelection as announceSelectionToTimeline } from "./domSelectionTimelineMirror";
 import type {
   ApplyDomSelectionOptions,
@@ -65,6 +66,10 @@ export function useDomSelection({
   const domEditGroupSelectionsRef = useRef<DomEditSelection[]>(domEditGroupSelections);
   const domEditHoverSelectionRef = useRef<DomEditSelection | null>(domEditHoverSelection);
   const activeGroupElementRef = useRef<HTMLElement | null>(activeGroupElement);
+  const { remoteSelection, setRemoteSelection } = useRemotePreviewSelection({
+    previewIframeRef, setDomEditSelection, setDomEditGroupSelections,
+    domEditSelectionRef, domEditGroupSelectionsRef, setRightCollapsed,
+  });
   const compositionIdentityRef = useRef({ activeCompPath, projectId });
   // Monotonic token so a rapid A->B timeline-clip select can't let A's slower async
   // resolution land after B and restore the wrong selection.
@@ -113,6 +118,7 @@ export function useDomSelection({
   const applyDomSelection = useCallback(
     // fallow-ignore-next-line complexity
     (selection: DomEditSelection | null, options?: ApplyDomSelectionOptions) => {
+      setRemoteSelection(null);
       if (!selection) {
         logSelect("clear", { hadGroup: domEditGroupSelectionsRef.current.length });
         domEditSelectionRef.current = null;
@@ -553,6 +559,7 @@ export function useDomSelection({
   return {
     // State
     domEditSelection,
+    remoteSelection,
     domEditGroupSelections,
     domEditHoverSelection,
     activeGroupElement,

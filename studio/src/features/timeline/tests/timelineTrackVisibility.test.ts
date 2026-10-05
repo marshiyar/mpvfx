@@ -312,6 +312,39 @@ describe("toggleTimelineTrackHidden", () => {
 });
 
 describe("toggleTimelineElementHidden", () => {
+  it("reloads an isolated preview only after the source and history commit succeeds", async () => {
+    const iframe = document.createElement("iframe");
+    Object.defineProperty(iframe, "contentDocument", { value: null });
+    const files = new Map([["index.html", '<div id="hero" data-start="0" data-duration="2"></div>']]);
+    stubProjectFiles(files);
+    const hero = element({ id: "hero", key: "index.html:#hero", domId: "hero" });
+    const reloadPreview = vi.fn();
+    const writes = new Map<string, string>();
+    const input = {
+      projectId: "project-1",
+      activeCompPath: "index.html",
+      timelineElements: [hero],
+      elementKey: hero.key!,
+      hidden: true,
+      previewIframe: iframe,
+      writeProjectFile: async (path: string, content: string) => { writes.set(path, content); },
+      recordEdit: vi.fn(async () => { expect(reloadPreview).not.toHaveBeenCalled(); }),
+      domEditSaveTimestampRef: { current: 0 },
+      pendingTimelineEditPathRef: { current: new Set<string>() },
+      reloadPreview,
+    };
+    await toggleTimelineElementHidden(input);
+    expect(writes.get("index.html")).toContain('data-hidden=""');
+    expect(reloadPreview).toHaveBeenCalledTimes(1);
+
+    reloadPreview.mockClear();
+    await expect(toggleTimelineElementHidden({
+      ...input,
+      writeProjectFile: async () => { throw new Error("write failed"); },
+    })).rejects.toThrow("write failed");
+    expect(reloadPreview).not.toHaveBeenCalled();
+  });
+
   it("persists data-hidden for only the selected element and updates the player store", async () => {
     const iframe = document.createElement("iframe");
     document.body.append(iframe);

@@ -17,6 +17,7 @@ import type {
   MutableRef,
   UseTimelineElementVisibilityEditingInput,
 } from "./timelineTrackVisibility";
+import { reloadIsolatedGroupPreview } from "./reloadIsolatedGroupPreview";
 
 /** Direct DOM write on the group element for the gesture in progress — no
  *  file write, no history entry (mirrors FxParamRow's live/commit split). */
@@ -218,10 +219,12 @@ export function useSetAudioGroupAttribute({
   nativeProjectEditing,
   nativeDocumentRef,
   editQueueRef,
+  reloadPreview,
 }: UseTimelineElementVisibilityEditingInput & {
   nativeProjectEditing?: NativeTimelineEditingDependencies;
   nativeDocumentRef?: MutableRef<NativeProjectDocument | null>;
   editQueueRef?: MutableRef<Promise<unknown>>;
+  reloadPreview?: () => void;
 }): {
   setLive: (groupId: string, attr: string, value: string | null) => void;
   setQuiet: (groupId: string, attr: string, value: string | null, label: string) => Promise<void>;
@@ -284,6 +287,7 @@ export function useSetAudioGroupAttribute({
           pendingTimelineEditPathRef.current.add(NATIVE_PROJECT_DOCUMENT_PATH);
           patchLiveGroupAttribute(previewIframeRef.current, groupId, attr, value);
           syncStoredGroupAttribute(groupId, attr, value);
+          reloadIsolatedGroupPreview(previewIframeRef.current, reloadPreview);
         } catch (error) {
           patchLiveGroupAttribute(previewIframeRef.current, groupId, attr, previous);
           syncStoredGroupAttribute(groupId, attr, previous);
@@ -306,6 +310,7 @@ export function useSetAudioGroupAttribute({
           pendingTimelineEditPathRef,
         });
         syncStoredGroupAttribute(groupId, attr, value);
+        reloadIsolatedGroupPreview(previewIframeRef.current, reloadPreview);
       } catch (error) {
         // `persistElementAttribute` leaves the live DOM at the previous value
         // however it failed — it unwinds a failed save, and an unresolvable
@@ -335,6 +340,7 @@ export function useSetAudioGroupAttribute({
       nativeProjectEditing,
       nativeDocumentRef,
       editQueueRef,
+      reloadPreview,
     ],
   );
   return { setLive, setQuiet };

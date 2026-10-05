@@ -51,56 +51,12 @@ import {
   activeKeyframePercentageForAnimation,
   clearActiveKeyframeTarget,
 } from "../Keyframe/activeKeyframeIdentity";
-
-const IDENTITY_ONE_PROPS = new Set(["opacity", "autoAlpha", "scale", "scaleX", "scaleY"]);
-
-/** Build identity (zero / one) values for each property in `source`. */
-function synthesizeIdentityProps(
-  source: Record<string, number | string>,
-): Record<string, number | string> {
-  const id: Record<string, number | string> = {};
-  for (const [k, v] of Object.entries(source)) {
-    if (typeof v === "number") id[k] = IDENTITY_ONE_PROPS.has(k) ? 1 : 0;
-    else id[k] = v;
-  }
-  return id;
-}
-
-/**
- * The element's box before the resize draft ran, in CSS pixels.
- *
- * Prefers the measurement the draft recorded. Falls back to the inline style it
- * saved for restoring, which is a real value for the elements that carry one,
- * and null when neither says anything.
- */
-function originalBoxSize(
-  el: HTMLElement | null,
-  measuredAttr: string,
-  inlineProperty: "width" | "height",
-): number | null {
-  const measured = Number.parseFloat(el?.getAttribute(measuredAttr) ?? "");
-  if (Number.isFinite(measured) && measured > 0) return measured;
-  const inline = Number.parseFloat(
-    el?.getAttribute(`data-hf-studio-original-${inlineProperty}`) ?? "",
-  );
-  return Number.isFinite(inline) && inline > 0 ? inline : null;
-}
-
-/**
- * Whether this tween already states scale as `scaleX`/`scaleY`.
- *
- * Both forms are legal, and either alone is fine. A tween holding both is not:
- * GSAP animates each property name independently, so the longhands run
- * alongside the shorthand and win, which silently discards whatever the
- * shorthand was set to.
- */
-function tweenUsesScaleLonghands(anim: GsapAnimation | null): boolean {
-  const isLonghand = (name: string) => name === "scaleX" || name === "scaleY";
-  const inKeyframes = (anim?.keyframes?.keyframes ?? []).some((frame) =>
-    Object.keys(frame.properties ?? {}).some(isLonghand),
-  );
-  return inKeyframes || Object.keys(anim?.properties ?? {}).some(isLonghand);
-}
+import {
+  IDENTITY_ONE_PROPS,
+  originalBoxSize,
+  synthesizeIdentityProps,
+  tweenUsesScaleLonghands,
+} from "./gsapResizeScaleHelpers";
 
 // ── Resize intercept ──────────────────────────────────────────────────────
 
@@ -124,6 +80,22 @@ export async function tryGsapResizeIntercept(
     resizeGroup === "scale" ? new Set(["scale", "scaleX", "scaleY"]) : new Set(["width", "height"]);
   const editability = directEditOutcomeForProperties(allKnownAnimations, resizeProperties);
   if (editability.status === "blocked") return editability;
+  // A scale tween needs the exact pre-draft CSS box to turn the dropped pixel
+  // size into a durable scale. Across an isolated preview boundary the old
+  // 200px fallback would silently persist a wrong scale; refuse before a
+  // possible mixed-tween split in resolveGroupTween mutates source.
+  const animatedScaleRoute = hasScaleGroup && allKnownAnimations.some(
+    (animation) => animation.propertyGroup === "scale" && !isInstantHold(animation),
+  );
+  let scaleDocument: Document | null = null;
+  if (animatedScaleRoute && iframe) {
+    try {
+      scaleDocument = iframe.contentDocument;
+    } catch {
+      return { status: "blocked", reason: "preview-unavailable" };
+    }
+    if (!scaleDocument) return { status: "blocked", reason: "preview-unavailable" };
+  }
   const workingAnimations = animations.length > 0 ? animations : fetchedAnimations;
   // The initial ownership fetch already supplied the complete parse. Only retain
   // the fetch callback when a legacy mixed tween may be split and must then be
@@ -234,7 +206,12 @@ export async function tryGsapResizeIntercept(
   if (resizeGroup === "scale") {
     // Iframe-realm element — instanceof HTMLElement fails across realms; the
     // selector targets composition elements, and every use below is duck-typed.
-    const el = iframe?.contentDocument?.querySelector(selector ?? "") as HTMLElement | null;
+    let el: HTMLElement | null = null;
+    try {
+      el = scaleDocument?.querySelector(selector ?? "") as HTMLElement | null;
+    } catch {
+      return { status: "blocked", reason: "source-uneditable" };
+    }
     // The resize draft modifies el.style.width/height, so read the ORIGINAL
     // dimensions saved by the draft system before it ran.
     //

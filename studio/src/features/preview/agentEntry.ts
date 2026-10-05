@@ -1,4 +1,4 @@
-import { projectIdFromPreviewHost } from "../../shared/desktopPreviewOrigin";
+import { projectIdFromPreviewHost } from "../../../shared/desktopPreviewOrigin";
 import { installPreviewAgent } from "./agent";
 
 // This bundle is appended only to authored preview HTML. Keep a second guard

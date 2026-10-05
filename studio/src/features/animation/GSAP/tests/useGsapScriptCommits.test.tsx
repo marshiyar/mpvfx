@@ -366,6 +366,7 @@ function renderCommitHook(
   options: {
     writeProjectFile?: (path: string, content: string) => Promise<void>;
     projectIdRef?: { current: string | null };
+    iframe?: HTMLIFrameElement;
   } = {},
 ) {
   const reloadPreview = vi.fn();
@@ -381,7 +382,7 @@ function renderCommitHook(
     captured.api = useGsapScriptCommits({
       projectIdRef,
       activeCompPath: "index.html",
-      previewIframeRef: { current: FAKE_IFRAME },
+      previewIframeRef: { current: options.iframe ?? FAKE_IFRAME },
       editHistory: { recordEdit },
       domEditSaveTimestampRef: { current: 0 },
       reloadPreview,
@@ -626,6 +627,29 @@ describe("runCommit — instantPatch wiring", () => {
     expect(deps.forceReloadSdkSession).toHaveBeenCalledTimes(1);
     expect(deps.reloadPreview).not.toHaveBeenCalled();
     expect(deps.onCacheInvalidate).not.toHaveBeenCalled();
+  });
+
+  it("retains a completed GSAP write when the isolated preview denies Document access", async () => {
+    usePlayerStore.setState({ keyframeCache: new Map(), gsapAnimations: new Map(), elements: [] });
+    mockFetchResult({ parsed: { animations: [parsedKeyframeAnimation] } as MutationResult["parsed"] });
+    const iframe = Object.defineProperty({}, "contentDocument", {
+      get: () => { throw new DOMException("cross origin", "SecurityError"); },
+    }) as HTMLIFrameElement;
+    const deps = renderCommitHook({ iframe });
+
+    await act(async () => {
+      await deps.api.commitMutation(
+        selection,
+        { type: "move-keyframe", targetSelector: "#a", toPercentage: 50 },
+        { label: "Move keyframe", skipReload: true },
+      );
+    });
+
+    expect(deps.recordEdit).toHaveBeenCalledTimes(1);
+    expect(usePlayerStore.getState().keyframeCache.get("index.html#a")?.keyframes).toEqual([
+      expect.objectContaining({ percentage: 50, properties: { x: 100 } }),
+    ]);
+    expect(deps.showToast).not.toHaveBeenCalledWith(expect.stringMatching(/failed/i), "error");
   });
 
   it("does not publish parsed keyframes for an unchanged skipReload response", async () => {

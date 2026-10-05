@@ -25,6 +25,8 @@ export interface NativeProjectRuntimeOptions {
   onBindingError?: (error: Error) => void;
   clock: NativeProjectRuntimeClock;
   getPlaybackRate?: () => number;
+  /** The isolated preview agent observes the same transport controls directly. */
+  useBaseAdapter?: boolean;
 }
 
 export interface NativeProjectRuntime {
@@ -172,7 +174,7 @@ export function installNativeProjectRuntime(options: NativeProjectRuntimeOptions
     clips,
     clock: options.clock,
     getPlaybackRate: options.getPlaybackRate,
-    baseAdapter: options.window.__player ?? null,
+    baseAdapter: options.useBaseAdapter === false ? null : options.window.__player ?? null,
   }); } catch (error) { releaseDomBindings(); throw error; }
   options.window.__studioNativePlayer = player;
 

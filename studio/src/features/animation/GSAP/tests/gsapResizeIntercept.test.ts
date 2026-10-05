@@ -75,6 +75,19 @@ function keyframedScaleFixture(): GsapAnimation {
   } as unknown as GsapAnimation;
 }
 
+it("blocks animated scale resize across an isolated preview before changing source", async () => {
+  const el = makeGradedElement();
+  const selection = { id: "clip", selector: "#clip", element: el } as DomEditSelection;
+  const iframe = Object.defineProperty({}, "contentDocument", {
+    get: () => { throw new DOMException("cross origin", "SecurityError"); },
+  }) as HTMLIFrameElement;
+  const commitMutation = vi.fn();
+  await expect(tryGsapResizeIntercept(
+    selection, { width: 800, height: 450 }, [scaleFromTween()], iframe, commitMutation,
+  )).resolves.toEqual({ status: "blocked", reason: "preview-unavailable" });
+  expect(commitMutation).not.toHaveBeenCalled();
+});
+
 // Resize/rotation hold tests intentionally pin the same no-conversion contract.
 // fallow-ignore-next-line code-duplication
 it("updates a duration-zero size hold in place instead of converting it to keyframes", async () => {

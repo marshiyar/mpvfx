@@ -185,6 +185,14 @@ function syncCommittedGsapMutation({
   // later SDK-routed edit doesn't serialize the pre-write doc and revert this.
   forceReloadSdkSession?.();
   if (result.parsed?.animations) {
+    let liveDocument: Document | null = null;
+    try {
+      liveDocument = iframe?.contentDocument ?? null;
+    } catch {
+      // The authored frame lives on a separate origin. Whole-id AST targets
+      // still populate without a DOM; class/descendant targets await a bounded
+      // preview observation instead of converting a completed write to error.
+    }
     updateKeyframeCacheFromParsed(
       result.parsed.animations,
       targetPath,
@@ -192,7 +200,7 @@ function syncCommittedGsapMutation({
       mutation,
       // The live preview document is what resolves a class / descendant tween to
       // the elements it really animates; without it only whole-id selectors do.
-      iframe?.contentDocument,
+      liveDocument,
     );
   }
   // A multi-write action still needs its authoritative parsed state before the

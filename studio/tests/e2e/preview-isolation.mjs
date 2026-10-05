@@ -17,7 +17,7 @@ await writeFile(join(project, "index.html"), `<!doctype html>
     style="position:absolute;left:80px;top:80px;width:200px;height:100px;background:#2469bd">Preview fixture</div>
 </main>
 <script>
-  window.__timelines = { main: gsap.timeline({ paused: true }) };
+  window.__timelines = { main: gsap.timeline({ paused: true }).to('#attack-clip', { x: 100, duration: 4 }, 0) };
   window.__attack = { ran: true };
   try { window.__attack.bridge = top.mpvfx.request({ id: 'attack', path: '/api/projects', method: 'GET', headers: [] }); }
   catch (error) { window.__attack.bridge = error.name; }
@@ -40,7 +40,14 @@ await writeFile(join(project, ".studio/project.json"), JSON.stringify({
   assets: [{ id: "asset:attack", kind: "element", name: "Preview fixture", durationFrames: 120 }],
   sequence: { id: "sequence:main", name: "Main", tracks: [{ id: "track:one", kind: "mixed",
     clips: [{ id: "clip:attack", assetId: "asset:attack", binding: { sourceFile: "index.html", domId: "attack-clip", hfId: "hf-attack" },
-      startFrame: 0, durationFrames: 120, sourceInFrame: 0, effects: [], parameterTracks: [] }] }] },
+      startFrame: 0, durationFrames: 120, sourceInFrame: 0, effects: [], parameterTracks: [{
+        schemaVersion: 1, id: "track:opacity", parameterId: "transform.opacity", valueType: "number",
+        frameRate: { numerator: 30, denominator: 1 },
+        keyframes: [
+          { id: "opacity:start", frame: 0, value: 1, outgoing: { type: "linear" } },
+          { id: "opacity:end", frame: 90, value: 0.4, outgoing: { type: "linear" } },
+        ],
+      }] }] }] },
 }, null, 2));
 
 let log = "";
@@ -165,6 +172,19 @@ try {
   evidence.playback = { seekTime, playingTime };
   await page.mouse.click(clipBox.x + clipBox.width / 2, clipBox.y + clipBox.height / 2);
   await page.waitForSelector('[data-testid="isolated-preview-selection"]', { timeout: 10000 });
+  await page.waitForSelector('[data-testid="remote-inspector"]', { timeout: 10000 });
+  evidence.inspector = await page.$eval('[data-testid="remote-inspector"]', element => ({
+    heading: element.querySelector("h2")?.textContent,
+    textEditable: !!element.querySelector('textarea[aria-label="Text"]'),
+  }));
+  await new Promise(done => setTimeout(done, 650));
+  evidence.inspector.falseSelectionWarnings = await page.evaluate(() =>
+    [...document.querySelectorAll('[role="alert"], [role="status"]')]
+      .filter(element => element.textContent?.includes("not available in the preview yet"))
+      .map(element => element.textContent));
+  if (evidence.inspector.falseSelectionWarnings.length) {
+    throw new Error("Available isolated selection produced a false missing-preview notice");
+  }
   evidence.selection = await page.$eval('[data-testid="isolated-preview-selection"]', element => {
     const rect = element.getBoundingClientRect();
     return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
@@ -207,15 +227,100 @@ try {
     return x > 30 ? document : null;
   }, 10000);
   evidence.undoRedo = { undoRevision: undone.revision, redoRevision: redone.revision };
+  await page.screenshot({ path: join(root, "editor-before-reopen.png") });
   await page.reload({ waitUntil: "domcontentloaded" });
+  await page.evaluate(() => { location.hash = "#project/MpVFX"; });
+  const reopenedPreview = await waitFor(() => page.frames().find(frame =>
+    frame.url().includes("/api/projects/MpVFX/preview")));
+  const reopenedClip = await waitFor(async () => {
+    const element = await reopenedPreview.$("#attack-clip");
+    return element && await element.boundingBox() ? element : null;
+  }, 10000);
+  const reopenedBox = await reopenedClip.boundingBox();
+  if (!reopenedBox) throw new Error("Reopened clip has no visible bounds");
   evidence.reopenedPosition = JSON.parse(await readFile(nativePath, "utf8")).sequence.tracks[0].clips[0].staticParameters;
-  await page.screenshot({ path: join(root, "editor.png") });
-  await writeFile(join(root, "evidence.json"), JSON.stringify(evidence, null, 2));
-  console.log(JSON.stringify(evidence));
+  evidence.reopenedClip = { x: reopenedBox.x, y: reopenedBox.y, width: reopenedBox.width, height: reopenedBox.height };
+  await waitFor(() => page.evaluate(() => document.querySelector("hyperframes-player")?.ready), 10000);
+  await page.evaluate(() => document.querySelector("hyperframes-player").seek(2));
+  await new Promise(done => setTimeout(done, 150));
+  const reopenedSeekBox = await reopenedClip.boundingBox();
+  if (!reopenedSeekBox) throw new Error("Native clip disappeared after seek");
+  evidence.reopenedSeekClip = { x: reopenedSeekBox.x, y: reopenedSeekBox.y };
+  evidence.reopenedSeekOpacity = await reopenedPreview.evaluate(() =>
+    Number.parseFloat(getComputedStyle(document.getElementById("attack-clip")).opacity));
+  evidence.nativeFrameState = await reopenedPreview.evaluate(() => ({
+    installed: !!window.__studioNativePlayer,
+    binding: document.getElementById("attack-clip")?.getAttribute("data-studio-clip-id"),
+    transform: document.getElementById("attack-clip")?.style.transform,
+  }));
+  evidence.editorStatusText = await page.evaluate(() => document.body.innerText.slice(-1500));
+  await page.screenshot({ path: join(root, "editor-after-reopen.png") });
+  if (reopenedBox.x < clipBox.x + 25 || reopenedBox.y < clipBox.y + 12) {
+    throw new Error("Native move persisted but did not appear after preview reopen");
+  }
+  if (Math.abs(reopenedSeekBox.x - reopenedBox.x) > 2) {
+    throw new Error("Authored GSAP seek overrode the native-owned x position");
+  }
+  if (Math.abs(evidence.reopenedSeekOpacity - 0.6) > 0.05) {
+    throw new Error("Baked native opacity keyframes did not render at seek frame 60");
+  }
   if (attack.bridge !== "SecurityError" || attack.parentDom !== "SecurityError" ||
       nestedAttack.bridge !== "SecurityError" || editorResource !== 403 || nestedEditor !== null) {
     throw new Error("Authored preview reached an editor capability or active editor-origin resource");
   }
+  await page.mouse.click(reopenedSeekBox.x + reopenedSeekBox.width / 2, reopenedSeekBox.y + reopenedSeekBox.height / 2);
+  await page.waitForSelector('[data-testid="remote-inspector"] textarea[aria-label="Text"]', { timeout: 10000 });
+  await page.click('[data-testid="remote-inspector"] textarea[aria-label="Text"]');
+  // CDP's synthetic Meta+A is not consistently delivered to Electron text
+  // controls on this host. Select the focused field through its DOM API, then
+  // type through CDP to exercise the real React input and save path.
+  await page.$eval('[data-testid="remote-inspector"] textarea[aria-label="Text"]', element => element.select());
+  await page.keyboard.type("Edited preview");
+  await page.click('[data-testid="remote-inspector"] input[aria-label="Color"]');
+  await page.keyboard.type("#ff0000");
+  await page.$eval('[data-testid="remote-inspector"] button', button => button.click());
+  evidence.inspector.savedHtml = await waitFor(async () => {
+    const html = await readFile(join(project, "index.html"), "utf8");
+    return html.includes(">Edited preview</div>") && html.includes("#ff0000") ? true : null;
+  }, 10000);
+  evidence.inspector.panelAfterSave = await page.$eval('[data-testid="remote-inspector"] textarea[aria-label="Text"]',
+    element => element.value);
+  if (evidence.inspector.panelAfterSave !== "Edited preview") {
+    throw new Error("Inspector selection or edited field was lost after save");
+  }
+  evidence.inspector.liveText = await reopenedPreview.$eval("#attack-clip", element => element.textContent);
+  if (evidence.inspector.liveText !== "Edited preview") {
+    throw new Error("Inspector saved source without updating the live preview");
+  }
+  await page.click('[data-testid="remote-inspector"] h2');
+  await page.keyboard.down("Meta");
+  await page.keyboard.press("z");
+  await page.keyboard.up("Meta");
+  evidence.inspector.undoRestored = await waitFor(async () => {
+    const html = await readFile(join(project, "index.html"), "utf8");
+    return html.includes(">Preview fixture</div>") && !html.includes("#ff0000") ? true : null;
+  }, 10000);
+  await page.keyboard.down("Meta");
+  await page.keyboard.down("Shift");
+  await page.keyboard.press("z");
+  await page.keyboard.up("Shift");
+  await page.keyboard.up("Meta");
+  evidence.inspector.redoRestored = await waitFor(async () => {
+    const html = await readFile(join(project, "index.html"), "utf8");
+    return html.includes(">Edited preview</div>") && html.includes("#ff0000") ? true : null;
+  }, 10000);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.evaluate(() => { location.hash = "#project/MpVFX"; });
+  const inspectorReopened = await waitFor(() => page.frames().find(frame =>
+    frame.url().includes("/api/projects/MpVFX/preview")));
+  evidence.inspector.reopenedText = await waitFor(async () =>
+    inspectorReopened.$eval("#attack-clip", element => element.textContent).catch(() => null));
+  if (evidence.inspector.reopenedText !== "Edited preview") {
+    throw new Error("Inspector edits did not survive project reopen");
+  }
+  await page.screenshot({ path: join(root, "editor-inspector-after-save.png") });
+  await writeFile(join(root, "evidence.json"), JSON.stringify(evidence, null, 2));
+  console.log(JSON.stringify(evidence));
 } finally {
   browser?.disconnect();
   child.kill("SIGTERM");

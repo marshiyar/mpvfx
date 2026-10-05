@@ -3,23 +3,19 @@ import {
   scopedElementKey,
 } from "../animation/GSAP/gsapKeyframeCacheHelpers";
 import { memo, useMemo, useRef, useState } from "react";
-import { Move } from "../../icons/SystemIcons";
 import { InspectorHeaderActions } from "./InspectorHeaderActions";
 import { useStudioShellContext } from "../../app/StudioContext";
 import { readStudioBoxSize, readStudioPathOffset, readStudioRotation } from "../canvas/manualEdits";
 import {
   buildElementInfoText,
   EMPTY_STYLES,
-  formatTransformValue,
   parsePxMetricValue,
-  RESPONSIVE_GRID,
   readGsapRuntimeValuesForPanel,
   readGsapBorderRadiusForPanel,
   isSelectedElementHidden,
   selectionIdentityKey,
 } from "./propertyPanelHelpers";
 import { resetDesignWithAnimatedLayout } from "./propertyPanelDesignReset";
-import { MetricField, Section } from "./propertyPanelPrimitives";
 import { createTransformCommitHandlers } from "./propertyPanelTransformCommit";
 import { resolveAnimIdForProperty } from "../../player/components/TimelinePropertyLanes";
 import { resolveEditingSections } from "@hyperframes/core/editing";
@@ -28,11 +24,8 @@ import { ColorGradingSection } from "./propertyPanelColorGradingSection";
 import { domEditSelectionToFacts } from "../canvas/domEditingLayers";
 import { TextSection, StyleSections } from "./propertyPanelSections";
 import { GsapAnimationSection } from "../animation/GSAP/GsapAnimationSection";
-import { PropertyPanel3dTransform } from "./propertyPanel3dTransform";
-import { KeyframeNavigation } from "../animation/Keyframe/KeyframeNavigation";
 import { STUDIO_FLAT_INSPECTOR_ENABLED } from "../canvas/manualEditingAvailability";
 import { PropertyPanelFlat } from "./PropertyPanelFlat";
-import { createGsapLivePreview } from "../animation/GSAP/gsapLivePreview";
 import { usePlayerStore } from "../../player/index";
 import { useLivePlayheadTime } from "../preview/useLivePlayheadTime";
 import { TimingSection } from "./propertyPanelTimingSection";
@@ -42,6 +35,9 @@ import { PropertyPanelEmptyState } from "./PropertyPanelEmptyState";
 import { DesignPanelInputProvider } from "./DesignPanelInputContext";
 import { isAudioDomElement } from "../timeline/timelineInspector";
 import { projectNativeKeyframeUi } from "../../../shared/project/nativeKeyframeUiProjection";
+import { useDomEditActionsContextOptional, useDomEditSelectionContextOptional } from "../canvas/DomEditContext";
+import { RemoteInspectorPanel } from "./RemoteInspectorPanel";
+import { PropertyPanelClassicLayout } from "./PropertyPanelClassicLayout";
 
 // Re-export helpers that external consumers import from this module
 export {
@@ -59,6 +55,11 @@ export {
 
 // fallow-ignore-next-line complexity
 export const PropertyPanel = memo(function PropertyPanel(props: PropertyPanelProps) {
+  const remoteSelection = useDomEditSelectionContextOptional()?.remoteSelection ?? null;
+  const remoteActions = useDomEditActionsContextOptional();
+  const remoteCommit = remoteActions?.nativeDocument ? remoteActions.commitRemoteInspectorEdit : undefined;
+  const loadRemoteGsapAnimations = remoteActions?.loadRemoteGsapAnimations;
+  const commitRemoteGsapProperty = remoteActions?.commitRemoteGsapProperty;
   const {
     projectId,
     projectDir,
@@ -205,6 +206,8 @@ export const PropertyPanel = memo(function PropertyPanel(props: PropertyPanelPro
   };
 
   if (!element) {
+    if (remoteSelection && (remoteCommit || loadRemoteGsapAnimations)) return <RemoteInspectorPanel selection={remoteSelection}
+      commit={remoteCommit} loadGsap={loadRemoteGsapAnimations} commitGsap={commitRemoteGsapProperty} />;
     return (
       <PropertyPanelEmptyState
         flat={STUDIO_FLAT_INSPECTOR_ENABLED}
@@ -493,184 +496,25 @@ export const PropertyPanel = memo(function PropertyPanel(props: PropertyPanelPro
           />
         )}
 
-        {sections.layout && (
-          <Section title="Layout" icon={<Move size={15} />}>
-            <div className={RESPONSIVE_GRID}>
-              <div className="flex items-center gap-1">
-                <div className="flex-1">
-                  <MetricField
-                    label="X"
-                    value={formatTransformValue(displayX)}
-                    disabled={manualOffsetEditingDisabled}
-                    scrub
-                    onCommit={(next) => commitManualOffset("x", next)}
-                  />
-                </div>
-                {keyframeNavigationId && (
-                  <KeyframeNavigation
-                    property="x"
-                    keyframes={navKeyframes}
-                    currentPercentage={currentPct}
-                    currentFrame={nativeProjection?.clipLocalFrame}
-                    clipDuration={elDuration}
-                    onSeek={seekFromKfPct}
-                    onAddKeyframe={() =>
-                      (onCommitKeyframeProperty ?? onCommitAnimatedProperty) &&
-                      void (onCommitKeyframeProperty ?? onCommitAnimatedProperty)!(element, "x", displayX)
-                    }
-                    onRemoveKeyframe={(pct, animationId) =>
-                      handleRemoveKeyframe(animationId ?? animIdForProp("x"), pct)
-                    }
-                    onConvertToKeyframes={() => handleConvertOrAddKeyframe("x", displayX)}
-                  />
-                )}
-              </div>
-              <div className="flex items-center gap-1">
-                <div className="flex-1">
-                  <MetricField
-                    label="Y"
-                    value={formatTransformValue(displayY)}
-                    disabled={manualOffsetEditingDisabled}
-                    scrub
-                    onCommit={(next) => commitManualOffset("y", next)}
-                  />
-                </div>
-                {keyframeNavigationId && (
-                  <KeyframeNavigation
-                    property="y"
-                    keyframes={navKeyframes}
-                    currentPercentage={currentPct}
-                    currentFrame={nativeProjection?.clipLocalFrame}
-                    clipDuration={elDuration}
-                    onSeek={seekFromKfPct}
-                    onAddKeyframe={() =>
-                      (onCommitKeyframeProperty ?? onCommitAnimatedProperty) &&
-                      void (onCommitKeyframeProperty ?? onCommitAnimatedProperty)!(element, "y", displayY)
-                    }
-                    onRemoveKeyframe={(pct, animationId) =>
-                      handleRemoveKeyframe(animationId ?? animIdForProp("y"), pct)
-                    }
-                    onConvertToKeyframes={() => handleConvertOrAddKeyframe("y", displayY)}
-                  />
-                )}
-              </div>
-              <div className="flex items-center gap-1">
-                <div className="flex-1">
-                  <MetricField
-                    label="W"
-                    value={formatTransformValue(displayW)}
-                    disabled={manualSizeEditingDisabled}
-                    scrub
-                    onCommit={(next) => commitManualSize("width", next)}
-                  />
-                </div>
-                {keyframeNavigationId && (
-                  <KeyframeNavigation
-                    property="width"
-                    keyframes={navKeyframes}
-                    currentPercentage={currentPct}
-                    currentFrame={nativeProjection?.clipLocalFrame}
-                    clipDuration={elDuration}
-                    onSeek={seekFromKfPct}
-                    onAddKeyframe={() =>
-                      (onCommitKeyframeProperty ?? onCommitAnimatedProperty) &&
-                      void (onCommitKeyframeProperty ?? onCommitAnimatedProperty)!(element, "width", displayW)
-                    }
-                    onRemoveKeyframe={(pct, animationId) =>
-                      handleRemoveKeyframe(animationId ?? animIdForProp("width"), pct)
-                    }
-                    onConvertToKeyframes={() => handleConvertOrAddKeyframe("width", displayW)}
-                  />
-                )}
-              </div>
-              <div className="flex items-center gap-1">
-                <div className="flex-1">
-                  <MetricField
-                    label="H"
-                    value={formatTransformValue(displayH)}
-                    disabled={manualSizeEditingDisabled}
-                    scrub
-                    onCommit={(next) => commitManualSize("height", next)}
-                  />
-                </div>
-                {keyframeNavigationId && (
-                  <KeyframeNavigation
-                    property="height"
-                    keyframes={navKeyframes}
-                    currentPercentage={currentPct}
-                    currentFrame={nativeProjection?.clipLocalFrame}
-                    clipDuration={elDuration}
-                    onSeek={seekFromKfPct}
-                    onAddKeyframe={() =>
-                      (onCommitKeyframeProperty ?? onCommitAnimatedProperty) &&
-                      void (onCommitKeyframeProperty ?? onCommitAnimatedProperty)!(element, "height", displayH)
-                    }
-                    onRemoveKeyframe={(pct, animationId) =>
-                      handleRemoveKeyframe(animationId ?? animIdForProp("height"), pct)
-                    }
-                    onConvertToKeyframes={() => handleConvertOrAddKeyframe("height", displayH)}
-                  />
-                )}
-              </div>
-              <div className="flex items-center gap-1">
-                <div className="flex-1">
-                  <MetricField
-                    label="R"
-                    value={formatTransformValue(displayR, "°")}
-                    disabled={manualRotationEditingDisabled}
-                    onCommit={(next) => commitManualRotation(next.replace("°", ""))}
-                  />
-                </div>
-                {keyframeNavigationId && (
-                  <KeyframeNavigation
-                    property="rotation"
-                    keyframes={navKeyframes}
-                    currentPercentage={currentPct}
-                    currentFrame={nativeProjection?.clipLocalFrame}
-                    clipDuration={elDuration}
-                    onSeek={seekFromKfPct}
-                    onAddKeyframe={() =>
-                      (onCommitKeyframeProperty ?? onCommitAnimatedProperty) &&
-                      void (onCommitKeyframeProperty ?? onCommitAnimatedProperty)!(element, "rotation", displayR)
-                    }
-                    onRemoveKeyframe={(pct, animationId) =>
-                      handleRemoveKeyframe(animationId ?? animIdForProp("rotation"), pct)
-                    }
-                    onConvertToKeyframes={() => handleConvertOrAddKeyframe("rotation", displayR)}
-                  />
-                )}
-              </div>
-            </div>
-            <PropertyPanel3dTransform
-              gsapRuntimeValues={gsap3dValues}
-              gsapAnimId={gsapAnimId}
-              resolveAnimIdForProp={animIdForProp}
-              gsapKeyframes={navKeyframes}
-              currentPct={currentPct}
-              currentFrame={nativeProjection?.clipLocalFrame}
-              elStart={elStart}
-              elDuration={elDuration}
-              element={element}
-              onCommitAnimatedProperty={onCommitAnimatedProperty}
-              onCommitAnimatedProperties={onCommitAnimatedProperties}
-              onSeekToTime={onSeekToTime}
-              onRemoveKeyframe={onRemoveKeyframe}
-              onConvertToKeyframes={onConvertToKeyframes}
-              onLivePreviewProps={createGsapLivePreview(iframeRef)}
-            />
-            <div className="mt-3">
-              <div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-neutral-600">
-                Stacking
-              </div>
-              <MetricField
-                label="Z-index"
-                value={String(parseInt(styles["z-index"] || "auto", 10) || 0)}
-                scrub
-                onCommit={(next) => onSetStyle("z-index", next)}
-              />
-            </div>
-          </Section>
-        )}
+        {sections.layout && <PropertyPanelClassicLayout
+          element={element} styles={styles}
+          manualOffsetEditingDisabled={manualOffsetEditingDisabled}
+          manualSizeEditingDisabled={manualSizeEditingDisabled}
+          manualRotationEditingDisabled={manualRotationEditingDisabled}
+          displayX={displayX} displayY={displayY} displayW={displayW} displayH={displayH} displayR={displayR}
+          commitManualOffset={commitManualOffset} commitManualSize={commitManualSize}
+          commitManualRotation={commitManualRotation} keyframeNavigationId={keyframeNavigationId}
+          navKeyframes={navKeyframes} currentPct={currentPct} currentFrame={nativeProjection?.clipLocalFrame}
+          elDuration={elDuration} elStart={elStart} seekFromKfPct={seekFromKfPct}
+          handleRemoveKeyframe={handleRemoveKeyframe} animIdForProp={animIdForProp}
+          handleConvertOrAddKeyframe={handleConvertOrAddKeyframe}
+          onCommitKeyframeProperty={onCommitKeyframeProperty} onCommitAnimatedProperty={onCommitAnimatedProperty}
+          transform3dProps={{
+            gsapRuntimeValues: gsap3dValues, gsapAnimId, resolveAnimIdForProp: animIdForProp,
+            gsapKeyframes: navKeyframes, currentPct, currentFrame: nativeProjection?.clipLocalFrame,
+            elStart, elDuration, element, onCommitAnimatedProperty, onCommitAnimatedProperties,
+            onSeekToTime, onRemoveKeyframe, onConvertToKeyframes,
+          }} iframeRef={iframeRef} onSetStyle={onSetStyle} />}
 
         {!nativeKeyframeTarget &&
           onUpdateGsapProperty &&

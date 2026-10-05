@@ -70,7 +70,7 @@ describe("PreviewAgentClient", () => {
     const request = post.mock.calls[1]![0] as { id: number; token: string };
     const element = {
       handle: "e1", tag: "DIV", id: "heading", className: "title", text: "Hello",
-      rect: { x: 1, y: 2, width: 30, height: 40 }, visible: true, parent: null,
+      textEditable: true, rect: { x: 1, y: 2, width: 30, height: 40 }, visible: true, parent: null,
       sourceFile: "index.html", compositionPath: "index.html",
       dataAttributes: {}, inlineStyles: {}, computedStyles: {},
     };
@@ -97,5 +97,45 @@ describe("PreviewAgentClient", () => {
     await expect(pending).rejects.toThrow("Preview navigated");
     expect(client.isReady).toBe(false);
     await expect(client.request({ kind: "snapshot" })).rejects.toThrow("not ready");
+  });
+
+  it("accepts bounded GSAP replies only for the active request and frame", async () => {
+    const { client, post, send, ready } = setup();
+    ready();
+    const result = client.observeGsap("e1", ["x"], "main");
+    const request = post.mock.calls[1]![0] as { token: string; id: number; command: unknown };
+    expect(request.command).toEqual({ kind: "readGsap", handle: "e1", channels: ["x"], compositionId: "main" });
+    const observed = { handle: "e1", id: "one", hfId: "hf-one", sourceFile: "scene.html",
+      compositionPath: "scene.html", values: { x: 25 }, tweens: [] };
+    send({ channel: "mpvfx.preview-agent", version: 1, type: "reply", token: request.token,
+      id: request.id, ok: true, result: observed });
+    expect(await result).toEqual(observed);
+
+    const bad = client.observeGsap("e1", ["x"]);
+    const second = post.mock.calls[2]![0] as { token: string; id: number };
+    send({ channel: "mpvfx.preview-agent", version: 1, type: "reply", token: second.token,
+      id: second.id, ok: true, result: { ...observed, values: { opacity: 1 } } });
+    await expect(bad).rejects.toThrow("Invalid preview agent reply");
+  });
+
+  it("forwards only active-frame transport keys", () => {
+    const { client, init, send, ready } = setup();
+    const observed = vi.fn();
+    client.onTransportKey(observed);
+    const key = { channel: "mpvfx.preview-agent", version: 1, type: "transport-key",
+      token: init.token, phase: "down", key: "j", shiftKey: false };
+    send(key);
+    expect(observed).not.toHaveBeenCalled();
+    ready();
+    send(key, "mpvfx://editor");
+    send(key, "mpvfx://616263.preview", window);
+    send({ ...key, key: "Delete" });
+    expect(observed).not.toHaveBeenCalled();
+    send(key);
+    send({ ...key, phase: "up" });
+    expect(observed.mock.calls.map(([value]) => value)).toEqual([
+      { phase: "down", key: "j", shiftKey: false },
+      { phase: "up", key: "j", shiftKey: false },
+    ]);
   });
 });

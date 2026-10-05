@@ -34,6 +34,7 @@ import {
   type MutableRef,
   type UseTimelineElementVisibilityEditingInput,
 } from "./timelineTrackVisibility";
+import { reloadIsolatedGroupPreview } from "./reloadIsolatedGroupPreview";
 
 /**
  * Assign (or restore) `data-audio-group` across a set of members.
@@ -190,6 +191,7 @@ interface CreateAudioGroupAndAssignMembersInput {
   pendingTimelineEditPathRef: MutableRef<Set<string>>;
   nativeProjectEditing?: NativeTimelineEditingDependencies;
   nativeDocumentRef?: MutableRefObject<NativeProjectDocument | null>;
+  reloadPreview?: () => void;
 }
 
 /**
@@ -213,6 +215,7 @@ export async function createAudioGroupAndAssignMembers({
   pendingTimelineEditPathRef,
   nativeProjectEditing,
   nativeDocumentRef,
+  reloadPreview,
 }: CreateAudioGroupAndAssignMembersInput): Promise<string[]> {
   // Throws rather than returning empty: the carve's auto-group awaits this and
   // then persists `sources: [groupId]` on success, so a quiet no-op leaves the
@@ -282,6 +285,7 @@ export async function createAudioGroupAndAssignMembers({
     for (const element of elements) {
       usePlayerStore.getState().updateElement(element.key ?? element.id, { audioGroup: groupId });
     }
+    reloadIsolatedGroupPreview(previewIframe, reloadPreview);
     return changedPaths;
   }
 
@@ -334,6 +338,7 @@ export async function createAudioGroupAndAssignMembers({
     for (const element of elements) {
       usePlayerStore.getState().updateElement(element.key ?? element.id, { audioGroup: groupId });
     }
+    reloadIsolatedGroupPreview(previewIframe, reloadPreview);
     return changedPaths;
   } catch (error) {
     // Mirrors setElementsHidden's failure path: the optimistic live patch
@@ -359,6 +364,7 @@ interface UseAudioGroupCarveAssignmentInput extends Omit<UseTimelineElementVisib
   nativeProjectEditing?: NativeTimelineEditingDependencies;
   nativeDocumentRef?: MutableRefObject<NativeProjectDocument | null>;
   editQueueRef?: MutableRefObject<Promise<unknown>>;
+  reloadPreview?: () => void;
 }
 
 export function useAudioGroupCarveAssignment({
@@ -374,6 +380,7 @@ export function useAudioGroupCarveAssignment({
   nativeProjectEditing,
   nativeDocumentRef,
   editQueueRef,
+  reloadPreview,
 }: UseAudioGroupCarveAssignmentInput): (
   clipIds: readonly string[],
   groupId: string,
@@ -431,6 +438,7 @@ export function useAudioGroupCarveAssignment({
           pendingTimelineEditPathRef,
           nativeProjectEditing,
           nativeDocumentRef,
+          reloadPreview,
         });
         if (editQueueRef) {
           const operation = editQueueRef.current.then(create);
@@ -465,6 +473,7 @@ export function useAudioGroupCarveAssignment({
       nativeProjectEditing,
       nativeDocumentRef,
       editQueueRef,
+      reloadPreview,
     ],
   );
 }

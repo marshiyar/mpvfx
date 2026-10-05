@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TimelineElement } from "../../../player/index";
 import type { DomEditSelection } from "../../canvas/domEditing";
+import type { PreviewElementState } from "../../../../shared/preview/agentProtocol";
 import { installReactActEnvironment, makeSelection } from "../../canvas/domSelectionTestHarness";
 import { useTimelineSelectionPreviewSync } from "../useTimelineSelectionPreviewSync";
 
@@ -15,6 +16,7 @@ interface HarnessProps {
   selectedElementIds: Set<string>;
   timelineElements: TimelineElement[];
   domEditSelection: DomEditSelection | null;
+  remoteSelection?: PreviewElementState | null;
   domEditGroupSelections: DomEditSelection[];
   buildDomSelectionForTimelineElement: (
     element: TimelineElement,
@@ -30,6 +32,7 @@ interface HarnessProps {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   document.body.innerHTML = "";
 });
 
@@ -81,6 +84,32 @@ function makeSyncFixture() {
 }
 
 describe("useTimelineSelectionPreviewSync", () => {
+  it("keeps an isolated native clip selected across a mismatched DOM/timeline key, then clears on a new row", async () => {
+    const { timelineElements } = makeSyncFixture();
+    const remoteSelection: PreviewElementState = {
+      handle: "e1", tag: "div", id: "clip-1", className: "", text: "", textEditable: true,
+      rect: { x: 0, y: 0, width: 10, height: 10 }, visible: true, parent: null,
+      sourceFile: "index.html", compositionPath: "index.html",
+      dataAttributes: { "studio-clip-id": "clip-1" }, inlineStyles: {}, computedStyles: {},
+    };
+    const applyDomSelection = vi.fn();
+    const harness = renderHarness();
+    await harness.rerender({
+      selectedElementId: "clip-1", selectedElementIds: new Set(["clip-1"]), timelineElements,
+      domEditSelection: null, remoteSelection, domEditGroupSelections: [],
+      buildDomSelectionForTimelineElement: async () => null,
+      applyDomSelection, applyMarqueeSelection: vi.fn(), onSelectionNotFound: vi.fn(),
+    });
+    expect(applyDomSelection).not.toHaveBeenCalled();
+    await harness.rerender({
+      selectedElementId: "clip-2", selectedElementIds: new Set(["clip-2"]), timelineElements,
+      domEditSelection: null, remoteSelection, domEditGroupSelections: [],
+      buildDomSelectionForTimelineElement: async () => null,
+      applyDomSelection, applyMarqueeSelection: vi.fn(), onSelectionNotFound: vi.fn(),
+    });
+    expect(applyDomSelection).toHaveBeenCalledWith(null, { revealPanel: false, announce: false });
+    harness.cleanup();
+  });
   it("syncs a multi-id timeline selection into preview group selections", async () => {
     const { firstSelection, secondSelection, timelineElements, selectionById } = makeSyncFixture();
     const applyDomSelection = vi.fn();
@@ -182,6 +211,7 @@ describe("useTimelineSelectionPreviewSync", () => {
   });
 
   it("warns once while retrying a timeline selection after preview refreshes", async () => {
+    vi.useFakeTimers();
     const { secondSelection, timelineElements } = makeSyncFixture();
     const applyDomSelection = vi.fn();
     const applyMarqueeSelection = vi.fn();
@@ -205,6 +235,8 @@ describe("useTimelineSelectionPreviewSync", () => {
       onSelectionNotFound,
     });
 
+    expect(onSelectionNotFound).not.toHaveBeenCalled();
+    act(() => { vi.advanceTimersByTime(500); });
     expect(onSelectionNotFound).toHaveBeenCalledOnce();
     expect(applyDomSelection).not.toHaveBeenCalled();
 
@@ -236,6 +268,33 @@ describe("useTimelineSelectionPreviewSync", () => {
     });
 
     expect(applyDomSelection).toHaveBeenCalledWith(secondSelection, { announce: false });
+    harness.cleanup();
+  });
+
+  it("cancels a pending missing-preview warning when the isolated handle arrives", async () => {
+    vi.useFakeTimers();
+    const { timelineElements } = makeSyncFixture();
+    const onSelectionNotFound = vi.fn();
+    const applyDomSelection = vi.fn();
+    const remoteSelection: PreviewElementState = {
+      handle: "e1", tag: "div", id: "authored-card", className: "", text: "", textEditable: true,
+      rect: { x: 0, y: 0, width: 10, height: 10 }, visible: true, parent: null,
+      sourceFile: "index.html", compositionPath: "index.html",
+      dataAttributes: { "studio-clip-id": "native-clip" }, inlineStyles: {}, computedStyles: {},
+    };
+    const harness = renderHarness();
+    const base = {
+      selectedElementId: "clip-1", selectedElementIds: new Set(["clip-1"]), timelineElements,
+      domEditSelection: null, domEditGroupSelections: [],
+      buildDomSelectionForTimelineElement: async () => null,
+      applyDomSelection, applyMarqueeSelection: vi.fn(), onSelectionNotFound,
+    };
+    await harness.rerender(base);
+    expect(onSelectionNotFound).not.toHaveBeenCalled();
+    await harness.rerender({ ...base, remoteSelection });
+    act(() => { vi.advanceTimersByTime(1000); });
+    expect(onSelectionNotFound).not.toHaveBeenCalled();
+    expect(applyDomSelection).not.toHaveBeenCalled();
     harness.cleanup();
   });
 

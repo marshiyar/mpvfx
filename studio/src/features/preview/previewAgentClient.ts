@@ -3,10 +3,15 @@ import {
   PREVIEW_AGENT_VERSION,
   isPreviewAgentInit,
   isPreviewAgentRequest,
+  isPreviewGsapObservation,
+  isPreviewTransportKeyEvent,
   type PreviewAgentCommand,
   type PreviewAgentReady,
   type PreviewElementState,
+  type PreviewGsapChannel,
+  type PreviewGsapObservation,
   type PreviewRect,
+  type PreviewTransportKeyEvent,
 } from "../../../shared/preview/agentProtocol";
 import { previewOriginFromIframe } from "../../player/lib/previewUrl";
 
@@ -14,7 +19,7 @@ const REQUEST_TIMEOUT_MS = 5000;
 
 type PendingRequest = {
   command: PreviewAgentCommand;
-  resolve: (result: PreviewElementState | PreviewElementState[] | null) => void;
+  resolve: (result: PreviewElementState | PreviewElementState[] | PreviewGsapObservation | null) => void;
   reject: (reason: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 };
@@ -46,6 +51,7 @@ export function isPreviewElementState(value: unknown): value is PreviewElementSt
     typeof value.id === "string" && value.id.length <= 512 &&
     typeof value.className === "string" && value.className.length <= 2048 &&
     typeof value.text === "string" && value.text.length <= 4096 &&
+    typeof value.textEditable === "boolean" &&
     isFiniteRect(value.rect) &&
     typeof value.visible === "boolean" &&
     (value.parent === null || (typeof value.parent === "string" && /^e[1-9]\d{0,8}$/.test(value.parent))) &&
@@ -59,9 +65,13 @@ export function isPreviewElementState(value: unknown): value is PreviewElementSt
     isBoundedStringMap(value.computedStyles, 64, 64, 256);
 }
 
-function validResult(command: PreviewAgentCommand, result: unknown): result is PreviewElementState | PreviewElementState[] | null {
+function validResult(command: PreviewAgentCommand, result: unknown): result is PreviewElementState | PreviewElementState[] | PreviewGsapObservation | null {
   if (command.kind === "snapshot") {
     return Array.isArray(result) && result.length <= (command.limit ?? 300) && result.every(isPreviewElementState);
+  }
+  if (command.kind === "readGsap") {
+    return isPreviewGsapObservation(result) && result.handle === command.handle &&
+      Object.keys(result.values).every(channel => command.channels.includes(channel as PreviewGsapChannel));
   }
   return result === null || isPreviewElementState(result);
 }
@@ -112,6 +122,7 @@ export class PreviewAgentClient {
   private disposed = false;
   private pending = new Map<number, PendingRequest>();
   private readyListeners = new Set<() => void>();
+  private transportKeyListeners = new Set<(event: Pick<PreviewTransportKeyEvent, "phase" | "key" | "shiftKey">) => void>();
   private initRetry: ReturnType<typeof setInterval> | null = null;
 
   constructor(private readonly iframe: HTMLIFrameElement) {
@@ -125,6 +136,11 @@ export class PreviewAgentClient {
     this.readyListeners.add(listener);
     if (this.ready) listener();
     return () => this.readyListeners.delete(listener);
+  }
+
+  onTransportKey(listener: (event: Pick<PreviewTransportKeyEvent, "phase" | "key" | "shiftKey">) => void): () => void {
+    this.transportKeyListeners.add(listener);
+    return () => this.transportKeyListeners.delete(listener);
   }
 
   /** Call on first load; subsequent iframe load events reconnect automatically. */
@@ -160,7 +176,21 @@ export class PreviewAgentClient {
     }, 250);
   };
 
-  request(command: PreviewAgentCommand): Promise<PreviewElementState | PreviewElementState[] | null> {
+  request(command: Exclude<PreviewAgentCommand, { kind: "readGsap" }>): Promise<PreviewElementState | PreviewElementState[] | null> {
+    return this.requestRaw(command) as Promise<PreviewElementState | PreviewElementState[] | null>;
+  }
+
+  /** Read bounded, navigation-scoped runtime data for one previously issued handle. */
+  observeGsap(handle: string, channels: PreviewGsapChannel[], compositionId?: string): Promise<PreviewGsapObservation> {
+    const command: PreviewAgentCommand = { kind: "readGsap", handle, channels,
+      ...(compositionId ? { compositionId } : {}) };
+    return this.requestRaw(command).then(result => {
+      if (!isPreviewGsapObservation(result)) throw new Error("Invalid GSAP observation");
+      return result;
+    });
+  }
+
+  private requestRaw(command: PreviewAgentCommand): Promise<PreviewElementState | PreviewElementState[] | PreviewGsapObservation | null> {
     if (this.disposed || !this.ready) return Promise.reject(new Error("Preview agent is not ready"));
     const id = this.nextId++;
     const request = {
@@ -199,6 +229,7 @@ export class PreviewAgentClient {
     this.stopInitRetry();
     this.rejectPending("Preview agent disposed");
     this.readyListeners.clear();
+    this.transportKeyListeners.clear();
     this.iframe.removeEventListener("load", this.connect);
     window.removeEventListener("message", this.onMessage);
   }
@@ -222,6 +253,12 @@ export class PreviewAgentClient {
     const data: unknown = event.data;
     if (!isRecord(data) || data.channel !== PREVIEW_AGENT_CHANNEL ||
       data.version !== PREVIEW_AGENT_VERSION || data.token !== this.token) return;
+    if (this.ready && isPreviewTransportKeyEvent(data)) {
+      for (const listener of this.transportKeyListeners) {
+        listener({ phase: data.phase, key: data.key, shiftKey: data.shiftKey });
+      }
+      return;
+    }
     if (data.type === "ready") {
       if (Object.keys(data).length !== 4) return;
       const ready = data as PreviewAgentReady;

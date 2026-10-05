@@ -9,7 +9,7 @@ export const PREVIEW_AGENT_OUTPUT = `${studio}.build/runtime/preview-agent.js`;
 
 export function buildPreviewAgent() {
   esbuild.buildSync({
-    entryPoints: [`${studio}runtime/preview/agentEntry.ts`],
+    entryPoints: [`${studio}src/features/preview/agentEntry.ts`],
     outfile: PREVIEW_AGENT_OUTPUT,
     bundle: true,
     format: "iife",

@@ -6,11 +6,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { usePlaybackKeyboard } from "../usePlaybackKeyboard";
 import { usePlayerStore } from "../../store/playerStore";
 
+const agentMocks = vi.hoisted(() => ({ previewAgentForIframe: vi.fn() }));
+vi.mock("../../../features/preview/previewAgentClient", () => ({
+  previewAgentForIframe: agentMocks.previewAgentForIframe,
+}));
+
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 afterEach(() => {
   document.body.innerHTML = "";
   usePlayerStore.getState().reset();
+  agentMocks.previewAgentForIframe.mockReset();
 });
 
 interface Spies {
@@ -24,9 +30,11 @@ interface HookHandle {
   dispatch: (event: KeyboardEvent) => void;
   release: (event: KeyboardEvent) => void;
   spies: Spies;
+  attach: () => void;
+  cleanup: () => void;
 }
 
-function setupHook(): HookHandle {
+function setupHook(iframe: HTMLIFrameElement | null = null): HookHandle {
   const spies: Spies = {
     seek: vi.fn(),
     play: vi.fn(),
@@ -37,7 +45,7 @@ function setupHook(): HookHandle {
   let captured: ReturnType<typeof usePlaybackKeyboard> | null = null;
 
   function Harness() {
-    const iframeRef = React.useRef<HTMLIFrameElement | null>(null);
+    const iframeRef = React.useRef<HTMLIFrameElement | null>(iframe);
     const shuttleDirectionRef = React.useRef<"forward" | "backward" | null>(null);
     const shuttleSpeedIndexRef = React.useRef(0);
     const iframeShortcutCleanupRef = React.useRef<(() => void) | null>(null);
@@ -51,6 +59,7 @@ function setupHook(): HookHandle {
     });
     useEffect(() => {
       captured = result;
+      return () => iframeShortcutCleanupRef.current?.();
     });
     return null;
   }
@@ -68,6 +77,8 @@ function setupHook(): HookHandle {
     dispatch: (event) => captured!.playbackKeyDownRef.current(event),
     release: (event) => captured!.playbackKeyUpRef.current(event),
     spies,
+    attach: () => captured!.attachIframeShortcutListeners(),
+    cleanup: () => act(() => root.unmount()),
   };
 }
 
@@ -225,5 +236,36 @@ describe("usePlaybackKeyboard — mute & loop shortcuts (#905)", () => {
 
     expect(spies.play).toHaveBeenCalledTimes(1);
     expect(usePlayerStore.getState().loopEnabled).toBe(false);
+  });
+});
+
+describe("usePlaybackKeyboard — isolated preview transport", () => {
+  it("handles validated agent keydown and keyup without a readable iframe document", () => {
+    const iframe = document.createElement("iframe");
+    Object.defineProperty(iframe, "contentDocument", { value: null });
+    document.body.append(iframe);
+    let transport: ((event: { phase: "down" | "up"; key: "k" | "l" | " "; shiftKey: boolean }) => void) | null = null;
+    const unsubscribe = vi.fn();
+    agentMocks.previewAgentForIframe.mockReturnValue({
+      onTransportKey: vi.fn((listener) => { transport = listener; return unsubscribe; }),
+    });
+    const { cleanup, spies } = setupHook(iframe);
+    if (!transport) throw new Error("Expected isolated transport listener");
+    usePlayerStore.setState({ isPlaying: false });
+    act(() => {
+      transport!({ phase: "down", key: " ", shiftKey: false });
+      transport!({ phase: "down", key: "k", shiftKey: false });
+      transport!({ phase: "down", key: "l", shiftKey: false });
+    });
+    expect(spies.play).toHaveBeenCalledTimes(1);
+    expect(spies.pause).toHaveBeenCalledTimes(1);
+    expect(spies.seek).toHaveBeenCalledTimes(1);
+    act(() => {
+      transport!({ phase: "up", key: "k", shiftKey: false });
+      transport!({ phase: "down", key: "l", shiftKey: false });
+    });
+    expect(spies.play).toHaveBeenCalledTimes(2);
+    cleanup();
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
 });

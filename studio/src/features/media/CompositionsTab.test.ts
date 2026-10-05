@@ -58,13 +58,10 @@ describe("resolveThumbnailSeekTime", () => {
 describe("syncIframePlayback", () => {
   it("mutes a composition-card preview before playing it", () => {
     const calls: string[] = [];
-    const postMessage = vi.fn(() => calls.push("mute"));
-    const player = {
-      play: vi.fn(() => calls.push("play")),
-    };
+    const postMessage = vi.fn((message: { action: string }) => calls.push(message.action));
     const iframe = {
       src: "https://studio.test/api/projects/p/preview/comp/a.html",
-      contentWindow: { __player: player, postMessage },
+      contentWindow: { postMessage },
       getRootNode: () => ({}),
     } as unknown as HTMLIFrameElement;
 
@@ -73,8 +70,7 @@ describe("syncIframePlayback", () => {
       expect.objectContaining({ action: "set-muted", muted: true }),
       "https://studio.test",
     );
-    expect(calls).toEqual(["mute", "play"]);
-    expect(player.play).toHaveBeenCalledOnce();
+    expect(calls).toEqual(["set-muted", "play"]);
   });
 
   it("uses exact-origin controls for isolated composition hover", () => {
@@ -94,9 +90,9 @@ describe("syncIframePlayback", () => {
       expect.objectContaining({ action: "play" }),
       "mpvfx://70.preview",
     );
-    expect(syncIframePlayback(iframe, false)).toBe(true);
+    expect(syncIframePlayback(iframe, false, 2)).toBe(true);
     expect(postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "seek", timeSeconds: 3 }),
+      expect.objectContaining({ action: "seek", timeSeconds: 1 }),
       "mpvfx://70.preview",
     );
   });

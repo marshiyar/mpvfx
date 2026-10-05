@@ -25,6 +25,15 @@ function patchMap(elements: StackingElement[], edited: string[]): Record<string,
 }
 
 describe("stacking-context partitioning", () => {
+  it("lowers an overlapping clip moved to the lower compatible lane", () => {
+    const clips = [
+      { ...el("a", 0, 0, 4, 1, false, 0), sourceFile: "index.html" },
+      { ...el("b", 2, 0, 4, 2, false, 1), sourceFile: "index.html" },
+      { ...el("c", 2, 5, 2, 0, false, 2), sourceFile: "index.html" },
+    ];
+    expect(patchMap(clips, ["b"])).toEqual({ b: 0 });
+  });
+
   it("uses source file and normalized stacking context as the canonical paint scope", () => {
     expect(samePaintScope({}, { stackingContextId: null })).toBe(true);
     expect(samePaintScope({}, { sourceFile: "index.html" })).toBe(false);

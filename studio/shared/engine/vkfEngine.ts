@@ -148,6 +148,11 @@ export function installVkfEngine(engine: VkfEngine): void {
   (globalThis as EngineSlot)[ENGINE_SLOT] = engine;
 }
 
+/** Restore the prior absence of an engine after a temporary preview install fails. */
+export function uninstallVkfEngine(): void {
+  delete (globalThis as EngineSlot)[ENGINE_SLOT];
+}
+
 export function vkfEngine(): VkfEngine {
   const installed = (globalThis as EngineSlot)[ENGINE_SLOT];
   if (!installed) {

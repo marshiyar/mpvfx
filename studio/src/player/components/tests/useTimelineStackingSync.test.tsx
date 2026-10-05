@@ -3,7 +3,10 @@
 import React, { act } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { TimelineElement } from "../../store/playerStore";
+import { usePlayerStore } from "../../store/playerStore";
 import { mountReactHarness } from "../../../features/canvas/domSelectionTestHarness";
+import { previewOriginForProject } from "../../../../shared/desktopPreviewOrigin";
+import type { PreviewElementState } from "../../../../shared/preview/agentProtocol";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -11,19 +14,65 @@ const mocks = vi.hoisted(() => ({
   actions: null as null | {
     previewIframeRef: { current: HTMLIFrameElement | null };
     handleDomZIndexReorderCommit: ReturnType<typeof vi.fn>;
+    commitRemoteStackingPatches?: ReturnType<typeof vi.fn>;
   },
+  previewAgentForIframe: vi.fn(),
 }));
 
 vi.mock("../../../features/canvas/DomEditContext", () => ({
   useDomEditActionsContextOptional: () => mocks.actions,
 }));
 vi.mock("../../../app/StudioContext", () => ({
-  useStudioShellContextOptional: () => ({ activeCompPath: "nested.html" }),
+  useStudioShellContextOptional: () => ({ activeCompPath: "nested.html", projectId: "demo" }),
+}));
+vi.mock("../../../features/preview/previewAgentClient", () => ({
+  previewAgentForIframe: mocks.previewAgentForIframe,
 }));
 
 import { useTimelineStackingSync } from "../useTimelineStackingSync";
 
 describe("useTimelineStackingSync", () => {
+  it("reads exact isolated agent z and sends all lane patches as one bounded native batch", async () => {
+    const iframe = document.createElement("iframe");
+    iframe.src = `${previewOriginForProject("demo")}/api/projects/demo/preview/nested.html`;
+    Object.defineProperty(iframe, "contentDocument", { value: null });
+    const state: PreviewElementState = {
+      handle: "e1", tag: "div", id: "a", className: "", text: "", textEditable: false,
+      rect: { x: 0, y: 0, width: 20, height: 20 }, visible: true, parent: null,
+      sourceFile: "nested.html", compositionPath: "nested.html",
+      dataAttributes: { "studio-clip-id": "clip-a", "hf-id": "hf-a" },
+      inlineStyles: {}, computedStyles: { "z-index": "auto", position: "static" },
+    };
+    const commitRemoteStackingPatches = vi.fn(async () => true);
+    mocks.actions = { previewIframeRef: { current: iframe },
+      handleDomZIndexReorderCommit: vi.fn(), commitRemoteStackingPatches };
+    mocks.previewAgentForIframe.mockReturnValue({ isReady: true,
+      onReady: (listener: () => void) => { listener(); return () => {}; },
+      request: vi.fn(async () => [state]),
+    });
+    const element: TimelineElement = { id: "a", key: "a", domId: "a", hfId: "hf-a",
+      tag: "div", sourceFile: "nested.html", start: 0, duration: 2, track: 0 };
+    let hook: ReturnType<typeof useTimelineStackingSync> | null = null;
+    function Harness() {
+      hook = useTimelineStackingSync({ expandedElementsRef: { current: [element] } });
+      return null;
+    }
+    const root = mountReactHarness(<Harness />);
+    try {
+      await act(async () => { await Promise.resolve(); });
+      expect(hook!.zSyncEnabled).toBe(true);
+      expect(hook!.readClipZIndex(element)).toBe(0);
+      await act(async () => { await hook!.applyStackingPatches([{ key: "a", zIndex: 7 }], "clip-lane-move:7"); });
+      expect(commitRemoteStackingPatches).toHaveBeenCalledWith([{ state, zIndex: 7 }], "clip-lane-move:7");
+    } finally {
+      act(() => root.unmount());
+      mocks.actions = null;
+      mocks.previewAgentForIframe.mockReset();
+      usePlayerStore.getState().reset();
+      iframe.remove();
+    }
+  });
+
   it("forwards resolved entries and the lane gesture coalesce key", async () => {
     const iframe = document.createElement("iframe");
     document.body.appendChild(iframe);
