@@ -21,8 +21,8 @@ This does not notarize the app. Do not run the command on an app whose origin yo
 ### Prerequisites
 
 - Node.js **24.x**, with its Node-API headers. The repository selects Node 24 through `studio/.configurations/.nvmrc`; desktop packaging rejects other major versions.
-- CMake **3.24 or newer** and a C++17 toolchain. On macOS, install Xcode command line tools and a macOS SDK. Linux and Windows builds need SQLite development files discoverable by CMake; the native library uses system SQLite on macOS.
-- A checkout of the separate `video-keyframing` engine. Set `VKF_ENGINE_DIR` to its absolute path; it must contain `bindings/node/vkf_node.cpp`.
+- CMake **3.25 or newer** and a C++20 toolchain. On macOS, install Xcode command line tools and a macOS SDK. Linux needs SQLite development files discoverable by CMake; Windows needs the SQLite vcpkg package and its CMake toolchain file. The native library uses system SQLite on macOS.
+- The included `third_party/video-keyframing` engine source. For engine development against another checkout, optionally set `VKF_ENGINE_DIR` to its absolute path.
 - Network access for the first `npm ci`: the postinstall step downloads checksum-verified redistributable FFmpeg and FFprobe binaries and applies local dependency patches.
 
 From the repository root:
@@ -30,7 +30,6 @@ From the repository root:
 ```sh
 cd studio
 nvm use 24                       # or select Node 24.x with your version manager
-export VKF_ENGINE_DIR=/absolute/path/to/video-keyframing
 npm ci
 npm run build
 npm run dev
@@ -38,11 +37,12 @@ npm run dev
 
 If your Node installation does not provide headers at its usual `include/node` location, set `NODE_API_INCLUDE_DIR` to the directory containing `node_api.h` before building. `npm run build` runs typechecking, builds the keyframe engine and native library, prepares frame runtime and publisher resources, then compiles the renderer and desktop code. `npm run dev` runs that build again before starting Electron; it is not a hot reload command.
 
-On Windows, use a Node 24 installation and set `VKF_ENGINE_DIR` in PowerShell before the same npm commands:
+On Windows, use a Node 24 installation and install `sqlite3:x64-windows` with vcpkg before the same npm commands:
 
 ```powershell
 cd studio
-$env:VKF_ENGINE_DIR = 'C:\path\to\video-keyframing'
+$env:CMAKE_TOOLCHAIN_FILE = "$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake"
+& "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install sqlite3:x64-windows
 npm ci
 npm run build
 npm run dev

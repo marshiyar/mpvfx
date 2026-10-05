@@ -3,9 +3,14 @@
 #define NAPI_VERSION 8
 #include <node_api.h>
 #include <sqlite3.h>
+#ifdef _WIN32
+#define NOMINMAX
+#include <windows.h>
+#else
 #include <sys/file.h>
 #include <fcntl.h>
 #include <unistd.h>
+#endif
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -145,15 +150,46 @@ napi_value run(napi_env env, napi_callback_info info) {
     check(napi_queue_async_work(env,w->work)); w.release(); return promise;
   } catch(const std::exception& e) { napi_throw_error(env,"library-command-failed",e.what()); return nullptr; }
 }
-struct Lock { int fd; ~Lock() { if (fd >= 0) ::close(fd); } };
+struct Lock {
+#ifdef _WIN32
+  HANDLE handle = INVALID_HANDLE_VALUE;
+  void close() { if (handle != INVALID_HANDLE_VALUE) { CloseHandle(handle); handle = INVALID_HANDLE_VALUE; } }
+#else
+  int fd = -1;
+  void close() { if (fd >= 0) { ::close(fd); fd = -1; } }
+#endif
+  ~Lock() { close(); }
+};
+#ifdef _WIN32
+std::wstring widePath(const std::string& path) {
+  const int size = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path.data(), static_cast<int>(path.size()), nullptr, 0);
+  if (size <= 0) throw std::runtime_error("Invalid UTF-8 library lock path");
+  std::wstring result(static_cast<size_t>(size), L'\0');
+  if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path.data(), static_cast<int>(path.size()), result.data(), size) != size)
+    throw std::runtime_error("Invalid UTF-8 library lock path");
+  return result;
+}
+#endif
 napi_value lockLibrary(napi_env env, napi_callback_info info) {
   try {
     size_t count=1; napi_value arg;
     check(napi_get_cb_info(env,info,&count,&arg,nullptr,nullptr));
     const auto path=string(env,arg);
     auto lock=std::make_unique<Lock>();
+#ifdef _WIN32
+    // No sharing permits exactly one process to own the catalog. Open the
+    // reparse point itself and reject it, matching O_NOFOLLOW on Unix.
+    const auto wide=widePath(path);
+    lock->handle=CreateFileW(wide.c_str(),GENERIC_READ|GENERIC_WRITE,0,nullptr,OPEN_ALWAYS,
+      FILE_ATTRIBUTE_NORMAL|FILE_FLAG_OPEN_REPARSE_POINT,nullptr);
+    BY_HANDLE_FILE_INFORMATION fileInfo{};
+    if(lock->handle==INVALID_HANDLE_VALUE || !GetFileInformationByHandle(lock->handle,&fileInfo) ||
+       (fileInfo.dwFileAttributes&(FILE_ATTRIBUTE_REPARSE_POINT|FILE_ATTRIBUTE_DIRECTORY))!=0)
+      throw std::runtime_error("Library is already open in another process or is not writable");
+#else
     lock->fd=::open(path.c_str(),O_CREAT|O_RDWR|O_CLOEXEC|O_NOFOLLOW,0600);
     if(lock->fd<0 || flock(lock->fd,LOCK_EX|LOCK_NB)!=0) throw std::runtime_error("Library is already open in another process or is not writable");
+#endif
     napi_value result;
     check(napi_create_external(env,lock.get(),[](napi_env,void* data,void*) { delete static_cast<Lock*>(data); },nullptr,&result));
     lock.release(); return result;
@@ -165,7 +201,7 @@ napi_value unlockLibrary(napi_env env,napi_callback_info info) {
     napi_throw_error(env,"invalid-lock","Invalid library lock"); return nullptr;
   }
   auto* lock=static_cast<Lock*>(ptr);
-  if(lock->fd>=0) { ::close(lock->fd); lock->fd=-1; }
+  lock->close();
   napi_value result; napi_get_undefined(env,&result); return result;
 }
 napi_value init(napi_env env,napi_value exports) {

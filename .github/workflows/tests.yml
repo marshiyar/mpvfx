@@ -75,6 +75,11 @@ jobs:
           cache: npm
           cache-dependency-path: studio/package-lock.json
 
+      - name: Install SQLite development library
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libsqlite3-dev
+
       - name: Install dependencies
         run: npm ci --prefix studio
 

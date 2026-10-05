@@ -15,10 +15,6 @@ endif()
 if(NOT EXISTS "${VKF_NODE_API_INCLUDE_DIR}/node_api.h")
   message(FATAL_ERROR "node_api.h not found; set VKF_NODE_API_INCLUDE_DIR")
 endif()
-if(WIN32)
-  message(FATAL_ERROR "The Node-API module needs node.lib on Windows; not configured yet")
-endif()
-
 add_library(vkf_node MODULE vkf_node.cpp)
 target_include_directories(vkf_node SYSTEM PRIVATE "${VKF_NODE_API_INCLUDE_DIR}")
 target_link_libraries(vkf_node PRIVATE vkf::core vkf_warnings)
@@ -28,6 +24,28 @@ set_target_properties(vkf_node PROPERTIES
   SUFFIX ".node"
   OUTPUT_NAME "vkf"
   LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/node")
+if(WIN32)
+  # Windows requires an import library for Node-API symbols. The Node ZIP puts
+  # node.lib next to node.exe; callers can override that location explicitly.
+  if(NOT VKF_NODE_API_LIBRARY)
+    find_program(VKF_NODE_EXECUTABLE node)
+    if(VKF_NODE_EXECUTABLE)
+      get_filename_component(node_bin_dir "${VKF_NODE_EXECUTABLE}" DIRECTORY)
+      find_file(VKF_NODE_API_LIBRARY NAMES node.lib
+        PATHS "${node_bin_dir}" "${node_bin_dir}/lib" NO_DEFAULT_PATH)
+    endif()
+  endif()
+  if(NOT EXISTS "${VKF_NODE_API_LIBRARY}")
+    message(FATAL_ERROR "node.lib not found; set VKF_NODE_API_LIBRARY to the Node 24 import library")
+  endif()
+  target_link_libraries(vkf_node PRIVATE "${VKF_NODE_API_LIBRARY}")
+  # A MODULE is a runtime DLL on Windows; Visual Studio otherwise puts it in
+  # node/Release, while the desktop build expects node/vkf.node.
+  set_target_properties(vkf_node PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/node"
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/node"
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/node")
+endif()
 if(APPLE)
   # Node-API symbols are provided by the host process at load time.
   target_link_options(vkf_node PRIVATE -undefined dynamic_lookup)

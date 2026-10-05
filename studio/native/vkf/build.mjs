@@ -1,20 +1,38 @@
 // Builds the video-keyframing engine's Node-API module (vkf.node) from the
-// engine repository and places it at .build/native/vkf/vkf.node, where the
-// desktop app, its preload and the tests load it. The engine is a separate
-// project: set VKF_ENGINE_DIR to its checkout (default: a sibling
-// "video-keyframing" directory next to this repository's parent).
+// engine source and places it at .build/native/vkf/vkf.node, where the
+// desktop app, its preload and the tests load it. A separate checkout can
+// still be selected with VKF_ENGINE_DIR for engine development.
 import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const studioDir = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const engineDir = resolve(process.env.VKF_ENGINE_DIR ?? join(studioDir, "../../../video-keyframing"));
+const engineDir = resolve(process.env.VKF_ENGINE_DIR ?? join(studioDir, "../third_party/video-keyframing"));
 const outDir = join(studioDir, ".build/native/vkf");
 const buildDir = join(outDir, "cmake");
+const nodeDir = dirname(process.execPath);
+const nodeApiIncludeDir = process.env.NODE_API_INCLUDE_DIR ?? [
+  resolve(nodeDir, "../include/node"),
+  resolve(nodeDir, "include/node"),
+].find((path) => existsSync(join(path, "node_api.h")));
+const nodeApiLibrary = process.platform === "win32"
+  ? process.env.NODE_API_LIBRARY ?? [
+    join(nodeDir, "node.lib"),
+    resolve(nodeDir, "../node.lib"),
+  ].find((path) => existsSync(path))
+  : undefined;
 
 if (!existsSync(join(engineDir, "bindings/node/vkf_node.cpp"))) {
   console.error(`video-keyframing engine not found at ${engineDir}. Set VKF_ENGINE_DIR to its checkout.`);
+  process.exit(1);
+}
+if (!nodeApiIncludeDir || !existsSync(join(nodeApiIncludeDir, "node_api.h"))) {
+  console.error(`Node-API headers not found near ${process.execPath}. Set NODE_API_INCLUDE_DIR.`);
+  process.exit(1);
+}
+if (process.platform === "win32" && (!nodeApiLibrary || !existsSync(nodeApiLibrary))) {
+  console.error(`Node import library not found near ${process.execPath}. Set NODE_API_LIBRARY.`);
   process.exit(1);
 }
 
@@ -39,7 +57,8 @@ run("cmake", [
   "-DVKF_ENABLE_VULKAN=OFF",
   "-DVKF_WARNINGS_AS_ERRORS=ON",
   // Node-API headers from the Node running this build (ABI-stable across Electron).
-  `-DVKF_NODE_API_INCLUDE_DIR=${resolve(process.env.NODE_API_INCLUDE_DIR ?? resolve(dirname(process.execPath), "../include/node"))}`,
+  `-DVKF_NODE_API_INCLUDE_DIR=${nodeApiIncludeDir}`,
+  ...(nodeApiLibrary ? [`-DVKF_NODE_API_LIBRARY=${nodeApiLibrary}`] : []),
 ]);
 run("cmake", ["--build", buildDir, "--target", "vkf_node", "--config", "Release"]);
 copyFileSync(join(buildDir, "node/vkf.node"), join(outDir, "vkf.node"));
