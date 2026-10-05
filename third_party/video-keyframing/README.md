@@ -1,5 +1,7 @@
 # Video Keyframing: Motion effect
 
+This MpVFX-owned engine source is licensed under Apache License 2.0; see [LICENSE](LICENSE).
+
 A keyframeable 2D transform that behaves like Premiere Pro's **Motion** effect
 (Position, Scale, Rotation, Anchor Point, Anti-flicker Filter) plus Opacity and
 motion blur. It's built as a host-independent C++20 engine with thin host

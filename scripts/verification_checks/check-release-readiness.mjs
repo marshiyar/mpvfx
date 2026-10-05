@@ -10,6 +10,7 @@ const text = (path) => readFileSync(pathOf(path), "utf8");
 const required = [
   "LICENSE", "README.md", "studio/package.json", "studio/package-lock.json",
   "third_party/video-keyframing/bindings/node/vkf_node.cpp",
+  "third_party/video-keyframing/LICENSE",
   "studio/legal/NOTICES/NOTICE.txt", "studio/legal/NOTICES/Apache-2.0.txt",
   "studio/legal/NOTICES/GPL-3.0.txt", "studio/legal/NOTICES/GSAP-NOTICE.txt",
   "studio/legal/NOTICES/THIRD_PARTY_NOTICES.md",
@@ -36,6 +37,9 @@ if (pkg.license !== "Apache-2.0" || lock.packages?.[""]?.license !== "Apache-2.0
 }
 if (Object.hasOwn(pkg, "publishConfig")) failures.push("The desktop app must not be npm-publishable");
 if (!text("LICENSE").includes("Apache License")) failures.push("Root Apache license is missing");
+if (text("third_party/video-keyframing/LICENSE") !== text("LICENSE")) {
+  failures.push("Owned engine Apache license differs from repository license");
+}
 
 const release = text(".github/workflows/release.yml");
 if (!release.includes('tags: ["v*"]') || !release.includes("workflow_dispatch:") || release.includes("pull_request:")) {
