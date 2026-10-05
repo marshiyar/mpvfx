@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { copyFileSync, existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
@@ -61,3 +61,6 @@ for (const args of [
   if (result.error) throw result.error;
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
+const builtModule = join(output, ...(isWindows ? ["Release"] : []), "mpvfx_library.node");
+if (!existsSync(builtModule)) throw new Error(`Built library module missing: ${builtModule}`);
+if (isWindows) copyFileSync(builtModule, join(output, "mpvfx_library.node"));
