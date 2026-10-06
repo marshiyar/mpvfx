@@ -1,11 +1,13 @@
 import { spawn, execFileSync } from "node:child_process";
-import { mkdtemp, readFile, writeFile, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import puppeteer from "puppeteer-core";
 const require = createRequire(import.meta.url);
 const root = await mkdtemp(join(tmpdir(), "mpvfx-library-packaged-"));
+const evidenceDir = process.env.MPVFX_UI_EVIDENCE_DIR ? resolve(process.env.MPVFX_UI_EVIDENCE_DIR) : root;
+await mkdir(evidenceDir, { recursive: true });
 const lib = join(root, "Test Film.mpvfxlibrary"),
   video = join(root, "Shared Khé¿.mp4");
 execFileSync(require("ffmpeg-static"), [
@@ -14,7 +16,7 @@ execFileSync(require("ffmpeg-static"), [
   "-f",
   "lavfi",
   "-i",
-  "color=red:size=320x180:rate=24:duration=1",
+  "color=red:size=320x180:rate=24:duration=2",
   "-f",
   "lavfi",
   "-i",
@@ -178,6 +180,57 @@ async function openMedia() {
     if (d) d.open = true;
   });
 }
+async function verifyInterface() {
+  const layout = await page.evaluate(() => {
+    const library = document.querySelector('[aria-label="Library browser"]');
+    const preview = document.querySelector('[aria-label="Composition preview"]');
+    const timeline = document.querySelector('[aria-label="Timeline"]');
+    const playback = document.querySelector('[aria-label="Playback time"]');
+    const play = document.querySelector('button[aria-label="Play"]');
+    if (!library || !preview || !timeline || !playback || !play)
+      throw new Error("v0.0.7 library, preview, timeline, or playback control is missing");
+    const top = preview.getBoundingClientRect();
+    const bottom = timeline.getBoundingClientRect();
+    return {
+      previewTop: top.top,
+      previewBottom: top.bottom,
+      timelineTop: bottom.top,
+      timelineBottom: bottom.bottom,
+      viewportBottom: window.innerHeight,
+      bodyOverflow: document.body.scrollHeight - window.innerHeight,
+    };
+  });
+  if (!(layout.previewTop < layout.previewBottom && layout.previewBottom <= layout.timelineTop + 2 &&
+      layout.timelineBottom <= layout.viewportBottom + 2 &&
+      layout.viewportBottom - layout.timelineBottom <= 16 && layout.bodyOverflow <= 2))
+    throw new Error(`v0.0.7 editor layout changed: ${JSON.stringify(layout)}`);
+  await page.click('[data-clip="true"]');
+  const border = await page.waitForSelector('[data-dom-edit-selection-box="true"]', { timeout: 20000 });
+  const borderVisible = await border.evaluate(node => {
+    const style = getComputedStyle(node);
+    const rect = node.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0 &&
+      (parseFloat(style.borderTopWidth) > 0 || parseFloat(style.outlineWidth) > 0);
+  });
+  if (!borderVisible) throw new Error("Selected clip has no visible preview selection border");
+  const removeSilence = await page.$('button[aria-label="Remove silence"]');
+  if (!removeSilence || await removeSilence.evaluate(node => node.disabled))
+    throw new Error("Selected video lost its Remove silence action");
+  await page.screenshot({ path: join(evidenceDir, "v007-selected-editor.png") });
+  await page.click('button[aria-label="Play"]');
+  await page.waitForSelector('button[aria-label="Pause"]', { timeout: 5000 });
+  await page.click('button[aria-label="Pause"]');
+  await page.click('button[aria-label="Shortcuts and tools"]');
+  await page.waitForFunction(() => !!document.querySelector('button[data-history-action="undo"]:not(:disabled)'), { timeout: 10000 });
+  const undo = await page.$('button[data-history-action="undo"]');
+  if (!undo) throw new Error("Undo is unavailable after adding a clip");
+  await undo.click();
+  await until(async () => (await page.$$('[data-clip="true"]')).length === 0, "Undo did not remove the added clip");
+  await page.waitForFunction(() => !!document.querySelector('button[data-history-action="redo"]:not(:disabled)'), { timeout: 10000 });
+  await page.click('button[data-history-action="redo"]');
+  await page.waitForSelector('[data-clip="true"]', { timeout: 20000 });
+  await writeFile(join(evidenceDir, "v007-ui-layout.json"), JSON.stringify(layout, null, 2));
+}
 async function close() {
   inspector?.close();
   await browser?.disconnect();
@@ -220,6 +273,7 @@ try {
     const d = JSON.parse(await readFile(docPath(first), "utf8"));
     return d.sequence.tracks.some((t) => t.clips.length) ? d : null;
   }, "First project edit did not persist");
+  await verifyInterface();
   const firstHtml = await readFile(join(lib, "Projects", first, "index.html"), "utf8");
   const expectedAudio = process.env.MPVFX_SILENT_FIXTURE === "1" ? "false" : "true";
   if (!firstHtml.includes(`data-has-audio="${expectedAudio}"`)) {
@@ -298,7 +352,7 @@ try {
     { libraryId: library.id, jobId: job.id },
   );
   if ((await stat(output)).size < 100) throw new Error("Output missing");
-  await page.screenshot({ path: join(root, "library-workflow.png") });
+  await page.screenshot({ path: join(evidenceDir, "library-workflow.png") });
   await close();
   await launch();
   await page.waitForSelector('[data-clip="true"]', { timeout: 20000 });

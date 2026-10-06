@@ -89,3 +89,6 @@ jobs:
       # The build script performs typecheck before compiling; do not run it twice.
       - name: Typecheck and compile source
         run: npm --prefix studio run build
+
+      - name: Exercise editor and runtime behavior
+        run: npm --prefix studio test

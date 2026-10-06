@@ -115,3 +115,18 @@ jobs:
 
       - name: Build native installer
         run: npm --prefix studio run ${{ matrix.script }}
+
+      - name: Exercise packaged v0.0.7 interface
+        if: runner.os == 'macOS'
+        env:
+          MPVFX_UI_EVIDENCE_DIR: ${{ runner.temp }}/mpvfx-ui-evidence
+        run: npm --prefix studio run test:packaged-interface
+
+      - name: Save disposable UI evidence
+        if: always() && runner.os == 'macOS'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: v007-ui-evidence
+          path: ${{ runner.temp }}/mpvfx-ui-evidence/**
+          if-no-files-found: warn
+          retention-days: 14

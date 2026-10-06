@@ -109,6 +109,14 @@ jobs:
       - name: Build installer
         run: npm --prefix studio run ${{ matrix.script }}
 
+      - name: Exercise editor and runtime behavior
+        if: runner.os == 'Linux'
+        run: npm --prefix studio test
+
+      - name: Exercise packaged v0.0.7 interface
+        if: runner.os == 'macOS'
+        run: npm --prefix studio run test:packaged-interface
+
       - name: Upload installer
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
