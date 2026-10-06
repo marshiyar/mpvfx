@@ -1,0 +1,4 @@
+interface:
+  display_name: "mpVFX Engineering"
+  short_description: "Keep mpVFX changes reviewable and verified"
+  default_prompt: "Use $mpvfx-engineering to plan and validate this mpVFX change."
