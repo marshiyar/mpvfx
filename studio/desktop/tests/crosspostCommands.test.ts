@@ -50,4 +50,30 @@ sys.exit(0 if '-c' in sys.argv else 7)
       else process.env.MPVFX_CROSSPOST_PYTHON = previous;
     }
   });
+  it.skipIf(process.platform === "win32")("prefers a bundled GUI over a broken external Python path", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mpvfx-bundled-publisher-")); roots.push(root);
+    const source = join(root, "Crosspost");
+    const data = join(root, "data");
+    await mkdir(join(source, "bin"), { recursive: true });
+    await writeFile(join(source, "gui.py"), "# fixture");
+    const binary = join(source, "bin", "mpvfx-publisher");
+    await writeFile(binary, `#!/usr/bin/env python3
+import sys, time
+if '--preflight' in sys.argv:
+    print('mpvfx-publisher-ready')
+    sys.exit(0)
+with open(sys.argv[sys.argv.index('--ready-file') + 1], 'x') as marker:
+    marker.write('ready')
+time.sleep(0.5)
+`);
+    await chmod(binary, 0o755);
+    const previous = process.env.MPVFX_CROSSPOST_PYTHON;
+    process.env.MPVFX_CROSSPOST_PYTHON = join(root, "does-not-exist");
+    try {
+      await expect(launchCrosspost(source, data, join(root, "export.mp4"))).resolves.toBeUndefined();
+    } finally {
+      if (previous === undefined) delete process.env.MPVFX_CROSSPOST_PYTHON;
+      else process.env.MPVFX_CROSSPOST_PYTHON = previous;
+    }
+  });
 });

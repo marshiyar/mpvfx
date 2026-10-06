@@ -5,6 +5,8 @@ import { afterEach, expect, it } from "vitest";
 
 // @ts-expect-error -- plain ESM build script without type declarations
 import { buildCrosspostResources, crosspostResourceNames } from "../../../scripts/build/build-crosspost-resources.mjs";
+// @ts-expect-error -- plain ESM build script without type declarations
+import { buildCrosspostBundle, crosspostBundleName } from "../../../scripts/build/build-crosspost-bundle.mjs";
 
 const temporaryRoots: string[] = [];
 function fixture() {
@@ -47,4 +49,31 @@ it.skipIf(process.platform === "win32")("rejects a staged symlink before copying
   symlinkSync(target, join(output, "gui.py"));
   expect(() => buildCrosspostResources(source, output)).toThrow("Unexpected Crosspost staging entry");
   expect(readFileSync(target, "utf8")).toBe("untouched");
+});
+
+it("accepts only the generated publisher binary and removes stale output in source-only builds", () => {
+  const { source, output } = fixture();
+  buildCrosspostResources(source, output);
+  mkdirSync(join(output, "bin"));
+  writeFileSync(join(output, "bin", crosspostBundleName()), "previous binary");
+  buildCrosspostResources(source, output);
+  expect(buildCrosspostBundle({ outputDir: output, bundle: false })).toBeNull();
+  expect(readdirSync(output).sort()).toEqual([...crosspostResourceNames].sort());
+  mkdirSync(join(output, "bin"));
+  writeFileSync(join(output, "bin", "token.json"), "private");
+  expect(() => buildCrosspostResources(source, output)).toThrow("Unexpected Crosspost staging entry");
+});
+
+it("retains only manifest-listed Python license texts between bundled builds", () => {
+  const { source, output } = fixture();
+  buildCrosspostResources(source, output);
+  const legal = join(output, "legal");
+  mkdirSync(join(legal, "sample-1.0"), { recursive: true });
+  writeFileSync(join(legal, "sample-1.0", "LICENSE"), "license text");
+  writeFileSync(join(legal, "manifest.json"), JSON.stringify([{
+    name: "sample", version: "1.0", files: ["sample-1.0/LICENSE"],
+  }]));
+  expect(() => buildCrosspostResources(source, output)).not.toThrow();
+  writeFileSync(join(legal, "sample-1.0", "token.json"), "private token");
+  expect(() => buildCrosspostResources(source, output)).toThrow("Unexpected Crosspost staging entry");
 });

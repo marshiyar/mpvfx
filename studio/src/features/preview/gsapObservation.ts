@@ -9,7 +9,8 @@ import {
 const channels = new Set<string>(PREVIEW_GSAP_CHANNELS);
 const META = new Set(["id", "duration", "ease", "easeEach", "delay", "stagger", "overwrite",
   "immediateRender", "lazy", "repeat", "repeatDelay", "yoyo", "paused", "parent",
-  "onComplete", "onUpdate", "onStart", "onRepeat", "data", "keyframes", "motionPath"]);
+  "onComplete", "onUpdate", "onStart", "onRepeat", "data", "keyframes", "motionPath",
+  "runBackwards", "startAt"]);
 
 type RuntimeTween = {
   targets?: () => Element[];
@@ -70,11 +71,16 @@ function keyframes(value: unknown): PreviewGsapKeyframe[] | null {
 function motionPath(value: unknown): PreviewGsapTween["motionPath"] | null {
   if (!value || typeof value !== "object") return null;
   const object = value as Record<string, unknown>;
+  if (!Array.isArray(value) && Object.keys(object).some(key =>
+      !["path", "curviness", "autoRotate", "type"].includes(key))) return null;
+  if (object.type !== undefined && object.type !== "cubic") return null;
   const path = Array.isArray(value) ? value : object.path;
   if (!Array.isArray(path) || path.length < 2 || path.length > 64) return null;
   const points: Array<{ x: number; y: number }> = [];
   for (const point of path) {
-    if (!point || typeof point !== "object" || !finite(point.x) || !finite(point.y)) return null;
+    if (!point || typeof point !== "object" || Array.isArray(point) ||
+        Object.keys(point).length !== 2 || !Object.hasOwn(point, "x") ||
+        !Object.hasOwn(point, "y") || !finite(point.x) || !finite(point.y)) return null;
     points.push({ x: point.x, y: point.y });
   }
   const curviness = object.curviness === undefined ? 1 : object.curviness;
@@ -130,15 +136,25 @@ export function readPreviewGsapObservation(input: {
           duration < 0 || duration > 86400) throw new Error("unsupported-action");
       const vars = tween.vars;
       const scalars = scalarProperties(vars);
+      const startAt = vars.startAt;
+      const from = startAt !== undefined && startAt !== null &&
+        typeof startAt === "object" && !Array.isArray(startAt)
+        ? scalarProperties(startAt as Record<string, unknown>) : null;
+      const method = startAt !== undefined ? "fromTo" as const
+        : vars.runBackwards === true || vars.runBackwards === 1 ? "from" as const : undefined;
       const frames = vars.keyframes === undefined ? undefined : keyframes(vars.keyframes);
       const path = vars.motionPath === undefined ? undefined : motionPath(vars.motionPath);
       const animationId = typeof vars.id === "string" && vars.id.length <= 128 ? vars.id : undefined;
       tweens.push({ timelineId, tweenIndex, targetIndex, start, duration, timelineTime,
         properties: scalars.properties,
+        ...(method ? { method } : {}),
+        ...(from ? { fromProperties: from.properties } : {}),
         ...(animationId ? { animationId } : {}),
         ...(frames ? { keyframes: frames } : {}),
         ...(path ? { motionPath: path } : {}),
-        complete: scalars.complete && (vars.keyframes === undefined || frames !== null)
+        complete: scalars.complete && (startAt === undefined || Boolean(from?.complete))
+          && (vars.runBackwards === undefined || vars.runBackwards === true || vars.runBackwards === 1)
+          && (vars.keyframes === undefined || frames !== null)
           && (vars.motionPath === undefined || path !== null),
       });
     }

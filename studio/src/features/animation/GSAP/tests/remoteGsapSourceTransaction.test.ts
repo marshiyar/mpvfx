@@ -43,7 +43,7 @@ describe("remote legacy GSAP source transaction", () => {
   it("lists one exact authored tween and saves one CAS/history snapshot", async () => {
     const store = fixture();
     expect(await loadRemoteGsapTargets(state, observation, store.deps)).toEqual([
-      { id: animationId, label: "to #one", properties: { x: 40 }, start: 0, duration: 2 },
+      { id: animationId, label: "to #one", method: "to", properties: { x: 40 }, start: 0, duration: 2 },
     ]);
     expect(await commitRemoteGsapPropertyEdit(state, observation,
       { animationId, property: "x", value: 55 }, store.deps)).toBe(true);
@@ -138,6 +138,30 @@ describe("remote legacy GSAP source transaction", () => {
     expect(store.history).toHaveLength(3);
   });
 
+  it("saves one keyframe ease while retaining its values and an Undo snapshot", async () => {
+    const keyed = before.replace('tl.to("#one",{duration:2,x:40},0);',
+      'tl.to("#one",{duration:2,keyframes:{"0%":{x:0},"100%":{x:40}}},0);');
+    const keyedObservation = { ...observation, tweens: [{ ...observation.tweens[0]!,
+      properties: {}, keyframes: [
+        { percentage: 0, properties: { x: 0 } },
+        { percentage: 100, properties: { x: 40 } },
+      ] }] } satisfies PreviewGsapObservation;
+    const store = fixture(keyed);
+    expect(await commitRemoteGsapKeyframeEdit(state, keyedObservation,
+      { action: "ease", animationId, percentage: 100, ease: "power2.in" }, store.deps)).toBe(true);
+    const frames = parseGsapScriptAcorn(store.content.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? "")
+      .animations[0]?.keyframes?.keyframes;
+    expect(frames).toMatchObject([
+      { percentage: 0, properties: { x: 0 } },
+      { percentage: 100, properties: { x: 40 }, ease: "power2.in" },
+    ]);
+    expect(store.history[0]?.files[sourceFile]).toEqual({ before: keyed, after: store.content });
+    await expect(commitRemoteGsapKeyframeEdit(state, keyedObservation,
+      { action: "ease", animationId, percentage: 100, ease: "custom(bad)" }, store.deps))
+      .rejects.toThrow("unsupported");
+    expect(store.writes).toHaveLength(1);
+  });
+
   it("authors a first simple tween and removes only its matched source call", async () => {
     const empty = fixture(before.replace('tl.to("#one",{duration:2,x:40},0);', ""));
     const idle = { ...observation, tweens: [] };
@@ -168,5 +192,82 @@ describe("remote legacy GSAP source transaction", () => {
       { action: "add", method: "to", property: "x", value: 55, duration: 2 }, unobservedSet.deps))
       .rejects.toThrow("already targets");
     expect(unobservedSet.writes).toHaveLength(0);
+  });
+
+  it("authors explicit from/to endpoints and saves a verified ease", async () => {
+    const empty = fixture(before.replace('tl.to("#one",{duration:2,x:40},0);', ""));
+    const selected = { ...state, selector: "#one" };
+    expect(await commitRemoteGsapAnimationAction(selected, { ...observation, tweens: [] },
+      { action: "add", method: "fromTo", property: "x", fromValue: 10, value: 40,
+        duration: 2, position: 0, ease: "power2.in" }, empty.deps)).toBe(true);
+    const authored = parseGsapScriptAcorn(empty.content.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? "").animations[0]!;
+    expect(authored).toMatchObject({ method: "fromTo", fromProperties: { x: 10 },
+      properties: { x: 40 }, ease: "power2.in" });
+    const observed = { ...observation, tweens: [{ ...observation.tweens[0]!, method: "fromTo" as const,
+      fromProperties: { x: 10 }, properties: { x: 40 } }] };
+    expect((await loadRemoteGsapTargets(selected, observed, empty.deps))[0]?.method).toBe("fromTo");
+    expect(await commitRemoteGsapPropertyEdit(selected, observed,
+      { animationId: authored.id, property: "x", value: 12, endpoint: "from" }, empty.deps)).toBe(true);
+    const edited = { ...observed, tweens: [{ ...observed.tweens[0]!, fromProperties: { x: 12 } }] };
+    expect(await commitRemoteGsapAnimationAction(selected, edited,
+      { action: "ease", animationId: authored.id, ease: "sine.out" }, empty.deps)).toBe(true);
+    const result = parseGsapScriptAcorn(empty.content.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? "").animations[0]!;
+    expect(result).toMatchObject({ fromProperties: { x: 12 }, ease: "sine.out" });
+    expect(empty.history).toHaveLength(3);
+  });
+
+  it("rejects a forged fromTo start endpoint before editing the source", async () => {
+    const source = before.replace('tl.to("#one",{duration:2,x:40},0);',
+      'tl.fromTo("#one",{x:10},{duration:2,x:40},0);');
+    const store = fixture(source);
+    const forged = { ...observation, tweens: [{ ...observation.tweens[0]!, method: "fromTo" as const,
+      fromProperties: { x: 999 } }] };
+    expect(await loadRemoteGsapTargets(state, forged, store.deps)).toEqual([]);
+    expect(store.writes).toHaveLength(0);
+  });
+
+  it("edits one verified literal motion path point and keeps unrelated source", async () => {
+    const pathSource = before.replace('tl.to("#one",{duration:2,x:40},0);',
+      'tl.to("#one",{duration:2,motionPath:{path:[{x:0,y:0},{x:20,y:30},{x:40,y:0}],curviness:1,autoRotate:false}},0);');
+    const store = fixture(pathSource);
+    const authored = parseGsapScriptAcorn(pathSource.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? "").animations[0]!;
+    const observed = { ...observation, tweens: [{ ...observation.tweens[0]!, properties: {},
+      motionPath: { points: [{ x: 0, y: 0 }, { x: 20, y: 30 }, { x: 40, y: 0 }],
+        curviness: 1, autoRotate: false, isCubic: false } }] } satisfies PreviewGsapObservation;
+    expect((await loadRemoteGsapTargets(state, observed, store.deps))[0]?.motionPath?.points).toHaveLength(3);
+    expect(await commitRemoteGsapAnimationAction(state, observed,
+      { action: "motion-point", animationId: authored.id, index: 1, x: 25, y: 35 }, store.deps)).toBe(true);
+    const updated = parseGsapScriptAcorn(store.content.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? "").animations[0]!;
+    expect(updated.keyframes?.keyframes[1]?.properties).toMatchObject({ x: 25, y: 35 });
+    expect(store.history).toHaveLength(1);
+    expect(await loadRemoteGsapTargets(state, observed, store.deps)).toEqual([]);
+  });
+
+  it("inserts and removes only interior points on a matched simple motion path", async () => {
+    const pathSource = before.replace('tl.to("#one",{duration:2,x:40},0);',
+      'tl.to("#one",{duration:2,motionPath:{path:[{x:0,y:0},{x:20,y:30},{x:40,y:0}],curviness:1,autoRotate:false}},0);');
+    const points = [{ x: 0, y: 0 }, { x: 20, y: 30 }, { x: 40, y: 0 }];
+    const observed = { ...observation, tweens: [{ ...observation.tweens[0]!, properties: {},
+      motionPath: { points, curviness: 1, autoRotate: false, isCubic: false } }] } satisfies PreviewGsapObservation;
+    const store = fixture(pathSource);
+    const id = parseGsapScriptAcorn(pathSource.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? "")
+      .animations[0]!.id;
+    await expect(commitRemoteGsapAnimationAction(state, observed,
+      { action: "remove-motion-point", animationId: id, index: 0 }, store.deps))
+      .rejects.toThrow("no longer uniquely editable");
+    expect(await commitRemoteGsapAnimationAction(state, observed,
+      { action: "add-motion-point", animationId: id, index: 1, x: 10, y: 12 }, store.deps)).toBe(true);
+    const inserted = [{ x: 0, y: 0 }, { x: 10, y: 12 }, { x: 20, y: 30 }, { x: 40, y: 0 }];
+    const insertedObservation = { ...observed, tweens: [{ ...observed.tweens[0]!,
+      motionPath: { ...observed.tweens[0]!.motionPath!, points: inserted } }] };
+    expect((await loadRemoteGsapTargets(state, insertedObservation, store.deps))[0]?.motionPath?.points)
+      .toEqual(inserted);
+    expect(await commitRemoteGsapAnimationAction(state, insertedObservation,
+      { action: "remove-motion-point", animationId: id, index: 1 }, store.deps)).toBe(true);
+    expect((await loadRemoteGsapTargets(state, observed, store.deps))[0]?.motionPath?.points)
+      .toEqual(points);
+    expect(store.history).toHaveLength(2);
+    expect(store.history[0]?.files[sourceFile]).toEqual({ before: pathSource,
+      after: store.history[1]?.files[sourceFile]?.before });
   });
 });

@@ -1,7 +1,7 @@
 {
   "name": "mpvfx",
   "productName": "MpVFX",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "Standalone media-first nonlinear video editor",
   "private": true,
   "license": "Apache-2.0",
@@ -52,7 +52,7 @@
     "check": "npm run check:architecture && npm run typecheck && npm test && npm run desktop:build",
     "build:renderer": "vite build --config .configurations/vite.config.ts",
     "build:library": "node native/library/build.mjs",
-    "build:crosspost": "node ../scripts/build/build-crosspost-resources.mjs"
+    "build:crosspost": "node ../scripts/build/build-crosspost-resources.mjs && node ../scripts/build/build-crosspost-bundle.mjs"
   },
   "dependencies": {
     "@ffprobe-installer/ffprobe": "^2.1.2",
