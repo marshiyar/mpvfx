@@ -115,3 +115,7 @@ jobs:
 
       - name: Build native installer
         run: npm --prefix studio run ${{ matrix.script }}
+
+      - name: Verify Windows library file flush
+        if: runner.os == 'Windows'
+        run: npm --prefix studio test -- runtime/library/tests/libraryFileFlush.test.ts
