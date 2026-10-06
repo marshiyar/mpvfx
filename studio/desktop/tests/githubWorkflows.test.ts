@@ -45,8 +45,9 @@ describe("GitHub Actions readiness", () => {
     expect(workflow).toContain("ubuntu-24.04\n            arch: x64");
     expect(workflow).toContain("npm --prefix studio run ${{ matrix.script }}");
     expect(workflow).toContain("persist-credentials: false");
-    expect(workflow).toContain("npm --prefix studio run test:packaged-interface");
-    expect(workflow).toContain("name: v007-ui-evidence");
+    expect(workflow).toContain("git worktree add --detach \"$MPVFX_BASELINE_ROOT\" v0.0.7");
+    expect(workflow).toContain("npm --prefix studio run test:packaged-interface-compare");
+    expect(workflow).toContain("name: v007-ui-evidence-${{ matrix.platform }}");
     expect(workflow).not.toContain("studio/out/make/**");
     expect(workflow).not.toMatch(/electron-forge publish|softprops\/action-gh-release|gh release/i);
   });

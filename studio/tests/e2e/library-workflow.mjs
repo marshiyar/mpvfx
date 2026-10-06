@@ -7,6 +7,8 @@ import puppeteer from "puppeteer-core";
 const require = createRequire(import.meta.url);
 const root = await mkdtemp(join(tmpdir(), "mpvfx-library-packaged-"));
 const evidenceDir = process.env.MPVFX_UI_EVIDENCE_DIR ? resolve(process.env.MPVFX_UI_EVIDENCE_DIR) : root;
+const variant = process.env.MPVFX_UI_VARIANT === "baseline" ? "baseline" : "candidate";
+const packagedApp = resolve(process.env.MPVFX_PACKAGED_APP ?? "out/MpVFX-darwin-arm64/MpVFX.app/Contents/MacOS/MpVFX");
 await mkdir(evidenceDir, { recursive: true });
 const lib = join(root, "Test Film.mpvfxlibrary"),
   video = join(root, "Shared Khé¿.mp4");
@@ -43,10 +45,11 @@ let child,
   log = "";
 async function launch() {
   child = spawn(
-    resolve("out/MpVFX-darwin-arm64/MpVFX.app/Contents/MacOS/MpVFX"),
+    packagedApp,
     [
       "--inspect=0",
       "--remote-debugging-port=0",
+      "--window-size=1600,1000",
       `--user-data-dir=${join(root, "chromium")}`,
     ],
     {
@@ -94,7 +97,7 @@ async function launch() {
     })
     .then((t) => t.page());
   page.on("pageerror", (e) => console.log("renderer-error", e.message));
-  await page.setViewport({ width: 1600, height: 1000 });
+  await page.setViewport({ width: 1600, height: 1000, deviceScaleFactor: 1 });
   await page.waitForSelector('[aria-label="Library browser"]', {
     timeout: 30000,
   });
@@ -216,7 +219,7 @@ async function verifyInterface() {
   const removeSilence = await page.$('button[aria-label="Remove silence"]');
   if (!removeSilence || await removeSilence.evaluate(node => node.disabled))
     throw new Error("Selected video lost its Remove silence action");
-  await page.screenshot({ path: join(evidenceDir, "v007-selected-editor.png") });
+  await page.screenshot({ path: join(evidenceDir, `${variant}-selected-editor.png`) });
   await page.click('button[aria-label="Play"]');
   await page.waitForSelector('button[aria-label="Pause"]', { timeout: 5000 });
   await page.click('button[aria-label="Pause"]');
@@ -229,7 +232,7 @@ async function verifyInterface() {
   await page.waitForFunction(() => !!document.querySelector('button[data-history-action="redo"]:not(:disabled)'), { timeout: 10000 });
   await page.click('button[data-history-action="redo"]');
   await page.waitForSelector('[data-clip="true"]', { timeout: 20000 });
-  await writeFile(join(evidenceDir, "v007-ui-layout.json"), JSON.stringify(layout, null, 2));
+  await writeFile(join(evidenceDir, `${variant}-ui-layout.json`), JSON.stringify(layout, null, 2));
 }
 async function close() {
   inspector?.close();
@@ -352,7 +355,7 @@ try {
     { libraryId: library.id, jobId: job.id },
   );
   if ((await stat(output)).size < 100) throw new Error("Output missing");
-  await page.screenshot({ path: join(evidenceDir, "library-workflow.png") });
+  await page.screenshot({ path: join(evidenceDir, `${variant}-library-workflow.png`) });
   await close();
   await launch();
   await page.waitForSelector('[data-clip="true"]', { timeout: 20000 });
@@ -364,7 +367,8 @@ try {
   )
     throw new Error("Reopen lost library state");
   const result = {
-    packagedApp: execFileSync("/usr/bin/plutil", ["-extract", "CFBundleShortVersionString", "raw", "-o", "-", resolve("out/MpVFX-darwin-arm64/MpVFX.app/Contents/Info.plist")], { encoding: "utf8" }).trim(),
+    packagedApp,
+    variant,
     profile: root,
     library: lib,
     projects: reopened.projects.map((p) => p.name),
@@ -374,13 +378,13 @@ try {
     output,
     outputBytes: (await stat(output)).size,
   };
-  await writeFile(join(root, "result.json"), JSON.stringify(result, null, 2));
+  await writeFile(join(evidenceDir, `${variant}-result.json`), JSON.stringify(result, null, 2));
   console.log(JSON.stringify(result));
 } catch (error) {
   console.error(error);
   console.error(log.slice(-3500));
   if (page)
-    await page.screenshot({ path: join(root, "failure.png") }).catch(() => {});
+    await page.screenshot({ path: join(evidenceDir, `${variant}-failure.png`) }).catch(() => {});
   console.error("Evidence:", root);
   process.exitCode = 1;
 } finally {

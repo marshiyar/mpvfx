@@ -77,6 +77,8 @@ jobs:
 
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      MPVFX_BASELINE_ROOT: ${{ runner.temp }}/mpvfx-v007-baseline
+      MPVFX_UI_EVIDENCE_DIR: ${{ runner.temp }}/mpvfx-ui-evidence
 
     steps:
       - name: Check out source
@@ -95,7 +97,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --yes rpm libsqlite3-dev
+          sudo apt-get install --yes rpm libsqlite3-dev xvfb
 
       - name: Install Windows SQLite development library
         if: runner.os == 'Windows'
@@ -116,17 +118,33 @@ jobs:
       - name: Build native installer
         run: npm --prefix studio run ${{ matrix.script }}
 
-      - name: Exercise packaged v0.0.7 interface
-        if: runner.os == 'macOS'
-        env:
-          MPVFX_UI_EVIDENCE_DIR: ${{ runner.temp }}/mpvfx-ui-evidence
-        run: npm --prefix studio run test:packaged-interface
+      - name: Build pinned v0.0.7 screenshot baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin refs/tags/v0.0.7:refs/tags/v0.0.7
+          test "$(git rev-parse 'v0.0.7^{commit}')" = fbde94a88cdb022c71d9349b86a6692244d50007
+          git worktree add --detach "$MPVFX_BASELINE_ROOT" v0.0.7
+          npm ci --prefix "$MPVFX_BASELINE_ROOT/studio"
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            npm --prefix "$MPVFX_BASELINE_ROOT/studio" run prepare:electron-windows-headers
+          fi
+          npm --prefix "$MPVFX_BASELINE_ROOT/studio" run "${{ matrix.script }}"
+
+      - name: Compare packaged editor with v0.0.7
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            xvfb-run -a -s '-screen 0 1600x1000x24' npm --prefix studio run test:packaged-interface-compare
+          else
+            npm --prefix studio run test:packaged-interface-compare
+          fi
 
       - name: Save disposable UI evidence
-        if: always() && runner.os == 'macOS'
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: v007-ui-evidence
+          name: v007-ui-evidence-${{ matrix.platform }}
           path: ${{ runner.temp }}/mpvfx-ui-evidence/**
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
