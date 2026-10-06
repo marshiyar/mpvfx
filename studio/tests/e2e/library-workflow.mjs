@@ -44,6 +44,7 @@ let child,
   inspector,
   page,
   log = "";
+let firstProjectId = null;
 async function launch() {
   const appEnv = { ...process.env, MPVFX_USER_DATA_DIR: join(root, "data") };
   delete appEnv.ELECTRON_RUN_AS_NODE;
@@ -161,15 +162,17 @@ async function views() {
 }
 async function until(fn, message, ms = 15000) {
   const deadline = Date.now() + ms;
+  let lastError;
   while (Date.now() < deadline) {
     try {
       const v = await fn();
       if (v) return v;
-    } catch {}
+    } catch (error) { lastError = error; }
     await new Promise((r) => setTimeout(r, 100));
   }
   throw new Error(
     message +
+      (lastError ? `: ${String(lastError)}` : "") +
       "\n" +
       (await page.evaluate(() => document.body.innerText.slice(-2000))),
   );
@@ -255,6 +258,7 @@ try {
     return l?.projects.length === 1 ? l : null;
   }, "Library creation failed");
   const first = library.projects[0].id;
+  firstProjectId = first;
   await page.evaluate(id => { location.hash = `#project/${encodeURIComponent(id)}`; }, first);
   await page.waitForFunction(
     (id) => document.querySelector('[aria-label="Project"]')?.value === id,
@@ -401,11 +405,27 @@ try {
 } catch (error) {
   console.error(error);
   console.error(log.slice(-3500));
+  const projectProbe = firstProjectId && page ? await (async () => {
+    const documentPath = join(lib, "Projects", firstProjectId, ".studio/project.json");
+    let disk = "readable";
+    try { await readFile(documentPath, "utf8"); }
+    catch (readError) { disk = String(readError); }
+    const api = await page.evaluate(async (id) => {
+      const response = await window.mpvfx.request({
+        id: crypto.randomUUID(), method: "GET", headers: [],
+        path: `/api/projects/${encodeURIComponent(id)}/files/${encodeURIComponent(".studio/project.json")}`,
+      });
+      return { status: response.status, body: response.body ? new TextDecoder().decode(response.body).slice(0, 300) : "" };
+    }, firstProjectId).catch(probeError => ({ error: String(probeError) }));
+    const projects = await views().then(libraries => libraries[0]?.projects.map(project => ({ id: project.id, state: project.state }))).catch(() => null);
+    return { id: firstProjectId, documentPath, disk, api, projects };
+  })() : null;
   await writeFile(join(evidenceDir, `${variant}-failure.json`), JSON.stringify({
     packagedApp,
     variant,
     error: String(error),
     startupLog: log.slice(-3500),
+    projectProbe,
   }, null, 2));
   if (page)
     await page.screenshot({ path: join(evidenceDir, `${variant}-failure.png`) }).catch(() => {});
