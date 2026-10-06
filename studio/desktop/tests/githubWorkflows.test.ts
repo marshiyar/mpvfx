@@ -39,6 +39,7 @@ describe("GitHub Actions readiness", () => {
     const tests = readRepositoryFile(".github/workflows/tests.yml");
     expect(tests).toContain("npm --prefix studio run check:architecture");
     expect(tests).toContain("npm --prefix studio run check:knip");
+    expect(tests).toContain("desktop/tests/deadCodeGates.test.ts");
 
     const hook = readRepositoryFile(".githooks/check-publication");
     expect(hook).toContain("scripts/verification_checks/check-release-readiness.mjs");

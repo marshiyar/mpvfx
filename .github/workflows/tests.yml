@@ -95,3 +95,9 @@ jobs:
       # The build script performs typecheck before compiling; do not run it twice.
       - name: Typecheck and compile source
         run: npm --prefix studio run build
+
+      # The build above produces the native engine the vitest setup requires.
+      # Direct vitest invocation keeps the retired unit-test job out of this workflow.
+      - name: Run dead-code gate tests
+        run: node ./node_modules/vitest/vitest.mjs run --config .configurations/vitest.config.ts desktop/tests/deadCodeGates.test.ts desktop/tests/githubWorkflows.test.ts
+        working-directory: studio
