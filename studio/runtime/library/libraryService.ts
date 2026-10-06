@@ -30,7 +30,6 @@ import {
 import type { LibraryAsset, LibraryView } from "../../shared/library/library";
 import type { LocalMediaImportResult } from "../../shared/desktopBridge";
 import { importLocalMedia } from "../media/localImport";
-import { classifyImportedVideoContainerCodec, probeImportedVideo } from "../media/importCodecs";
 import { inspectMediaImportFile } from "../../shared/media/mediaImportPolicy";
 import { createStandaloneCompositionSource } from "../projects/standaloneProject";
 import { createProjectAccessQueue } from "../projects/projectAccess";
@@ -489,29 +488,22 @@ export class LibraryService {
             throw new Error("Unsupported or empty media file");
           const targetDir = join(l.root, "Media/Originals", assetId);
           const staging = join(l.root, "Staging", assetId);
-          let staged: string | undefined;
-          let hash: string;
-          let stored: string;
-          if (mode === "managed") {
-            await mkdir(staging, { recursive: true });
-            // Managed originals must be staged before catalog publication.
-            const imported = await importLocalMedia({ projectRoot: staging, paths: [source] });
-            if (imported.invalid.length || !imported.files[0])
-              throw new Error(imported.invalid[0]?.reason ?? "Import failed");
-            staged = join(staging, imported.files[0]);
-            hash = await fingerprint(staged);
-            stored = relative(l.root, join(targetDir, imported.files[0]));
-          } else {
-            // A linked original stays external. Validate its codec in place and
-            // record its bytes without requiring a temporary full-size copy.
-            if (inspection.kind === "video") {
-              const facts = await probeImportedVideo(source);
-              if (!facts || classifyImportedVideoContainerCodec(name, facts) === "unsupported")
-                throw new Error("Unsupported video codec or container");
-            }
-            hash = await fingerprint(source);
-            stored = source;
-          }
+          await mkdir(staging, { recursive: true });
+          // Reuse codec validation and OS copying; validation never publishes into a project.
+          const imported = await importLocalMedia({
+            projectRoot: staging,
+            paths: [source],
+          });
+          if (imported.invalid.length || !imported.files[0])
+            throw new Error(imported.invalid[0]?.reason ?? "Import failed");
+          const staged = join(staging, imported.files[0]);
+          const hash = await fingerprint(staged);
+          if (mode === "linked" && (await fingerprint(source)) !== hash)
+            throw new Error("Linked source changed during import");
+          const stored =
+            mode === "managed"
+              ? relative(l.root, join(targetDir, imported.files[0]))
+              : source;
           await this.command(l, "asset", [
             assetId,
             eventId,
@@ -521,12 +513,12 @@ export class LibraryService {
             stored,
             hash,
           ]);
-          if (staged) {
+          if (mode === "managed") {
             await syncPath(staged);
             await syncPath(staging);
             await rename(staging, targetDir);
             await syncPath(dirname(targetDir));
-          }
+          } else await rm(staging, { recursive: true, force: true });
           await this.command(l, "assetReady", [assetId]);
           if (projectId)
             result.files.push(await this.attachUnlocked(l, projectId, assetId));

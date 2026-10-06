@@ -24,16 +24,11 @@ function resolvePreviewNode(
 export function createGsapLivePreview(iframeRef: { readonly current: HTMLIFrameElement | null }) {
   return (el: DomEditSelection, props: Record<string, number>) => {
     const iframe = iframeRef.current;
-    try {
-      const win = iframe?.contentWindow as
-        | { gsap?: { set: (t: Element, v: Record<string, number>) => void } }
-        | null
-        | undefined;
-      const node = resolvePreviewNode(iframe?.contentDocument, el);
-      if (win?.gsap && node) win.gsap.set(node, props);
-    } catch {
-      // The isolated preview does not expose its GSAP runtime or document to
-      // the editor. The durable commit/reload path owns the final state.
-    }
+    const win = iframe?.contentWindow as
+      | { gsap?: { set: (t: Element, v: Record<string, number>) => void } }
+      | null
+      | undefined;
+    const node = resolvePreviewNode(iframe?.contentDocument, el);
+    if (win?.gsap && node) win.gsap.set(node, props);
   };
 }

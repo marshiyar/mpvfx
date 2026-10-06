@@ -390,7 +390,6 @@ export function useTimelineEditing({
     pendingTimelineEditPathRef,
     isRecordingRef,
     forceReloadSdkSession,
-    reloadPreview,
   });
 
   const handleToggleElementHidden = useTimelineElementVisibilityEditing({
@@ -404,7 +403,6 @@ export function useTimelineEditing({
     pendingTimelineEditPathRef,
     isRecordingRef,
     forceReloadSdkSession,
-    reloadPreview,
   });
 
   const handleAutoGroupCarveSources = useAudioGroupCarveAssignment({
@@ -420,7 +418,6 @@ export function useTimelineEditing({
     nativeProjectEditing,
     nativeDocumentRef,
     editQueueRef,
-    reloadPreview,
   });
 
   const { handleNativeAudioAction } = useNativeAudioActions({
@@ -458,7 +455,6 @@ export function useTimelineEditing({
     nativeProjectEditing,
     nativeDocumentRef,
     editQueueRef,
-    reloadPreview,
   });
 
   const { handleTimelineElementsDelete, handleTimelineElementDelete } = useTimelineDeleteOps({

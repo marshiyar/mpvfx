@@ -117,21 +117,6 @@ describe("commitGsapPositionFromDrag — flat tween", () => {
     usePlayerStore.setState({ currentTime: 0, activeKeyframePct: null });
   });
 
-  it("commits through source when isolated preview runtime access is denied", async () => {
-    usePlayerStore.setState({ currentTime: 2 });
-    const iframe = {
-      contentWindow: Object.defineProperty({}, "gsap", {
-        get: () => { throw new DOMException("cross origin", "SecurityError"); },
-      }),
-    } as HTMLIFrameElement;
-    const { types, callbacks } = recordingCallbacks();
-    await expect(commitGsapPositionFromDrag(
-      selection(), flatTween(), { x: -100, y: 0 }, { x: 0, y: 0 },
-      iframe, "#puck-a", callbacks,
-    )).resolves.toBeUndefined();
-    expect(types).toContain("add-keyframe");
-  });
-
   it("extends the existing tween (never spawns a parallel one) when dragged OUTSIDE its range", async () => {
     // fallow-ignore-next-line code-duplication
     usePlayerStore.setState({ currentTime: 6 }); // outside [1.2, 3.4]

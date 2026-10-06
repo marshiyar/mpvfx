@@ -31,7 +31,7 @@ describe("local media import", () => {
     await copied.close();
     expect(tail.toString()).toBe("end");
     expect(await readdir(projectRoot)).toEqual(["large.wav"]);
-  }, 30_000); // A real 501 MiB disk copy can exceed Vitest's 5s default under full-suite I/O.
+  });
 
   it("preserves Unicode names, avoids collisions, and reports each failed member of a batch", async () => {
     const { root, projectRoot } = await fixture();

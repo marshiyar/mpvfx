@@ -96,59 +96,6 @@ it("persists tone-pause-tone as one undoable native and HTML edit with fractiona
   expect(parseNativeProjectDocument(JSON.parse(state.files.get(NATIVE_PROJECT_DOCUMENT_PATH)!)).sequence.tracks[0]!.clips).toHaveLength(2);
 });
 
-it("cuts audio-only media without losing fractional timing, bus membership, gain or atomic history", async () => {
-  const audio = parseNativeProjectDocument({
-    ...original,
-    assets: [{ id: "asset:camera", kind: "audio", name: "voice.wav", source: "media/voice.wav", durationFrames: 300 }],
-    sequence: {
-      ...original.sequence,
-      audioGroups: [{ id: "voicebus", volume: 0.5 }],
-      tracks: [{ ...original.sequence.tracks[0]!, kind: "audio", clips: [{
-        ...original.sequence.tracks[0]!.clips[0]!, audioGroupId: "voicebus",
-        staticParameters: { "audio.volume": 0.8 }, effects: [],
-      }] }],
-    },
-  });
-  const html = source.replace("<video", "<audio").replace("</video>", "</audio>")
-    .replace("media/camera.mov", "media/voice.wav")
-    .replace(" style=\"opacity:0.6\"", ' data-volume="0.8" data-audio-group="voicebus"')
-    .replace("</main>", '</main><hf-audio-group id="voicebus" data-volume="0.5"></hf-audio-group>');
-  const files = new Map([
-    [NATIVE_PROJECT_DOCUMENT_PATH, serializeNativeProjectDocument(audio)],
-    ["index.html", html],
-  ]);
-  const history: Array<{ files: Record<string, { before: string; after: string }> }> = [];
-  const committed = await commitNativeTimelineSilenceCut({
-    expectedRevision: 0,
-    element: { attributes: { "data-studio-clip-id": "clip:camera" } },
-    playbackElement: { kind: "audio" }, plan,
-    readOptionalProjectFile: async path => files.get(path),
-    writeProjectFile: async (path, content, expected) => {
-      expect(files.get(path)).toBe(expected);
-      files.set(path, content);
-    },
-    recordEdit: async entry => { history.push(entry); },
-  });
-  expect(committed.revision).toBe(1);
-  const clips = committed.sequence.tracks[0]!.clips.sort((a, b) => a.startFrame - b.startFrame);
-  expect(clips.map(clip => [clip.startFrame, clip.durationFrames, clip.audioGroupId,
-    clip.staticParameters?.["audio.volume"]])).toEqual([
-    [0, 30, "voicebus", 0.8], [30, 60, "voicebus", 0.8],
-  ]);
-  expect(clips[1]!.sourceInFraction).toEqual({ numerator: 1, denominator: 2 });
-  expect(files.get("index.html")?.match(/<audio\b/g)).toHaveLength(2);
-  expect(files.get("index.html")).toContain('data-volume="0.5"');
-  expect(history).toHaveLength(1);
-  expect(Object.keys(history[0]!.files).sort()).toEqual([NATIVE_PROJECT_DOCUMENT_PATH, "index.html"].sort());
-  const reopened = parseNativeProjectDocument(JSON.parse(files.get(NATIVE_PROJECT_DOCUMENT_PATH)!));
-  expect(reopened.sequence.tracks[0]!.clips).toEqual(clips);
-  for (const [path, snapshot] of Object.entries(history[0]!.files)) files.set(path, snapshot.before);
-  expect(parseNativeProjectDocument(JSON.parse(files.get(NATIVE_PROJECT_DOCUMENT_PATH)!))).toEqual(audio);
-  expect(files.get("index.html")).toBe(html);
-  for (const [path, snapshot] of Object.entries(history[0]!.files)) files.set(path, snapshot.after);
-  expect(parseNativeProjectDocument(JSON.parse(files.get(NATIVE_PROJECT_DOCUMENT_PATH)!)).revision).toBe(1);
-});
-
 it.each(["source", "history"] as const)("rolls back the whole silence action when %s fails", async failure => {
   const state = memory(failure);
   await expect(commitNativeTimelineSilenceCut(input(state))).rejects.toThrow(`${failure} failed`);

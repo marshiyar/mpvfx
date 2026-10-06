@@ -36,8 +36,6 @@ describe("composition dimension ownership", () => {
     const preview = document.createElement("iframe");
     const secondary = document.createElement("iframe");
     document.body.append(preview, secondary);
-    Object.defineProperty(preview, "src", { configurable: true, value: "mpvfx://616263.preview/api/projects/abc/preview" });
-    Object.defineProperty(secondary, "src", { configurable: true, value: "mpvfx://646566.preview/api/projects/def/preview" });
     const root = createRoot(host);
     const Harness = () => {
       const dimensions = useCompositionDimensions("index.html", { current: preview });
@@ -47,7 +45,6 @@ describe("composition dimension ownership", () => {
       window.dispatchEvent(
         new MessageEvent("message", {
           source,
-          origin: source === preview.contentWindow ? "mpvfx://616263.preview" : "mpvfx://646566.preview",
           data: { source: "hf-preview", type: "stage-size", width, height },
         }),
       );
@@ -55,12 +52,6 @@ describe("composition dimension ownership", () => {
 
     act(() => root.render(<Harness />));
     act(() => sendSize(secondary.contentWindow, 1080, 1920));
-    expect(host.textContent).toBe("unknown");
-    act(() => window.dispatchEvent(new MessageEvent("message", {
-      source: preview.contentWindow,
-      origin: "mpvfx://editor",
-      data: { source: "hf-preview", type: "stage-size", width: 4000, height: 2000 },
-    })));
     expect(host.textContent).toBe("unknown");
     act(() => sendSize(preview.contentWindow, 1920, 1080));
     expect(host.textContent).toBe("1920x1080");

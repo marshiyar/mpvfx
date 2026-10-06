@@ -102,22 +102,6 @@ const patchHtml = (
     .replace(/data-start="[^"]*"/, `data-start="${start}"`);
 
 describe("native timeline dual-file move transaction", () => {
-  it("accepts a unique lane gesture key so a preceding z batch shares one Undo step", async () => {
-    const state = memory();
-    const result = await commitNativeTimelineMove({
-      expectedRevision: 2, element: timelineElement, requestedStartSeconds: 3, requestedTrack: 0,
-      gestureCoalesceKey: "timeline-move:clip:a:gesture-1",
-      readOptionalProjectFile: state.readOptionalProjectFile,
-      writeProjectFile: state.writeProjectFile,
-      recordEdit: state.recordEdit,
-      patchCompatibilityContent: patchHtml,
-    });
-    expect(result.committed).toBe(true);
-    expect(state.recordEdit).toHaveBeenCalledWith(expect.objectContaining({
-      coalesceKey: "timeline-move:clip:a:gesture-1", coalesceMs: 60_000,
-    }));
-  });
-
   it("uses the saved binding and restores a preview-only hf ID before patching", async () => {
     const state = memory();
     state.files.set("index.html", state.originalHtml.replace(' data-hf-id="hf-clip"', ""));

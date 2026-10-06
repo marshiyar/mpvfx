@@ -1,7 +1,6 @@
 import { importLibraryUpload } from "./library/libraryUpload";
-import { thumbnailMayReadResource } from "./preview/thumbnailResourcePolicy";
 import { readProjectMediaMetadata } from "./media/metadata";
-import { analyzeProjectMediaSilence } from "./media/silenceAnalysis";
+import { analyzeProjectVideoSilence } from "./media/silenceAnalysis";
 import type { LibraryService } from "./library/libraryService";
 import {
   lstatSync,
@@ -36,7 +35,6 @@ import { stabilizeStandalonePreviewRuntime } from "./preview/audioStability";
 import { synchronizeStandaloneTransportDuration } from "./preview/transportDuration";
 import { enableStandaloneLutUrls } from "./preview/lutUrls";
 import { ensureStandaloneProject } from "./projects/standaloneProject";
-import { projectIdFromPreviewHost } from "../shared/desktopPreviewOrigin";
 import { createProjectAccessQueue } from "./projects/projectAccess";
 import { decodeNativeVideoFrames } from "./media/videoFrames";
 import type { VideoFramesRequest } from "../shared/desktopBridge";
@@ -78,15 +76,6 @@ function installedRuntimeSource(): string | null {
     )));
   } catch (error) {
     console.warn("[Studio] Failed to load the installed preview runtime:", error);
-    return null;
-  }
-}
-
-function installedPreviewAgentSource(studioDir: string): string | null {
-  try {
-    return readFileSync(join(studioDir, ".build/runtime/preview-agent.js"), "utf8");
-  } catch (error) {
-    console.warn("[Studio] Failed to load the isolated preview agent:", error);
     return null;
   }
 }
@@ -266,12 +255,12 @@ export function createStudioRuntime(options: StudioRuntimeOptions): StudioRuntim
       if (!project) return Response.json({ error: "Project not found" }, { status: 404 });
       try {
         const input = await request.json();
-        return Response.json({ ranges: await analyzeProjectMediaSilence(project.dir, input, request.signal) }, {
+        return Response.json({ ranges: await analyzeProjectVideoSilence(project.dir, input, request.signal) }, {
           headers: { "cache-control": "no-store" },
         });
       } catch (error) {
         if (request.signal.aborted) throw error;
-        return Response.json({ error: error instanceof Error ? error.message : "Could not analyze media audio" }, { status: 422 });
+        return Response.json({ error: error instanceof Error ? error.message : "Could not analyze video audio" }, { status: 422 });
       }
     }
     const metadataRoute = /^\/projects\/([^/]+)\/media\/streams$/.exec(url.pathname);
@@ -437,16 +426,9 @@ export function createStudioRuntime(options: StudioRuntimeOptions): StudioRuntim
     if (closed) return Response.json({ error: "Runtime is closed" }, { status: 503 });
     const url = new URL(request.url);
     if (url.pathname === "/api/runtime.js" || url.pathname === "/api/motion-path-plugin.js") {
-      let source = url.pathname === "/api/runtime.js"
+      const source = url.pathname === "/api/runtime.js"
         ? (options.loadRuntimeSource ?? installedRuntimeSource)()
         : installedMotionPathPluginSource();
-      // The DOM adapter belongs only to a project-scoped preview origin. Export
-      // capture and thumbnails use the plain runtime and receive no editor link.
-      if (source && url.pathname === "/api/runtime.js" && url.protocol === "mpvfx:" &&
-          projectIdFromPreviewHost(url.host) !== null) {
-        const agent = installedPreviewAgentSource(options.adapterHost.studioDir);
-        source = agent ? `${agent}\n;${source}` : null;
-      }
       return new Response(source ?? "Runtime not available", {
         status: source ? 200 : 404,
         headers: { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store" },
@@ -503,12 +485,7 @@ export function createStudioRuntime(options: StudioRuntimeOptions): StudioRuntim
   // Chromium used for thumbnails receives resources directly, without a server.
   adapter.generateThumbnail = async (options) => {
     const { generateThumbnail } = await import("./preview/browser");
-    return generateThumbnail({
-      ...options,
-      readResource: request => thumbnailMayReadResource(options.previewUrl, request, options.project.dir)
-        ? handle(request)
-        : Promise.resolve(new Response("Forbidden", { status: 403 })),
-    });
+    return generateThumbnail({ ...options, readResource: handle });
   };
 
   return {

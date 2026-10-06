@@ -28,7 +28,6 @@ import {
   normalizePreviewViewport,
 } from "../lib/timelineIframeHelpers";
 import { inspectStudioRuntimeMessage } from "../lib/runtimeProtocol";
-import { isExpectedPreviewMessage } from "../lib/previewUrl";
 import {
   isTimelineIgnoredElement,
   isTimelineRuntimeOwnedId,
@@ -357,6 +356,13 @@ export interface RuntimeTimelineMessage {
   fps?: unknown;
 }
 
+/** Whether a window message came from the preview iframe we are watching.
+ *  A message with no `source` (jsdom, synthetic dispatch) is not rejected. */
+function isFromPreviewFrame(e: MessageEvent, iframe: HTMLIFrameElement | null): boolean {
+  if (!e.source || !iframe) return true;
+  return e.source === iframe.contentWindow;
+}
+
 /**
  * Whether a message is a preview readiness signal this listener should act on.
  *
@@ -368,7 +374,7 @@ export function isPreviewReadinessMessage(
   e: MessageEvent,
   iframe: HTMLIFrameElement | null,
 ): boolean {
-  if (!isExpectedPreviewMessage(e, iframe)) return false;
+  if (!isFromPreviewFrame(e, iframe)) return false;
   const data = e.data;
   if (data?.source !== "hf-preview") return false;
   if (data?.type !== "state" && data?.type !== "timeline") return false;

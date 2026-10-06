@@ -40,7 +40,6 @@ import {
   readGsapPositionFromIframe,
 } from "./gsapPositionDetection";
 import { hasNonHoldTweenForElement } from "./gsapRuntimeKeyframes";
-import { isPreviewRuntimeInaccessible } from "./gsapPreviewRuntimeAvailability";
 import {
   animationWritesAnyProperty,
   directEditOutcomeForProperties,
@@ -202,9 +201,6 @@ async function preflightGsapDragIntercept(
   iframe: HTMLIFrameElement | null,
   fetchFallbackAnimations?: () => Promise<GsapAnimation[]>,
 ): Promise<GsapEditOutcome> {
-  if (isPreviewRuntimeInaccessible(iframe)) {
-    return { status: "blocked", reason: "preview-unavailable" };
-  }
   const selector = selectorFromSelection(selection);
   if (!selector) return { status: "blocked", reason: "no-selector" };
 
@@ -238,11 +234,6 @@ export async function tryGsapDragIntercept(
   fetchFallbackAnimations?: () => Promise<GsapAnimation[]>,
   options?: { altKey?: boolean; preflightOnly?: boolean; preflightPassed?: boolean },
 ): Promise<GsapEditOutcome> {
-  // `preflightPassed` may have been captured before a preview navigation. Never
-  // let it bypass the live-runtime boundary after the iframe changes origin.
-  if (isPreviewRuntimeInaccessible(iframe)) {
-    return { status: "blocked", reason: "preview-unavailable" };
-  }
   if (!options?.preflightPassed) {
     const preflight = await preflightGsapDragIntercept(
       selection,
@@ -384,9 +375,6 @@ export async function tryGsapRotationIntercept(
   commitMutation: GsapDragCommitCallbacks["commitMutation"],
   fetchFallbackAnimations?: () => Promise<GsapAnimation[]>,
 ): Promise<GsapEditOutcome> {
-  if (isPreviewRuntimeInaccessible(iframe)) {
-    return { status: "blocked", reason: "preview-unavailable" };
-  }
   const selector = selectorFromSelection(selection) ?? writeTargetSelector(selection);
   if (!selector) return { status: "blocked", reason: "no-selector" };
 

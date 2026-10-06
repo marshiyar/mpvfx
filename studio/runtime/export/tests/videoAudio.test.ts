@@ -8,7 +8,6 @@ import { resolveInstalledMediaBinaryPaths } from "../../../desktop/installedMedi
 import { readProjectMediaMetadata } from "../../media/metadata";
 import { createNativeProjectExportMaterialization } from "../nativeProject";
 import { prepareExportVideoAudio } from "../videoAudio";
-import { previewOriginForProject } from "../../../shared/desktopPreviewOrigin";
 
 let root: string;
 const binaries = resolveInstalledMediaBinaryPaths();
@@ -81,14 +80,6 @@ describe("real media stream reconciliation", () => {
     await writeFile(join(root, "unrelated.html"), video("missing", "assets/missing.mp4"));
     const input = await scene("audible", video("sound", "assets/sound.mp4"));
     expect((await prepareExportVideoAudio(input)).size).toBe(0);
-  });
-
-  it("resolves project-scoped preview URLs in disposable export materialization", async () => {
-    const src = `${previewOriginForProject("demo")}/api/projects/demo/preview/assets/silent.mp4?revision=2`;
-    const input = await scene("isolated-preview-source", video("silent", src));
-    const overrides = await prepareExportVideoAudio(input);
-    expect(overrides.get(input.entryFile)).toContain('data-has-audio="false"');
-    expect(await readFile(join(root, input.entryFile), "utf8")).toContain(src);
   });
 
   it("does not guess missing or corrupt media is silent", async () => {

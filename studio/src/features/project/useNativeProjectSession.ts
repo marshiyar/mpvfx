@@ -13,11 +13,6 @@ import {
   discardCommittedNativeGestureDrafts,
   releaseCommittedNativeGestureDrafts,
 } from "./nativeGestureDraft";
-import { attachPreviewAgent } from "../preview/previewAgentClient";
-import { previewOriginFromIframe } from "../../player/lib/previewUrl";
-import { previewOriginForProject } from "../../../shared/desktopPreviewOrigin";
-import { bakeTrackSamples, vkfEngine } from "../../../shared/engine/vkfEngine";
-import type { PreviewBakedTrack } from "../../../shared/preview/agentProtocol";
 
 export type NativeProjectSessionStatus =
   "idle" | "loading" | "absent" | "ready" | "error";
@@ -60,65 +55,6 @@ function browserClock(): NativeProjectRuntimeClock {
   };
 }
 
-function accessiblePreviewDocument(iframe: HTMLIFrameElement | null): Document | null {
-  try { return iframe?.contentDocument ?? null; }
-  catch { return null; }
-}
-
-function isCurrentIsolatedPreview(iframe: HTMLIFrameElement | null, projectId: string | null | undefined): boolean {
-  if (!iframe || !projectId || accessiblePreviewDocument(iframe)) return false;
-  try {
-    const url = new URL(iframe.src);
-    const prefix = `/api/projects/${encodeURIComponent(projectId)}/preview`;
-    return previewOriginFromIframe(iframe) === previewOriginForProject(projectId)
-      && (url.pathname === prefix || url.pathname.startsWith(`${prefix}/`));
-  } catch { return false; }
-}
-
-function nativeProjectDurationSeconds(project: NativeProjectDocument): number {
-  let frames = Math.max(0, project.sequence.durationFrames ?? 0);
-  for (const track of project.sequence.tracks) {
-    for (const clip of track.clips) frames = Math.max(frames, clip.startFrame + clip.durationFrames);
-  }
-  return frames * project.frameRate.denominator / project.frameRate.numerator;
-}
-
-/** The isolated document has no preload bridge; sample with the editor's C++ engine. */
-export function bakeIsolatedPreviewTracks(project: NativeProjectDocument): PreviewBakedTrack[] {
-  const baked: PreviewBakedTrack[] = [];
-  let sampleCount = 0;
-  for (const track of project.sequence.tracks) for (const clip of track.clips) {
-    const bake = (
-      tracks: typeof clip.parameterTracks,
-      durationFrames: number,
-      referenceIndex?: number,
-    ) => {
-      for (const parameterTrack of tracks) {
-      if (baked.length >= 512) throw new Error("Preview has too many animated tracks");
-      const lastFrame = parameterTrack.keyframes.reduce((max, key) => Math.max(max, key.frame), 0);
-      const frameCount = Math.max(1, durationFrames, lastFrame + 1);
-      const components = parameterTrack.valueType === "number" ? 1 : parameterTrack.valueType === "vec2" ? 2 : 4;
-      const count = frameCount * (components + (parameterTrack.valueType === "vec2" ? 1 : 0));
-      sampleCount += count;
-      if (sampleCount > 4_000_000 || frameCount * components > 1_000_000) {
-        throw new Error("Preview animation exceeds the supported sample limit");
-      }
-      baked.push({
-        clipId: clip.id,
-        trackId: parameterTrack.id,
-        ...(referenceIndex === undefined ? {} : { referenceIndex }),
-        ...bakeTrackSamples(vkfEngine(), parameterTrack, durationFrames),
-      });
-      }
-    };
-    bake(clip.parameterTracks, clip.durationFrames);
-    for (const [index, segment] of (clip.cropPivotSegments ?? []).entries()) {
-      if (segment.reference) bake(segment.reference.parameterTracks, segment.reference.durationFrames, index);
-    }
-  }
-  return baked;
-}
-
 /**
  * Optionally loads the native sidecar. Absent/malformed files never take over
  * preview playback; only a successfully parsed document can install an adapter.
@@ -143,9 +79,8 @@ export function useNativeProjectSession(
     const abort = new AbortController();
     const projectChanged = lastRequestedProjectId.current !== options.projectId;
     lastRequestedProjectId.current = options.projectId;
-    const activeDocument = accessiblePreviewDocument(options.iframe);
-    if (projectChanged && activeDocument) {
-      discardCommittedNativeGestureDrafts(activeDocument);
+    if (projectChanged && options.iframe?.contentDocument) {
+      discardCommittedNativeGestureDrafts(options.iframe.contentDocument);
     }
     if (!options.projectId) {
       setState(idleState);
@@ -202,57 +137,10 @@ export function useNativeProjectSession(
   }, [options.iframe]);
 
   const iframeWindow = options.iframe?.contentWindow ?? null;
-  const iframeDocument = accessiblePreviewDocument(options.iframe);
-  const isolatedPreview = isCurrentIsolatedPreview(options.iframe, options.projectId);
+  const iframeDocument = options.iframe?.contentDocument ?? null;
   useEffect(() => {
     const nativeDocument = state.document;
-    const iframe = options.iframe;
-    if (!isolatedPreview || !iframe || !nativeDocument ||
-      documentOwners.current.get(nativeDocument) !== options.projectId) return;
-    const client = attachPreviewAgent(iframe);
-    let cancelled = false;
-    const install = () => {
-      if (cancelled || !isCurrentIsolatedPreview(iframe, options.projectId)) return;
-      let bakedTracks: PreviewBakedTrack[];
-      try { bakedTracks = bakeIsolatedPreviewTracks(nativeDocument); }
-      catch (error) {
-        setState(previous => previous.document === nativeDocument
-          ? { ...previous, status: "error", error: error instanceof Error ? error : new Error(String(error)) }
-          : previous);
-        return;
-      }
-      void client.request({
-        kind: "installNativeProject",
-        project: nativeDocument,
-        bakedTracks,
-        activeSourceFile: options.activeSourceFile ?? "index.html",
-        timeSeconds: Math.max(0, options.getPlayheadSeconds?.() ?? 0),
-        playing: options.getIsPlaying?.() ?? false,
-      }).then(() => {
-        if (!cancelled) options.onNativeDuration?.(nativeProjectDurationSeconds(nativeDocument));
-      }).catch(error => {
-        if (cancelled || !client.isReady) return;
-        setState(previous => previous.document === nativeDocument
-          ? { ...previous, status: "error", error: error instanceof Error ? error : new Error(String(error)) }
-          : previous);
-      });
-    };
-    const unsubscribe = client.onReady(install);
-    return () => { cancelled = true; unsubscribe(); };
-  }, [
-    iframeDocumentVersion,
-    isolatedPreview,
-    options.activeSourceFile,
-    options.getIsPlaying,
-    options.getPlayheadSeconds,
-    options.iframe,
-    options.onNativeDuration,
-    options.projectId,
-    state.document,
-  ]);
-  useEffect(() => {
-    const nativeDocument = state.document;
-    if (isolatedPreview || !nativeDocument || documentOwners.current.get(nativeDocument) !== options.projectId || !iframeWindow || !iframeDocument) return;
+    if (!nativeDocument || documentOwners.current.get(nativeDocument) !== options.projectId || !iframeWindow || !iframeDocument) return;
     let runtime: ReturnType<typeof installNativeProjectRuntime> | null = null;
     try {
       runtime = installNativeProjectRuntime({
@@ -318,7 +206,6 @@ export function useNativeProjectSession(
     iframeDocument,
     iframeDocumentVersion,
     iframeWindow,
-    isolatedPreview,
     options.getPlaybackRate,
     options.getPlayheadSeconds,
     options.getIsPlaying,

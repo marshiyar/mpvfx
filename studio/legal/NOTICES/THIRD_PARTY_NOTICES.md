@@ -1,12 +1,8 @@
 # MpVFX third-party notices
 
-This inventory was generated from `studio/package-lock.json` for MpVFX 0.0.8. It records
+This inventory was generated from `studio/package-lock.json` for MpVFX 0.0.7. It records
 the license identifiers declared by the exact JavaScript dependency versions in the lockfile.
 Package license files and notices control if they differ from this inventory.
-
-The video-keyframing C++ engine at third_party/video-keyframing is MpVFX-owned source despite
-that legacy directory name. It is not listed as an outside dependency here; its Apache 2.0
-license and applicable source attributions remain in NOTICE.txt.
 
 ## Binary distribution
 

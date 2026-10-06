@@ -10,8 +10,7 @@ import {
   parseStudioUrlStateFromHash,
   resolveMasterCompositionPath,
 } from "../studioUrlState";
-import { matchesRemoteUrlSelection, useStudioUrlState } from "../useStudioUrlState";
-import type { PreviewElementState } from "../../../shared/preview/agentProtocol";
+import { useStudioUrlState } from "../useStudioUrlState";
 import { usePlayerStore } from "../../player/index";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -60,15 +59,6 @@ describe("normalizeStudioUrlPanelTab", () => {
     expect(normalizeStudioUrlPanelTab("slideshow" as never)).toBeNull();
     expect(normalizeStudioUrlPanelTab("variables" as never)).toBeNull();
   });
-});
-
-it("resolves an isolated URL selection only within its exact authored source", () => {
-  const state = {
-    id: "title", sourceFile: "compositions/intro.html", selector: "#title", selectorIndex: 0,
-  } as PreviewElementState;
-  expect(matchesRemoteUrlSelection(state, { id: "title", sourceFile: "compositions/intro.html" }, null)).toBe(true);
-  expect(matchesRemoteUrlSelection(state, { id: "title", sourceFile: "index.html" }, null)).toBe(false);
-  expect(matchesRemoteUrlSelection(state, { selector: "#title", selectorIndex: 1, sourceFile: "compositions/intro.html" }, null)).toBe(false);
 });
 
 function resetPlayerStore() {

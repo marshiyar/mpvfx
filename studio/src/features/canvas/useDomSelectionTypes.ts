@@ -2,7 +2,6 @@ import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type { DomEditSelection } from "./domEditing";
 import type { SelectElementOptions, TimelineElement } from "../../player/index";
 import type { RightPanelTab } from "../../lib/studioHelpers";
-import type { PreviewElementState } from "../../../shared/preview/agentProtocol";
 
 export interface ApplyDomSelectionOptions {
   revealPanel?: boolean;
@@ -40,8 +39,6 @@ export interface UseDomSelectionParams {
 export interface UseDomSelectionReturn {
   // State
   domEditSelection: DomEditSelection | null;
-  /** Data returned by the isolated preview agent, never a parent-owned DOM node. */
-  remoteSelection: PreviewElementState | null;
   domEditGroupSelections: DomEditSelection[];
   domEditHoverSelection: DomEditSelection | null;
   activeGroupElement: HTMLElement | null;

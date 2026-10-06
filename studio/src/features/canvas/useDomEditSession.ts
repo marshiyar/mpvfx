@@ -1,5 +1,7 @@
 import { deleteNativeCanvasSelection } from "./nativeCanvasDelete";
 import { useCallback } from "react";
+import { trackStudioEvent } from "../../lib/studioTelemetry";
+import { isAudioDomElement } from "../timeline/timelineInspector";
 import type { SelectElementOptions, TimelineElement } from "../../player/index";
 import type { ImportedFontAsset } from "../inspector/fontAssets";
 import type { RightPanelTab } from "../../lib/studioHelpers";
@@ -7,9 +9,6 @@ import type { Composition } from "@hyperframes/sdk";
 import { sdkCutoverPersist, sdkDeletePersist, type PublishSdkSession } from "../legacy/sdkCutover";
 import { runResolverShadow, recordResolverParity } from "../legacy/sdkResolverShadow";
 import { useDomSelection } from "./useDomSelection";
-import { useRemoteSourceEdits } from "./useRemoteSourceEdits";
-import { useDomEditGroupActions } from "./useDomEditGroupActions";
-import { useNativeProjectEditActions } from "./useNativeProjectEditActions";
 import { usePreviewInteraction } from "../preview/usePreviewInteraction";
 import { useDomEditCommits } from "./useDomEditCommits";
 import { commitNativeMediaAttributes } from "./nativeMediaAttributes";
@@ -24,11 +23,29 @@ import type { DomEditSelection } from "./domEditingTypes";
 import { membersForDelete } from "./domEditDeleteMembers";
 import type { RecordEditInput } from "./domEditDeleteMembers";
 import type { UseProjectAnimatedPropertyCommitOptions } from "../animation/useProjectAnimatedPropertyCommit";
+import { useNativeProjectKeyframeCommands } from "../animation/Keyframe/useNativeProjectKeyframeCommands";
+import {
+  createNativeProjectRepository,
+} from "../project/nativeProjectPersistence";
+import type { NativeKeyframeProjectCommit } from "../../player/components/deleteSelectedKeyframes";
+import { applyNativeProjectPropertyCommand } from "../../../shared/project/nativeProjectPropertyCommands";
+import type { NativeMotionPath } from "../../../shared/project/nativeKeyframeTypes";
+import { POSITION_PARAMETER_ID } from "../../../shared/project/nativePositionTrack";
 
-export type { NativePositionPathChange } from "./useNativeProjectEditActions";
+/** A clip's position-wide motion change: segment path shapes and/or auto-rotate. */
+export interface NativePositionPathChange {
+  readonly clip: { readonly sequenceId: string; readonly trackId: string; readonly clipId: string };
+  readonly segments?: readonly { readonly frame: number; readonly path: NativeMotionPath | null }[];
+  readonly autoRotate?: boolean;
+}
 // Re-exported: the delete rule lives in its own module now, and callers (and its
 // own test) have always imported it from here.
 export { membersForDelete };
+
+const noNativeProjectRead = async (): Promise<null> => null;
+const noNativeProjectWrite = async (): Promise<void> => {
+  throw new Error("Native project persistence is unavailable");
+};
 
 export interface UseDomEditSessionParams {
   projectId: string | null;
@@ -116,7 +133,6 @@ export function useDomEditSession({
   void _setRefreshKey;
   const {
     domEditSelection,
-    remoteSelection,
     domEditGroupSelections,
     domEditHoverSelection,
     activeGroupElement,
@@ -334,10 +350,46 @@ export function useDomEditSession({
     [domEditGroupSelectionsRef, handleDomEditElementsDelete, isRecordingRef, showToast],
   );
 
-  const { handleGroupSelection, handleUngroupSelection } = useDomEditGroupActions({
-    domEditGroupSelectionsRef, domEditSelectionRef, groupSelection, ungroupSelection,
-    setActiveGroupElement, showToast,
-  });
+  const handleGroupSelection = useCallback(() => {
+    const group = domEditGroupSelectionsRef.current;
+    const single = domEditSelectionRef.current;
+    const members = group.length > 0 ? group : single ? [single] : [];
+    if (members.length < 2) {
+      showToast("Select at least 2 elements to group", "info");
+      return;
+    }
+    // A layout group is a positioned wrapper: it takes the members' bounding
+    // box, rebases each child's left/top against it, and adopts the topmost
+    // z-index. An <audio> clip has no box — offsetWidth/Height are 0 — so
+    // grouping audio produced a 0x0 div with inline left/top written onto
+    // elements that have never been laid out, and the timeline gained a
+    // wrapper standing for nothing audible. The audio answer to "these clips
+    // belong together" is an <hf-audio-group> bus, which the timeline's own FX
+    // pointer creates, so the refusal names it rather than just declining.
+    if (members.some((m) => isAudioDomElement(m.element))) {
+      showToast(
+        members.every((m) => isAudioDomElement(m.element))
+          ? "Audio clips group into a bus — use FX on the track header"
+          : "Can't group audio clips with layout elements",
+        "info",
+      );
+      return;
+    }
+    trackStudioEvent("group", { action: "create", count: members.length });
+    void groupSelection(members);
+  }, [domEditGroupSelectionsRef, domEditSelectionRef, groupSelection, showToast]);
+
+  const handleUngroupSelection = useCallback(() => {
+    const sel = domEditSelectionRef.current;
+    if (!sel?.element.hasAttribute("data-hf-group")) {
+      showToast("Select a group to ungroup", "info");
+      return;
+    }
+    // Dissolving the group exits any drill-in (the wrapper is about to vanish).
+    trackStudioEvent("group", { action: "ungroup" });
+    setActiveGroupElement(null);
+    void ungroupSelection(sel);
+  }, [domEditSelectionRef, ungroupSelection, setActiveGroupElement, showToast]);
 
   // ── Wiring: selection sync, GSAP cache, preview sync, selection handlers ──
 
@@ -459,19 +511,77 @@ export function useDomEditSession({
   });
   const { handleUpdateSegmentEase, handleUpdateKeyframeEase, handleSetAllKeyframeEases } =
     useKeyframeEaseCommits({ gsapCommitMutation, domEditSelectionRef });
-  const { nativeKeyframeCommands, commitNativeProject, setNativePositionPath } =
-    useNativeProjectEditActions({ nativeProjectEditing, showToast });
-  const { commitRemoteInspectorEdit, commitRemoteStackingPatches,
-    commitRemoteNativeMedia, commitRemoteLegacyGrade, loadRemoteGsapAnimations, commitRemoteGsapProperty,
-    commitRemoteGsapKeyframe, commitRemoteGsapAnimation, commitRemoteGsapCanvasGesture } = useRemoteSourceEdits({
-    projectId, activeCompPath, previewIframeRef, nativeProjectEditing,
-    readProjectFile, writeProjectFile, editHistory, domEditSaveTimestampRef,
-    reloadPreview, showToast,
+  const nativeKeyframeCommands = useNativeProjectKeyframeCommands({
+    nativeDocument: nativeProjectEditing?.nativeDocument ?? null,
+    readOptionalProjectFile:
+      nativeProjectEditing?.readOptionalProjectFile ?? noNativeProjectRead,
+    writeProjectFile: nativeProjectEditing?.writeProjectFile ?? noNativeProjectWrite,
+    recordHistory: nativeProjectEditing?.recordHistory,
+    commitFileTransaction: nativeProjectEditing?.commitFileTransaction,
+    onNativeDocumentCommitted: nativeProjectEditing?.onNativeDocumentCommitted,
   });
+  const commitNativeProject = useCallback(
+    async (commit: NativeKeyframeProjectCommit): Promise<boolean> => {
+      const editing = nativeProjectEditing;
+      const document = editing?.nativeDocument ?? editing?.nativeBootstrapDocument;
+      if (!editing || !document || commit.document.id !== document.id) return false;
+      try {
+        const repository = createNativeProjectRepository({
+          readOptionalProjectFile: editing.readOptionalProjectFile,
+          writeProjectFile: editing.writeProjectFile,
+          recordHistory: editing.recordHistory,
+          commitFileTransaction: editing.commitFileTransaction,
+        });
+        const committed = await repository.save(commit.document, {
+          expectedRevision: editing.nativeDocument?.revision ?? null,
+          label: commit.label,
+        });
+        editing.onNativeDocumentCommitted?.(committed.document);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [nativeProjectEditing],
+  );
+  // Arc motion: applied to the authoritative document (or the bootstrap
+  // candidate on a project's first native edit) and saved with history.
+  const setNativePositionPath = useCallback(
+    async (change: NativePositionPathChange): Promise<void> => {
+      const editing = nativeProjectEditing;
+      const document = editing?.nativeDocument ?? editing?.nativeBootstrapDocument;
+      if (!document) return;
+      const address = { ...change.clip, parameterId: POSITION_PARAMETER_ID };
+      const result = applyNativeProjectPropertyCommand(document, {
+        type: "batch",
+        commands: [
+          ...(change.segments ?? []).map((segment) => ({
+            type: "set-motion-path" as const,
+            address,
+            frame: segment.frame,
+            path: segment.path,
+          })),
+          ...(change.autoRotate === undefined
+            ? []
+            : [{ type: "set-auto-rotate" as const, address, autoRotate: change.autoRotate }]),
+        ],
+      });
+      if (!result.ok) {
+        showToast(result.failure.message, "error");
+        return;
+      }
+      const saved = await commitNativeProject({
+        document: result.document,
+        inverse: { type: "restore-document", document },
+        label: change.autoRotate === undefined ? "Change motion path" : "Change auto-rotate",
+      });
+      if (!saved) showToast("The motion path could not be saved", "error");
+    },
+    [commitNativeProject, nativeProjectEditing, showToast],
+  );
   return {
     // State
     domEditSelection,
-    remoteSelection,
     domEditGroupSelections,
     domEditHoverSelection,
     activeGroupElement,
@@ -560,15 +670,6 @@ export function useDomEditSession({
     setNativePositionPath,
     nativeDocument: nativeProjectEditing?.nativeDocument ?? null,
     commitNativeProject,
-    commitRemoteInspectorEdit,
-    commitRemoteStackingPatches,
-    commitRemoteNativeMedia,
-    commitRemoteLegacyGrade,
-    loadRemoteGsapAnimations,
-    commitRemoteGsapProperty,
-    commitRemoteGsapKeyframe,
-    commitRemoteGsapAnimation,
-    commitRemoteGsapCanvasGesture,
     handleSetArcPath,
     handleUpdateArcSegment,
     handleUnroll,

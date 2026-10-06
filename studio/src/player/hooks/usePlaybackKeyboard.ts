@@ -6,14 +6,13 @@
  * and iframe listener setup function. Has no side effects of its own.
  */
 
-import { useRef, useCallback, useEffect } from "react";
+import { useRef, useCallback } from "react";
 import { useCaptionStore } from "../../captions/store";
 import { shouldIgnorePlaybackShortcutEvent, SHUTTLE_SPEEDS } from "../lib/playbackShortcuts";
 import { canvasNudgeKeysClaimed } from "../../features/canvas/canvasNudgeGate";
 import { usePlayerStore } from "../store/playerStore";
 import { stepFrameTime, STUDIO_PREVIEW_FPS } from "../lib/time";
 import type { PlaybackAdapter } from "../lib/playbackTypes";
-import { previewAgentForIframe } from "../../features/preview/previewAgentClient";
 
 interface UsePlaybackKeyboardParams {
   iframeRef: React.RefObject<HTMLIFrameElement | null>;
@@ -190,26 +189,15 @@ export function usePlaybackKeyboard({
     iframeShortcutCleanupRef.current?.();
     iframeShortcutCleanupRef.current = null;
 
-    const iframe = iframeRef.current;
-    if (!iframe) return;
     let iframeWin: Window | null = null;
     let iframeDoc: Document | null = null;
     try {
-      iframeWin = iframe.contentWindow;
-      iframeDoc = iframe.contentDocument;
+      iframeWin = iframeRef.current?.contentWindow ?? null;
+      iframeDoc = iframeRef.current?.contentDocument ?? null;
     } catch {
-      // The isolated preview is still reachable through its validated agent.
+      return;
     }
-    const agent = iframeDoc ? null : previewAgentForIframe(iframe);
-    const unsubscribeTransport = agent?.onTransportKey(({ phase, key, shiftKey, repeat }) => {
-      const code = key === " " ? "Space" : key.startsWith("Arrow") ? key : `Key${key.toUpperCase()}`;
-      const event = new KeyboardEvent(phase === "down" ? "keydown" : "keyup", {
-        key, code, shiftKey, repeat, cancelable: true,
-      });
-      if (phase === "down") playbackKeyDownRef.current(event);
-      else playbackKeyUpRef.current(event);
-    });
-    if (!iframeWin && !iframeDoc && !unsubscribeTransport) return;
+    if (!iframeWin && !iframeDoc) return;
 
     const handleIframeKeyDown = (e: KeyboardEvent) => playbackKeyDownRef.current(e);
     const handleIframeKeyUp = (e: KeyboardEvent) => playbackKeyUpRef.current(e);
@@ -222,8 +210,6 @@ export function usePlaybackKeyboard({
     iframeDoc?.addEventListener("keydown", handleIframeKeyDown, true);
     iframeDoc?.addEventListener("keyup", handleIframeKeyUp, true);
     iframeShortcutCleanupRef.current = () => {
-      unsubscribeTransport?.();
-      pressedKeysRef.current.clear();
       try {
         iframeWin?.removeEventListener("keydown", handleIframeKeyDown, true);
         iframeWin?.removeEventListener("keyup", handleIframeKeyUp, true);
@@ -234,18 +220,6 @@ export function usePlaybackKeyboard({
       iframeDoc?.removeEventListener("keyup", handleIframeKeyUp, true);
     };
   }, [iframeRef, iframeShortcutCleanupRef]);
-
-  useEffect(() => {
-    const onAgentAttached = (event: Event) => {
-      if ((event as CustomEvent<HTMLIFrameElement>).detail === iframeRef.current) {
-        attachIframeShortcutListeners();
-      }
-    };
-    window.addEventListener("mpvfx-preview-agent-attached", onAgentAttached);
-    const iframe = iframeRef.current;
-    if (iframe && previewAgentForIframe(iframe)) attachIframeShortcutListeners();
-    return () => window.removeEventListener("mpvfx-preview-agent-attached", onAgentAttached);
-  }, [attachIframeShortcutListeners, iframeRef]);
 
   return {
     playbackKeyDownRef,

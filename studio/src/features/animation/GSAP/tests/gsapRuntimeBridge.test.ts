@@ -56,32 +56,6 @@ const stalePositionAnim = {
   duration: 2,
 } as unknown as GsapAnimation;
 
-function isolatedIframe(): HTMLIFrameElement {
-  return Object.defineProperty({}, "contentDocument", {
-    get: () => { throw new DOMException("cross origin", "SecurityError"); },
-  }) as HTMLIFrameElement;
-}
-
-describe("isolated legacy GSAP edit preflight", () => {
-  it("refuses drag even if a prior preflight was passed, before any source write", async () => {
-    const commitMutation = vi.fn();
-    await expect(tryGsapDragIntercept(
-      selection, { x: 12, y: 3 }, [stalePositionAnim], isolatedIframe(),
-      commitMutation, undefined, { preflightPassed: true },
-    )).resolves.toEqual({ status: "blocked", reason: "preview-unavailable" });
-    expect(commitMutation).not.toHaveBeenCalled();
-  });
-
-  it("refuses rotation before splitting a mixed tween", async () => {
-    const commitMutation = vi.fn();
-    await expect(tryGsapRotationIntercept(
-      selection, 30, [{ ...stalePositionAnim, propertyGroup: undefined }],
-      isolatedIframe(), commitMutation,
-    )).resolves.toEqual({ status: "blocked", reason: "preview-unavailable" });
-    expect(commitMutation).not.toHaveBeenCalled();
-  });
-});
-
 afterEach(() => vi.restoreAllMocks());
 
 describe("tryGsapDragIntercept — stale-parse guard (no resurrection after delete-all)", () => {

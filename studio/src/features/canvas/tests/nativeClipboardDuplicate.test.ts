@@ -7,7 +7,6 @@ import {
   serializeNativeProjectDocument,
 } from "../../../../shared/project/nativeProjectDocument";
 import { captureNativeClipboard, pasteNativeClipboard } from "../nativeClipboard";
-import { reattachNativeVideoAudio } from "../../../../shared/project/nativeProjectAudioCommands";
 
 it("copies clip-local effects and keyframes into a distinct undoable native clip", async () => {
   const frameRate = { numerator: 30, denominator: 1 } as const;
@@ -89,61 +88,4 @@ it("copies clip-local effects and keyframes into a distinct undoable native clip
       "index.html": expect.objectContaining({ before: source }),
     }),
   }));
-});
-
-it("pastes detached audio as an independent clip so the original can reattach", async () => {
-  const original = parseNativeProjectDocument({
-    schemaVersion: NATIVE_PROJECT_DOCUMENT_SCHEMA_VERSION,
-    id: "project:detached-copy", revision: 1,
-    frameRate: { numerator: 30, denominator: 1 },
-    canvas: { width: 1920, height: 1080, background: "#000" },
-    assets: [
-      { id: "asset:video", kind: "video", name: "camera.mov", source: "media/camera.mov", durationFrames: 300 },
-      { id: "asset:audio", kind: "audio", name: "camera audio", source: "media/camera.mov", durationFrames: 300 },
-    ],
-    sequence: { id: "sequence:main", name: "Main", tracks: [
-      { id: "track:video", kind: "video", lane: { authoredTrack: 0, displayTrack: 0 }, clips: [{
-        id: "clip:video", assetId: "asset:video",
-        binding: { sourceFile: "index.html", domId: "camera", hfId: "hf-camera" },
-        startFrame: 0, durationFrames: 60, sourceInFrame: 0, muted: true,
-        effects: [], parameterTracks: [],
-      }] },
-      { id: "track:audio", kind: "audio", lane: { authoredTrack: 1, displayTrack: 1 }, clips: [{
-        id: "clip:audio", assetId: "asset:audio", audioDetachedFrom: "clip:video",
-        binding: { sourceFile: "index.html", domId: "detached", hfId: "hf-detached" },
-        startFrame: 0, durationFrames: 60, sourceInFrame: 0, muted: false,
-        effects: [], parameterTracks: [],
-      }] },
-    ] },
-  });
-  const videoHtml = '<video id="camera" data-hf-id="hf-camera" data-studio-clip-id="clip:video" src="media/camera.mov" data-start="0" data-duration="2"></video>';
-  const audioHtml = '<audio id="detached" data-hf-id="hf-detached" data-studio-clip-id="clip:audio" src="media/camera.mov" data-start="0" data-duration="2"></audio>';
-  const files = new Map([
-    [NATIVE_PROJECT_DOCUMENT_PATH, serializeNativeProjectDocument(original)],
-    ["index.html", `<main data-composition-id="main" data-duration="2">${videoHtml}${audioHtml}</main>`],
-  ]);
-  const snapshot = captureNativeClipboard(audioHtml, original, "workspace:one")!;
-  await pasteNativeClipboard({
-    payload: { kind: "timeline-clip", html: audioHtml, sourceFile: "index.html" },
-    snapshot, workspaceProjectId: "workspace:one", targetPath: "index.html", playhead: 2,
-    editing: {
-      readOptionalProjectFile: async (path: string) => files.get(path),
-      writeProjectFile: async (path: string, content: string, expected?: string) => {
-        expect(files.get(path)).toBe(expected);
-        files.set(path, content);
-      },
-    } as NonNullable<Parameters<typeof pasteNativeClipboard>[0]["editing"]>,
-    recordEdit: vi.fn(async () => {}),
-  });
-
-  const reopened = parseNativeProjectDocument(JSON.parse(files.get(NATIVE_PROJECT_DOCUMENT_PATH)!));
-  const audioClips = reopened.sequence.tracks.flatMap((track) => track.clips)
-    .filter((clip) => clip.assetId === "asset:audio");
-  expect(audioClips).toHaveLength(2);
-  expect(audioClips.find((clip) => clip.id === "clip:audio")?.audioDetachedFrom).toBe("clip:video");
-  const copy = audioClips.find((clip) => clip.id !== "clip:audio")!;
-  expect(copy.audioDetachedFrom).toBeUndefined();
-  expect(copy.startFrame).toBe(60);
-  expect(copy.muted).toBe(false);
-  expect(() => reattachNativeVideoAudio(reopened, "clip:audio")).not.toThrow();
 });

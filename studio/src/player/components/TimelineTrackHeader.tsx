@@ -12,9 +12,9 @@ import type { TimelineEditCallbacks } from "./timelineCallbacks";
 import { useTimelineEditContextOptional } from "../../features/timeline/TimelineEditContext";
 import { useDomEditActionsContextOptional } from "../../features/canvas/DomEditContext";
 import { resolveNativeClipSelection } from "../../../shared/project/nativePropertyEditPlan";
-import { generateId } from "../../lib/generateId";
+import { mintGroupId } from "../../features/inspector/useFxCarveGrouping";
 import { runtimeAudioId } from "../lib/timelineElementHelpers";
-import { useTrackVideoAudioEvidence } from "./useTrackVideoAudioEvidence";
+import { findTimelineElementInIframe } from "../../features/timeline/timelineEditingHelpers";
 import { TimelineFxButton } from "./TimelineFxButton";
 import {
   getTimelinePropertyLanes,
@@ -279,10 +279,6 @@ export function TimelineTrackHeader({
   // a subset, which is also why the carve path's loud guard cannot catch this:
   // the unresolvable ids were filtered out before the call.
   const groupableClipIds = trackElements.map(runtimeAudioId);
-  const audibleVideoKeys = useTrackVideoAudioEvidence(
-    domEditActions?.previewIframeRef.current ?? null,
-    trackElements,
-  );
   const allGroupableClipIds = groupableClipIds.every((id): id is string => id !== null)
     ? groupableClipIds
     : null;
@@ -291,7 +287,10 @@ export function TimelineTrackHeader({
     const tag = element.tag.toLowerCase();
     if (tag === "audio") return true;
     if (tag !== "video") return false;
-    return audibleVideoKeys.has(element.key ?? element.id);
+    return findTimelineElementInIframe(
+      domEditActions?.previewIframeRef.current ?? null,
+      element,
+    )?.getAttribute("data-has-audio") === "true";
   });
   const allMembersNative = Boolean(nativeProjectDocument) && trackElements.every(element =>
     resolveNativeClipSelection(nativeProjectDocument!, {
@@ -306,11 +305,10 @@ export function TimelineTrackHeader({
         ? "Save this track in a native project before grouping video audio."
         : undefined;
   const groupUngroupedClips = (label: string) => {
-    if (!onGroupClips) return;
+    const doc = domEditActions?.previewIframeRef.current?.contentDocument;
+    if (!doc || !onGroupClips) return;
     if (!allGroupableClipIds || allGroupableClipIds.length < 2) return;
-    // The native transaction validates the source namespace. A random id
-    // avoids borrowing an inaccessible preview document as an id allocator.
-    void onGroupClips(allGroupableClipIds, `voiceover-${generateId()}`, label);
+    void onGroupClips(allGroupableClipIds, mintGroupId(doc), label);
   };
 
   return (

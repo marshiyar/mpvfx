@@ -303,9 +303,6 @@ export function patchRuntimeTweenInPlace(
   if (!iframe) return false;
   let restoreGestureGeometry: (() => void) | undefined;
   try {
-    // Tween objects are not part of the bounded preview-agent protocol. An
-    // isolated authored frame requires a dedicated durable editing path.
-    if (!iframe.contentDocument) return false;
     restoreGestureGeometry = captureActiveGestureGeometry(iframe.contentDocument);
     // A base set has no timeline tween. The newer gesture overlay is restored
     // after this committed value lands, just as it is after a timeline seek.

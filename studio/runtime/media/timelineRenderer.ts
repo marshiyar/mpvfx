@@ -339,10 +339,7 @@ export async function renderNativeTimeline(
           "-hide_banner", "-loglevel", "error", "-nostdin", "-n",
           "-protocol_whitelist", "file,pipe", "-i", visualPath,
           "-protocol_whitelist", "file,pipe", "-i", mixedAudio,
-          "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy",
-          // The shared mixer produces AAC in an M4A file. WebM cannot carry
-          // AAC, so encode its final audio stream as Opus at the mux boundary.
-          ...(input.format === "webm" ? ["-c:a", "libopus", "-b:a", "192k"] : ["-c:a", "copy"]),
+          "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "copy",
           "-t", String(duration), ...(input.format === "mp4" ? ["-movflags", "+faststart"] : []),
           published,
         ], input.signal, "Native audio group mux");
