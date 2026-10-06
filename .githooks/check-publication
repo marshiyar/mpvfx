@@ -31,9 +31,16 @@ node_binary=$(find_mpvfx_node) || {
 
 # Bare `npm` resolves `node` via PATH (env shebang), as does every `node` nested
 # inside npm scripts and tool shebangs, so without this the gates below would
-# silently ignore the MPVFX_NODE selection above. Pin PATH to the selected
-# runtime's directory so the whole publication check uses one Node.js 24.
-case "$node_binary" in */*) : ;; *) node_binary=$(command -v "$node_binary");; esac
+# silently ignore the MPVFX_NODE selection above. Normalize the selection to
+# an absolute path first: a relative MPVFX_NODE would otherwise poison PATH
+# with a directory that only resolves from the repository root, while npm
+# scripts execute below studio/. Pin PATH to the selected runtime's directory
+# so the whole publication check uses one Node.js 24.
+case "$node_binary" in
+  /*) : ;;
+  */*) node_binary="$PWD/$node_binary" ;;
+  *) node_binary=$(command -v "$node_binary") ;;
+esac
 export PATH="$(dirname "$node_binary"):$PATH"
 
 "$node_binary" scripts/verification_checks/check-release-readiness.mjs
