@@ -3,7 +3,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { decodePng, encodePng } from "./png-rgba.mjs";
+import { comparePackagedUi } from "./packaged-ui-diff.mjs";
 
 const studio = resolve(import.meta.dirname, "../..");
 const repo = resolve(studio, "..");
@@ -75,36 +75,19 @@ for (const [variant, root] of [["baseline", comparisonRoot], ["candidate", repo]
 
 const oldPath = join(evidenceDir, "baseline-selected-editor.png");
 const newPath = join(evidenceDir, "candidate-selected-editor.png");
-const oldImage = decodePng(await readFile(oldPath));
-const newImage = decodePng(await readFile(newPath));
-const oldSize = { width: oldImage.width, height: oldImage.height };
-const newSize = { width: newImage.width, height: newImage.height };
-if (oldSize.width !== newSize.width || oldSize.height !== newSize.height)
-  throw new Error(`Packaged screenshot size changed: ${JSON.stringify({ oldSize, newSize })}`);
-const oldPixels = oldImage.rgba;
-const newPixels = newImage.rgba;
-const diff = Buffer.alloc(oldPixels.length);
-let changed = 0;
-for (let index = 0; index < oldPixels.length; index += 4) {
-  const delta = Math.max(...[0, 1, 2].map(channel => Math.abs(oldPixels[index + channel] - newPixels[index + channel])));
-  if (delta > 24) changed++;
-  diff[index] = delta > 24 ? 255 : 0;
-  diff[index + 1] = 0;
-  diff[index + 2] = delta > 24 ? 255 : 0;
-  diff[index + 3] = 255;
-}
 const diffPath = join(evidenceDir, "v007-candidate-diff.png");
-await writeFile(diffPath, encodePng(oldSize.width, oldSize.height, diff));
 const oldLayout = JSON.parse(await readFile(join(evidenceDir, "baseline-ui-layout.json"), "utf8"));
 const newLayout = JSON.parse(await readFile(join(evidenceDir, "candidate-ui-layout.json"), "utf8"));
-const shifted = Object.keys(oldLayout).filter(key => Math.abs(oldLayout[key] - newLayout[key]) > 4);
-const changedPercent = 100 * changed / (oldSize.width * oldSize.height);
+const { size, changedPixels, changedPercent, shiftedLayoutFields, diffPng, accepted } = comparePackagedUi(
+  await readFile(oldPath), await readFile(newPath), oldLayout, newLayout,
+);
+await writeFile(diffPath, diffPng);
 const report = { baseline: baselineLabel, baselineSha: comparisonSha, immutableV007Sha: baselineSha,
   originalV007WindowsFailure: process.platform === "win32" && comparisonRoot !== baselineRoot ? join(evidenceDir, "original-v007-failure.json") : null,
   candidate: execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
-  platform: process.platform, size: oldSize, changedPixels: changed, changedPercent, shiftedLayoutFields: shifted,
+  platform: process.platform, size, changedPixels, changedPercent, shiftedLayoutFields,
   baselineScreenshot: oldPath, candidateScreenshot: newPath, diffScreenshot: diffPath };
 await writeFile(join(evidenceDir, "comparison.json"), JSON.stringify(report, null, 2));
 console.log(JSON.stringify(report));
-if (shifted.length || changedPercent > 2)
+if (!accepted)
   throw new Error(`Packaged interface differs from ${baselineLabel}; inspect comparison.json and screenshots`);
