@@ -7,7 +7,8 @@ import puppeteer from "puppeteer-core";
 const require = createRequire(import.meta.url);
 const root = await mkdtemp(join(tmpdir(), "mpvfx-library-packaged-"));
 const evidenceDir = process.env.MPVFX_UI_EVIDENCE_DIR ? resolve(process.env.MPVFX_UI_EVIDENCE_DIR) : root;
-const variant = process.env.MPVFX_UI_VARIANT === "baseline" ? "baseline" : "candidate";
+const variant = ["baseline", "candidate", "original-v007"].includes(process.env.MPVFX_UI_VARIANT)
+  ? process.env.MPVFX_UI_VARIANT : "candidate";
 const packagedApp = resolve(process.env.MPVFX_PACKAGED_APP ?? "out/MpVFX-darwin-arm64/MpVFX.app/Contents/MacOS/MpVFX");
 await mkdir(evidenceDir, { recursive: true });
 const lib = join(root, "Test Film.mpvfxlibrary"),

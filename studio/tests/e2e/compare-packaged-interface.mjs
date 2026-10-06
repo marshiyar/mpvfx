@@ -2,7 +2,7 @@
 // A missing executable, screenshot, or comparison is a failed acceptance run.
 import { execFileSync, spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 const require = createRequire(import.meta.url);
@@ -16,6 +16,9 @@ if (baselineSha !== "fbde94a88cdb022c71d9349b86a6692244d50007")
   throw new Error(`Baseline is not the pinned v0.0.7 commit: ${baselineSha}`);
 const evidenceDir = resolve(process.env.MPVFX_UI_EVIDENCE_DIR ?? join(studio, ".build/ui-evidence"));
 await mkdir(evidenceDir, { recursive: true });
+let comparisonRoot = baselineRoot;
+let comparisonSha = baselineSha;
+let baselineLabel = "v0.0.7";
 
 function executable(root) {
   const output = join(root, "studio/out");
@@ -24,14 +27,52 @@ function executable(root) {
   return join(output, "MpVFX-linux-x64/MpVFX");
 }
 
-for (const [variant, root] of [["baseline", baselineRoot], ["candidate", repo]]) {
-  console.log(`Packaged ${variant} acceptance: ${executable(root)}`);
-  execFileSync(process.execPath, ["tests/e2e/library-workflow.mjs"], {
+function runPackaged(variant, path, allowFailure = false) {
+  console.log(`Packaged ${variant} acceptance: ${path}`);
+  const result = spawnSync(process.execPath, ["tests/e2e/library-workflow.mjs"], {
     cwd: studio,
-    env: { ...process.env, MPVFX_UI_COMPARISON: "1", MPVFX_UI_VARIANT: variant, MPVFX_PACKAGED_APP: executable(root), MPVFX_UI_EVIDENCE_DIR: evidenceDir },
+    env: { ...process.env, MPVFX_UI_COMPARISON: "1", MPVFX_UI_VARIANT: variant, MPVFX_PACKAGED_APP: path, MPVFX_UI_EVIDENCE_DIR: evidenceDir },
     stdio: "inherit",
     timeout: 300_000,
   });
+  if (result.error) throw result.error;
+  if (result.status !== 0 && !allowFailure) throw new Error(`${variant} packaged acceptance exited ${result.status}`);
+  return result.status;
+}
+
+if (process.platform === "win32") {
+  const originalStatus = runPackaged("original-v007", executable(baselineRoot), true);
+  if (originalStatus !== 0) {
+    const failure = JSON.parse(await readFile(join(evidenceDir, "original-v007-failure.json"), "utf8"));
+    if (!`${failure.error}\n${failure.startupLog}`.includes("EPERM: operation not permitted, fsync"))
+      throw new Error("The immutable v0.0.7 Windows app failed for a reason other than its documented file flush bug");
+    const compatibilityRoot = process.env.MPVFX_WINDOWS_COMPAT_ROOT;
+    if (!compatibilityRoot) throw new Error("MPVFX_WINDOWS_COMPAT_ROOT is required after the original v0.0.7 flush failure");
+    const compatibilitySha = execFileSync("git", ["-C", compatibilityRoot, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    if (compatibilitySha !== "05bf908d9771598c91923ea49b10be73ebf6ea45")
+      throw new Error(`Windows compatibility baseline is not the reviewed flush fix: ${compatibilitySha}`);
+    comparisonRoot = compatibilityRoot;
+    comparisonSha = compatibilitySha;
+    baselineLabel = "v0.0.7 + Windows file flush fix";
+  }
+}
+
+async function installedLinuxExecutable(root, variant) {
+  const folder = join(root, "studio/out/make/deb/x64");
+  const files = (await readdir(folder)).filter(file => file.endsWith(".deb"));
+  if (files.length !== 1) throw new Error(`Expected one ${variant} Debian installer in ${folder}, found ${files.length}`);
+  const deb = join(folder, files[0]);
+  const command = variant === "candidate" ? ["dpkg", "-i", deb] : ["apt-get", "install", "--yes", deb];
+  execFileSync("sudo", command, { stdio: "inherit", env: { ...process.env, DEBIAN_FRONTEND: "noninteractive" } });
+  const helper = await stat("/usr/lib/mpvfx/chrome-sandbox");
+  if (helper.uid !== 0 || (helper.mode & 0o7777) !== 0o4755)
+    throw new Error(`Installed ${variant} Electron sandbox helper lacks package-managed root ownership and mode 4755`);
+  return "/usr/lib/mpvfx/MpVFX";
+}
+
+for (const [variant, root] of [["baseline", comparisonRoot], ["candidate", repo]]) {
+  const path = process.platform === "linux" ? await installedLinuxExecutable(root, variant) : executable(root);
+  runPackaged(variant, path);
 }
 
 function dimensions(png) {
@@ -75,10 +116,12 @@ const oldLayout = JSON.parse(await readFile(join(evidenceDir, "baseline-ui-layou
 const newLayout = JSON.parse(await readFile(join(evidenceDir, "candidate-ui-layout.json"), "utf8"));
 const shifted = Object.keys(oldLayout).filter(key => Math.abs(oldLayout[key] - newLayout[key]) > 4);
 const changedPercent = 100 * changed / (oldSize.width * oldSize.height);
-const report = { baseline: "v0.0.7", baselineSha, candidate: execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
+const report = { baseline: baselineLabel, baselineSha: comparisonSha, immutableV007Sha: baselineSha,
+  originalV007WindowsFailure: process.platform === "win32" && comparisonRoot !== baselineRoot ? join(evidenceDir, "original-v007-failure.json") : null,
+  candidate: execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
   platform: process.platform, size: oldSize, changedPixels: changed, changedPercent, shiftedLayoutFields: shifted,
   baselineScreenshot: oldPath, candidateScreenshot: newPath, diffScreenshot: diffPath };
 await writeFile(join(evidenceDir, "comparison.json"), JSON.stringify(report, null, 2));
 console.log(JSON.stringify(report));
 if (shifted.length || changedPercent > 2)
-  throw new Error(`Packaged interface differs from the pinned v0.0.7 baseline; inspect comparison.json and screenshots`);
+  throw new Error(`Packaged interface differs from ${baselineLabel}; inspect comparison.json and screenshots`);

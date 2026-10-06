@@ -90,11 +90,13 @@ async function fingerprint(path: string): Promise<string> {
   return hash.digest("hex");
 }
 async function syncPath(path: string) {
-  const file = await open(path, "r");
+  const directory = (await stat(path)).isDirectory();
+  // Windows requires write access on the handle passed to FlushFileBuffers.
+  const file = await open(path, directory ? "r" : "r+");
   try {
     await file.sync();
   } catch (error) {
-    if (!(await file.stat()).isDirectory() || !["EINVAL", "ENOTSUP", "EISDIR", "EPERM", "EACCES"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
+    if (!directory || !["EINVAL", "ENOTSUP", "EISDIR", "EPERM", "EACCES"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
   } finally {
     await file.close();
   }
