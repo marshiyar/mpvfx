@@ -30,9 +30,8 @@ export function postRuntimeControlMessage(
   action: string,
   payload: Record<string, unknown> = {},
   fps = 30,
-  targetOrigin = "*",
 ): void {
-  target?.postMessage(createRuntimeControlMessage(action, payload, fps), targetOrigin);
+  target?.postMessage(createRuntimeControlMessage(action, payload, fps), "*");
 }
 
 export function inspectStudioRuntimeMessage(value: unknown): RuntimeProtocolInspection {

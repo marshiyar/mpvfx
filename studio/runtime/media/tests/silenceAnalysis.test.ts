@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { resolveInstalledMediaBinaryPaths } from "../../../desktop/installedMediaBinaries";
 import { applyBundledMediaBinaryEnvironment } from "../../../desktop/runtimeBinaries";
-import { analyzeProjectMediaSilence } from "../silenceAnalysis";
+import { analyzeProjectVideoSilence } from "../silenceAnalysis";
 
 const { ffmpegPath: ffmpeg, ffprobePath: ffprobe } = resolveInstalledMediaBinaryPaths();
 const previousEnvironment = {
@@ -48,9 +48,9 @@ afterAll(async () => {
   }
 });
 
-describe("media silence analysis with bundled media binaries", () => {
+describe("video silence analysis with bundled media binaries", () => {
   it("finds a real pause in an MP4 and keeps source-time offsets", async () => {
-    const ranges = await analyzeProjectMediaSilence(root, {
+    const ranges = await analyzeProjectVideoSilence(root, {
       source: "speech.mp4", sourceStart: 0.5, sourceDuration: 2,
     }, new AbortController().signal);
     expect(ranges).toHaveLength(1);
@@ -62,23 +62,12 @@ describe("media silence analysis with bundled media binaries", () => {
 
   it("rejects a video without audio and project-escaping symlinks", async () => {
     const signal = new AbortController().signal;
-    await expect(analyzeProjectMediaSilence(root, {
+    await expect(analyzeProjectVideoSilence(root, {
       source: "mute.mp4", sourceStart: 0, sourceDuration: 1,
     }, signal)).rejects.toThrow("no audio track");
     await symlink(ffmpeg, join(root, "escape.mp4"));
-    await expect(analyzeProjectMediaSilence(root, {
+    await expect(analyzeProjectVideoSilence(root, {
       source: "escape.mp4", sourceStart: 0, sourceDuration: 1,
     }, signal)).rejects.toThrow("inside this project");
-  });
-
-  it("finds the same pause in an audio-only WAV and keeps source-time offsets", async () => {
-    const ranges = await analyzeProjectMediaSilence(root, {
-      source: "speech.wav", sourceStart: 0.5, sourceDuration: 2,
-    }, new AbortController().signal);
-    expect(ranges).toHaveLength(1);
-    expect(ranges[0]!.start).toBeGreaterThan(1.05);
-    expect(ranges[0]!.start).toBeLessThan(1.25);
-    expect(ranges[0]!.end).toBeGreaterThan(1.75);
-    expect(ranges[0]!.end).toBeLessThan(1.95);
   });
 });

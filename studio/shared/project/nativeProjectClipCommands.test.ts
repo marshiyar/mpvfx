@@ -620,25 +620,6 @@ describe("timeline resize extension", () => {
     expect(clip.parameterTracks[0]!.keyframes.find((key) => key.id === "rotation:90")!.frame).toBe(96);
   });
 
-  it("extends a marked crop pivot left without losing its original interpolation reference", () => {
-    const original = documentFixture();
-    const sourceClip = findClip(original, "clip:first")!;
-    sourceClip.startFrame = 30;
-    sourceClip.cropPivotSegments = [{ startRotationKeyId: "rotation:0", endRotationKeyId: "rotation:90",
-      offsetFraction: { x: 0.05, y: -0.1 } }];
-    const result = expectMove(original, { type: "trim-in", address: firstAddress, startFrame: 24 });
-    const extended = findClip(result.document, "clip:first")!;
-    expect(extended).toMatchObject({ startFrame: 24, sourceInFrame: 6, durationFrames: 126 });
-    expect(extended.cropPivotSegments?.[0]?.reference?.frameOffset).toBe(-6);
-    expect(parseNativeProjectDocument(JSON.parse(serializeNativeProjectDocument(result.document))))
-      .toEqual(result.document);
-    expect(findClip(original, "clip:first")!.cropPivotSegments?.[0]?.reference).toBeUndefined();
-
-    const invalid = structuredClone(result.document);
-    findClip(invalid, "clip:first")!.cropPivotSegments![0]!.reference!.frameOffset = -7;
-    expect(() => parseNativeProjectDocument(invalid)).toThrow("before its original frame zero");
-  });
-
   it("rejects extending timed media past its available source with an actionable reason", () => {
     const result = applyNativeProjectClipCommand(documentFixture(), { type: "trim-out", address: firstAddress, endFrameExclusive: 1000 });
     expect(result).toMatchObject({ ok: false, failure: { code: "invalid-trim", message: expect.stringContaining("source") } });

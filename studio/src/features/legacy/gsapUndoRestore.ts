@@ -198,15 +198,8 @@ export function applyUndoRestoreToPreview(
     reloadPreview();
     return "full";
   }
-  let doc: Document | null;
-  let win: PreviewWindow | null;
-  try {
-    doc = iframe.contentDocument;
-    win = iframe.contentWindow as PreviewWindow | null;
-  } catch {
-    reloadPreview();
-    return "full";
-  }
+  const doc = iframe.contentDocument;
+  const win = iframe.contentWindow as PreviewWindow | null;
   if (!doc || !win) {
     reloadPreview();
     return "full";

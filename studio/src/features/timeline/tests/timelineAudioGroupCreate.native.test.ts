@@ -70,14 +70,13 @@ function setup(secondVideoHasSound = true, secondKind: "video" | "audio" = "vide
   });
   const onNativeDocumentCommitted = vi.fn();
   const nativeDocumentRef = { current: document };
-  const create = (previewIframe: HTMLIFrameElement | null = null, reloadPreview?: () => void) => createAudioGroupAndAssignMembers({
+  const create = () => createAudioGroupAndAssignMembers({
     projectId: "project:group",
     activeCompPath: "index.html",
     elements,
     groupId: "dialogue",
     groupLabel: "Dialogue",
-    previewIframe,
-    reloadPreview,
+    previewIframe: null,
     writeProjectFile: vi.fn(async () => {}),
     recordEdit: vi.fn(async () => {}),
     domEditSaveTimestampRef: { current: 0 },
@@ -109,19 +108,6 @@ it("groups audible videos in native and HTML with one durable undo transaction",
   expect(state.files.get("index.html")).toContain('<hf-audio-group id="dialogue" data-label="Dialogue">');
   expect(state.onNativeDocumentCommitted).toHaveBeenCalledOnce();
   expect(usePlayerStore.getState().elements.map((clip) => clip.audioGroup)).toEqual(["dialogue", "dialogue"]);
-});
-
-it("reloads an isolated preview only after the native group transaction commits", async () => {
-  const state = setup();
-  const iframe = { contentDocument: null } as HTMLIFrameElement;
-  const reload = vi.fn();
-  await state.create(iframe, reload);
-  expect(reload).toHaveBeenCalledOnce();
-
-  const failing = setup();
-  failing.commitFileTransaction.mockRejectedValueOnce(new Error("write failed"));
-  await expect(failing.create(iframe, reload)).rejects.toThrow("write failed");
-  expect(reload).toHaveBeenCalledOnce();
 });
 
 it("refuses a silent video without partially writing native or HTML state", async () => {

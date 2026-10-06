@@ -4,7 +4,6 @@ const {
 } = require("../../scripts/verification_checks/verify-packaged-media-binaries.cjs");
 const { assertPackagedRenderer } = require("../../scripts/verification_checks/verify-packaged-renderer.cjs");
 const { assertPackagedLegalResources } = require("../../scripts/verification_checks/verify-packaged-legal.cjs");
-const { assertPackagedCrosspostBundle } = require("../../scripts/verification_checks/verify-packaged-crosspost.cjs");
 const {
   assertPackagedRuntimeDependencies,
 } = require("../../scripts/verification_checks/verify-packaged-runtime-dependencies.cjs");
@@ -57,7 +56,6 @@ module.exports = {
       assertPackagedRuntimeDependencies(packageResult);
       assertPackagedRenderer(packageResult);
       assertPackagedLegalResources(packageResult);
-      assertPackagedCrosspostBundle(packageResult);
     },
   },
   makers: [

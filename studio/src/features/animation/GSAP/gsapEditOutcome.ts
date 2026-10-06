@@ -1,7 +1,6 @@
 import { editabilityForProvenance, type GsapAnimation } from "@hyperframes/core/gsap-parser";
 
-export type GsapEditBlockReason =
-  | "no-selector" | "unroll-required" | "source-uneditable" | "preview-unavailable";
+export type GsapEditBlockReason = "no-selector" | "unroll-required" | "source-uneditable";
 
 export type GsapEditOutcome =
   | {
@@ -30,8 +29,6 @@ const COPY: Record<GsapEditBlockReason, string> = {
   "unroll-required":
     "This motion comes from a helper or loop. Choose Unroll to edit it explicitly.",
   "source-uneditable": "This animation is computed at runtime. Edit the animation in the Code tab.",
-  "preview-unavailable":
-    "Studio cannot read this legacy animation through the isolated preview yet. Edit it in the Code tab.",
 };
 
 export class GsapEditBlockedError extends Error {

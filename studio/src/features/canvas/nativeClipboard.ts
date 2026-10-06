@@ -100,9 +100,6 @@ export async function pasteNativeClipboard(input: {
       if (!node) throw new Error("Copied markup no longer matches its native clips");
       const clip = structuredClone(entry.clip);
       clip.id = `native-clip:${generateId()}`;
-      // A pasted detached-audio clip is an independent copy. Keeping its link
-      // would leave two audio clips claiming the same video and block reattach.
-      delete clip.audioDetachedFrom;
       clip.startFrame += offset;
       const hfId = `hf-${generateId()}`;
       node.setAttribute("data-hf-id", hfId);

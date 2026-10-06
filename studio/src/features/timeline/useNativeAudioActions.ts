@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, type MutableRefObject } from "react";
+import { useCallback, type MutableRefObject } from "react";
 import type { TimelineElement } from "../../player/index";
 import { resolveMediaPreviewUrl } from "../../player/components/thumbnailUtils";
 import { probeMediaUrl } from "../../player/lib/mediaProbe";
@@ -29,11 +29,6 @@ interface NativeAudioActionOptions {
 
 /** Save the native clip and its HTML mirror in the timeline's ordered edit queue. */
 export function useNativeAudioActions(options: NativeAudioActionOptions) {
-  const mountedRef = useRef(true);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => { mountedRef.current = false; };
-  }, []);
   const handleNativeAudioAction = useCallback(async (
     element: TimelineElement,
     action: "detach" | "reattach",
@@ -52,12 +47,6 @@ export function useNativeAudioActions(options: NativeAudioActionOptions) {
       showToast("Save this timeline as a native project before editing video audio", "error");
       return;
     }
-    const nativeProjectId = nativeDocumentRef.current.id;
-    const isCurrentProject = () => mountedRef.current && projectIdRef.current === projectId &&
-      nativeDocumentRef.current?.id === nativeProjectId;
-    const assertCurrentProject = () => {
-      if (!isCurrentProject()) throw new Error("Project changed during video audio edit");
-    };
     let hasAudioStream: boolean | undefined;
     if (action === "detach") {
       if (!element.src) {
@@ -66,7 +55,6 @@ export function useNativeAudioActions(options: NativeAudioActionOptions) {
       }
       const url = resolveMediaPreviewUrl(element.src, projectId, window.location.href);
       const result = await probeMediaUrl(url);
-      if (!isCurrentProject()) return;
       if (!result?.hasAudio) {
         showToast(result ? "This video has no audio stream" : "Could not verify this video's audio stream", "error");
         return;
@@ -74,9 +62,7 @@ export function useNativeAudioActions(options: NativeAudioActionOptions) {
       hasAudioStream = true;
     }
     const operation = editQueueRef.current.then(async () => {
-      assertCurrentProject();
       const commitAgainst = async (document: NativeProjectDocument) => {
-        assertCurrentProject();
         const resolution = resolveNativeClipSelection(document, {
           id: element.id, hfId: element.hfId, sourceFile: element.sourceFile,
           selector: element.selector, selectorIndex: element.selectorIndex,
@@ -96,12 +82,10 @@ export function useNativeAudioActions(options: NativeAudioActionOptions) {
           writeProjectFile, recordEdit,
           commitFileTransaction: nativeProjectEditing.commitFileTransaction,
           onCommitted: next => {
-            if (!isCurrentProject()) return;
             nativeDocumentRef.current = next;
             nativeProjectEditing.onNativeDocumentCommitted(next);
           },
         });
-        assertCurrentProject();
         if (sourceFile) pendingTimelineEditPathRef.current.add(sourceFile);
         pendingTimelineEditPathRef.current.add(NATIVE_PROJECT_DOCUMENT_PATH);
         domEditSaveTimestampRef.current = Date.now();
@@ -113,11 +97,9 @@ export function useNativeAudioActions(options: NativeAudioActionOptions) {
         await commitAgainst(nativeDocumentRef.current!);
       } catch (error) {
         if (!(error instanceof NativeProjectRevisionConflictError)) throw error;
-        assertCurrentProject();
         const latestContent = await nativeProjectEditing.readOptionalProjectFile(NATIVE_PROJECT_DOCUMENT_PATH);
         if (!latestContent) throw error;
         const latest = parseNativeProjectDocument(JSON.parse(latestContent));
-        if (latest.id !== nativeProjectId) throw error;
         nativeDocumentRef.current = latest;
         await commitAgainst(latest);
       }
@@ -126,7 +108,7 @@ export function useNativeAudioActions(options: NativeAudioActionOptions) {
     try {
       await operation;
     } catch (error) {
-      if (isCurrentProject()) showToast(error instanceof Error ? error.message : "Video audio edit failed", "error");
+      showToast(error instanceof Error ? error.message : "Video audio edit failed", "error");
     }
   }, [options]);
   return { handleNativeAudioAction };

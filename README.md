@@ -6,7 +6,7 @@ MpVFX is a local desktop video editor. It combines a timeline and canvas editor 
 
 Open MpVFX and create or open a library from the left sidebar. A library can contain events and projects; imported media can be copied into the library or linked to an original file. The editor also supports standalone projects. Application data, including standalone projects, renders, cache, and sessions, lives under Electron's platform-specific MpVFX user-data directory. A library created at a chosen location remains separate from that directory.
 
-The application packages its media binaries and native modules. Users of an installed build do not need the development toolchain below. Official installers also bundle the optional **Publish…** GUI and its Python dependencies; account credentials still require setup described in [Crosspost/README.md](Crosspost/README.md). Opening the publisher does not upload a file; real uploads have not been verified by this project.
+The application packages its media binaries and native modules. Users of an installed build do not need the development toolchain below. The **Publish…** action has additional, optional Python and account setup; see [Crosspost/README.md](Crosspost/README.md). Opening the publisher does not upload a file; real uploads have not been verified by this project.
 
 Current macOS builds are ad hoc signed and unnotarized, so macOS may quarantine a downloaded app. For a build you trust, after moving it to Applications, remove that quarantine attribute with:
 
@@ -22,7 +22,7 @@ This does not notarize the app. Do not run the command on an app whose origin yo
 
 - Node.js **24.x**, with its Node-API headers. The repository selects Node 24 through `studio/.configurations/.nvmrc`; desktop packaging rejects other major versions.
 - CMake **3.25 or newer** and a C++20 toolchain. On macOS, install Xcode command line tools and a macOS SDK. Linux needs SQLite development files discoverable by CMake; Windows needs the SQLite vcpkg package and its CMake toolchain file. The native library uses system SQLite on macOS.
-- The MpVFX-owned video-keyframing C++ engine source, stored at the legacy path `third_party/video-keyframing`. That directory name describes its build layout, not outside ownership. For engine development against another checkout, optionally set `VKF_ENGINE_DIR` to its absolute path.
+- The included `third_party/video-keyframing` engine source. For engine development against another checkout, optionally set `VKF_ENGINE_DIR` to its absolute path.
 - Network access for the first `npm ci`: the postinstall step downloads checksum-verified redistributable FFmpeg and FFprobe binaries and applies local dependency patches.
 
 From the repository root:
@@ -72,7 +72,7 @@ Both packaging commands rebuild first and check the Node version and installed m
 | `studio/desktop/` | Electron lifecycle, local protocol, preload bridge, and OS integration |
 | `studio/runtime/` | Project and library services, media import, preview, and export |
 | `studio/shared/` | Contracts used across the editor, desktop, and runtime |
-| `studio/native/vkf/` | Build wrapper for MpVFX's C++ keyframe engine Node module |
+| `studio/native/vkf/` | Build wrapper for the separate C++ keyframe engine's Node module |
 | `studio/native/library/` | C++/SQLite library catalog Node module |
 | `scripts/` | Build, verification, dependency patch, and release scripts |
 | `Crosspost/` | Optional Python publishing GUI and setup instructions |

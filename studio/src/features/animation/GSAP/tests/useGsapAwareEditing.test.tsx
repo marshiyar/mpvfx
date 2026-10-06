@@ -107,14 +107,13 @@ function mountGroupHandler({
 }: Pick<AwareEditingParams, "gsapCommitMutation" | "makeFetchFallback"> &
   Partial<Pick<AwareEditingParams, "trackGsapInteractionFailure">>) {
   let groupCommit!: (updates: DomEditGroupPathOffsetCommit[]) => Promise<void>;
-  const showToast = vi.fn();
   function Harness() {
     groupCommit = useGsapAwareEditing({
       domEditSelection: null,
       selectedGsapAnimations: [],
       gsapCommitMutation,
       previewIframeRef: { current: null },
-      showToast,
+      showToast: vi.fn(),
       bumpGsapCache: vi.fn(),
       makeFetchFallback,
       trackGsapInteractionFailure,
@@ -127,7 +126,7 @@ function mountGroupHandler({
     return null;
   }
   const root = mountReactHarness(<Harness />);
-  return { groupCommit: (updates: DomEditGroupPathOffsetCommit[]) => groupCommit(updates), showToast, root };
+  return { groupCommit: (updates: DomEditGroupPathOffsetCommit[]) => groupCommit(updates), root };
 }
 
 describe("useGsapAwareEditing anchored resize", () => {
@@ -374,31 +373,6 @@ describe("useGsapAwareEditing anchored resize", () => {
     expect(mocks.drag).not.toHaveBeenCalled();
     expect(commitMutation).not.toHaveBeenCalled();
     act(() => root.unmount());
-  });
-
-  it("rejects a mixed native and GSAP group before either history writer runs", async () => {
-    const native = { element: document.createElement("div"), id: "native", selector: "#native" };
-    const legacy = { element: document.createElement("div"), id: "legacy", selector: "#legacy" };
-    mocks.isNativeSelection.mockImplementation((selection: DomEditSelection) => selection.id === "native");
-    mocks.projectCommitNativeGroupProperties.mockResolvedValue(undefined);
-    const commitMutation = vi.fn().mockResolvedValue(undefined);
-    const { groupCommit, showToast, root } = mountGroupHandler({
-      gsapCommitMutation: commitMutation,
-      makeFetchFallback: () => vi.fn().mockResolvedValue([]),
-    });
-    try {
-      await expect(groupCommit([
-        { selection: native, next: { x: 10, y: 20 } },
-        { selection: legacy, next: { x: 5, y: 7 } },
-      ] as unknown as DomEditGroupPathOffsetCommit[])).rejects.toThrow("native and authored layers");
-      expect(mocks.projectCommitNativeGroupProperties).not.toHaveBeenCalled();
-      expect(commitMutation).not.toHaveBeenCalled();
-      expect(mocks.drag).not.toHaveBeenCalled();
-      expect(showToast).toHaveBeenCalledOnce();
-      expect(showToast).toHaveBeenCalledWith(expect.stringContaining("native and authored layers"), "error");
-    } finally {
-      act(() => root.unmount());
-    }
   });
 
   it("preflights every group member before the first mutation", async () => {

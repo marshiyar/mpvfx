@@ -166,17 +166,13 @@ function resolveDragRuntime(
   selector: string | undefined,
 ): DragRuntime | null {
   if (!iframe || !selector) return null;
-  let win: (Window & {
-    gsap?: Partial<DragRuntimeGsap>;
-    __timelines?: Record<string, Partial<DragRuntimeTimeline>>;
-  }) | null;
-  let gsap: Partial<DragRuntimeGsap> | undefined;
-  try {
-    win = iframe.contentWindow as typeof win;
-    gsap = win?.gsap;
-  } catch {
-    return null;
-  }
+  const win = iframe.contentWindow as
+    | (Window & {
+        gsap?: Partial<DragRuntimeGsap>;
+        __timelines?: Record<string, Partial<DragRuntimeTimeline>>;
+      })
+    | null;
+  const gsap = win?.gsap;
   if (typeof gsap?.getProperty !== "function" || typeof gsap.set !== "function") return null;
   let el: Element | null = null;
   try {
@@ -185,12 +181,7 @@ function resolveDragRuntime(
     return null;
   }
   if (!el) return null;
-  let timelines: Record<string, Partial<DragRuntimeTimeline>> | undefined;
-  try {
-    timelines = win?.__timelines;
-  } catch {
-    return null;
-  }
+  const timelines = win?.__timelines;
   const mainTl = timelines ? Object.values(timelines)[0] : undefined;
   if (typeof mainTl?.seek !== "function") return null;
   return {

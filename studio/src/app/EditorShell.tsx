@@ -111,7 +111,7 @@ export function EditorShell({
     applyDomSelection,
     applyMarqueeSelection,
   } = useDomEditActionsContext();
-  const { domEditSelection, domEditGroupSelections, remoteSelection } = useDomEditSelectionContext();
+  const { domEditSelection, domEditGroupSelections } = useDomEditSelectionContext();
   const selectedElementId = usePlayerStore((state) => state.selectedElementId);
   const selectedElementIds = usePlayerStore((state) => state.selectedElementIds);
   const reportTimelineSelectionNotFound = useCallback(() => {
@@ -123,7 +123,6 @@ export function EditorShell({
     selectedElementIds,
     timelineElements,
     domEditSelection,
-    remoteSelection,
     domEditGroupSelections,
     activeCompPath,
     buildDomSelectionForTimelineElement,

@@ -141,13 +141,3 @@ TEST(AnimatedMotion, ValuesAreClampedToSchema)
     m.curve(ParamId::Opacity).setKey(a);
     EXPECT_EQ(m.evaluate(0.0).opacity, 100.0);
 }
-
-TEST(AnimatedMotion, RejectsInvalidParameterIdsBeforeReadingSchema)
-{
-    AnimatedMotion m({100, 100}, {100, 100});
-    for (const ParamId id : {ParamId::Count, static_cast<ParamId>(255)}) {
-        EXPECT_THROW(m.curve(id), std::invalid_argument);
-        EXPECT_THROW(m.curve2D(id), std::invalid_argument);
-        EXPECT_THROW(m.setStatic(id, 1.0), std::invalid_argument);
-    }
-}

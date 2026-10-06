@@ -45,8 +45,6 @@ const FUNCTIONAL_EFFECT_EXCEPTIONS: Record<string, ReadonlySet<string>> = {
     "features/canvas/GridOverlay.tsx",
     "features/inspector/propertyPanelColor.tsx",
     "features/inspector/propertyPanelColorWheels.tsx",
-    // Validated project-authored gradient input, not an editor chrome style.
-    "features/inspector/remoteVisualFields.ts",
   ]),
   "tailwind-gradient": new Set(["features/inspector/propertyPanelColor.tsx"]),
   "svg-gradient": new Set(["features/inspector/propertyPanelColorCurveGraph.tsx"]),

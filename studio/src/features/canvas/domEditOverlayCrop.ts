@@ -109,17 +109,8 @@ export function readCropCenterOffsetFraction(element: HTMLElement): { x: number;
   const crop = readElementCropInsets(element);
   if (!crop || !(crop.top || crop.right || crop.bottom || crop.left)) return null;
   const computed = element.ownerDocument.defaultView?.getComputedStyle(element);
-  const pixelSize = (computedValue: string | undefined, layoutSize: number, inlineValue: string): number => {
-    const parsePixels = (value: string | undefined): number => {
-      const match = /^\s*([\d.]+)px\s*$/i.exec(value ?? "");
-      return match ? Number(match[1]) : 0;
-    };
-    // Computed dimensions resolve percentages to CSS pixels in the browser.
-    // DOM test engines may retain the percentage, so use layout size next.
-    return parsePixels(computedValue) || layoutSize || parsePixels(inlineValue);
-  };
-  const width = pixelSize(computed?.width, element.offsetWidth, element.style.width);
-  const height = pixelSize(computed?.height, element.offsetHeight, element.style.height);
+  const width = Number.parseFloat(element.style.width || computed?.width || "");
+  const height = Number.parseFloat(element.style.height || computed?.height || "");
   if (!(width > 0 && height > 0)) return null;
   const origin = (computed?.transformOrigin || element.style.transformOrigin).trim().toLowerCase();
   const originPx = /^(-?[\d.]+)px\s+(-?[\d.]+)px(?:\s+0px)?$/.exec(origin);

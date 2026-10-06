@@ -13,7 +13,6 @@ import {
 } from "../player/lib/timelinePerformanceFixture";
 import { TIMELINE_VIEWPORT_BUDGETS } from "../player/lib/timelineViewportBudgets";
 import { STUDIO_RUNTIME_MODE, STUDIO_TEST_HOOKS_ENABLED } from "./tests/studioTestMode";
-import { previewAgentForIframe } from "../features/preview/previewAgentClient";
 
 interface StudioTestHookDeps {
   previewIframeRef: React.MutableRefObject<HTMLIFrameElement | null>;
@@ -61,27 +60,7 @@ export function useStudioTestHooks({
     const api: StudioTestApi = {
       runtimeMode: STUDIO_RUNTIME_MODE,
       selectByDomId: async (id: string): Promise<boolean> => {
-        const iframe = previewIframeRef.current;
-        if (!iframe) return false;
-        let doc: Document | null = null;
-        try { doc = iframe.contentDocument; } catch { /* Isolated preview. */ }
-        if (!doc) {
-          const client = previewAgentForIframe(iframe);
-          if (!client?.isReady) return false;
-          const matches = [];
-          for (let offset = 0; offset < 3000; offset += 300) {
-            const result = await client.request({ kind: "snapshot", offset, limit: 300 });
-            if (!Array.isArray(result)) return false;
-            matches.push(...result.filter(state => state.id === id));
-            if (result.length < 300) break;
-          }
-          if (matches.length !== 1) return false;
-          window.dispatchEvent(new CustomEvent("mpvfx-isolated-preview-selection", {
-            detail: { iframe, state: matches[0] },
-          }));
-          return true;
-        }
-        const element = doc.getElementById(id);
+        const element = previewIframeRef.current?.contentDocument?.getElementById(id) ?? null;
         if (!element) return false;
         const selection = await buildDomSelectionFromTarget(element);
         if (!selection) return false;

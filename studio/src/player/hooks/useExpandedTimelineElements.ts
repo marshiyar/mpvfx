@@ -32,7 +32,6 @@ function resolveRawId(
   if (!selectedId) return null;
   const rawId = splitTimelineElementKey(selectedId).domId;
   if (parentMap.has(rawId)) return rawId;
-  if ([...parentMap.values()].includes(rawId)) return rawId;
   if (parentMap.has(selectedId)) return selectedId;
   const clip = manifest.find((c) => c.label === selectedId || c.label === rawId);
   if (clip?.id && parentMap.has(clip.id)) return clip.id;
@@ -354,13 +353,18 @@ export function useExpandedTimelineElements(): TimelineElement[] {
 
   // Only an explicit selection may reveal nested rows. Playback, pausing and
   // seeking therefore cannot reallocate rows or move unrelated strips.
-  const rawId = useMemo(() => {
+  const { rawId, selectedRawId } = useMemo(() => {
     if (!clipManifest || clipManifest.length === 0 || clipParentMap.size === 0) {
-      return null;
+      return { rawId: null as string | null, selectedRawId: null as string | null };
     }
-    return resolveTimelineExpansionRawId({
-      selectedElementId, manifest: clipManifest, parentMap: clipParentMap,
-    });
+    return {
+      rawId: resolveTimelineExpansionRawId({
+        selectedElementId,
+        manifest: clipManifest,
+        parentMap: clipParentMap,
+      }),
+      selectedRawId: resolveRawId(selectedElementId, clipManifest, clipParentMap),
+    };
   }, [clipManifest, clipParentMap, selectedElementId]);
 
   return useMemo(() => {
@@ -369,7 +373,8 @@ export function useExpandedTimelineElements(): TimelineElement[] {
     }
     if (!rawId) return filterToTopLevel(elements, clipParentMap);
 
-    const immediateParent = clipParentMap.get(rawId) ?? rawId;
+    const immediateParent = selectedRawId ? clipParentMap.get(rawId) : rawId;
+    if (!immediateParent) return filterToTopLevel(elements, clipParentMap);
     const topLevel = findTopLevelAncestor(rawId, clipParentMap) ?? immediateParent;
     return buildExpandedElements(
       elements,
@@ -387,5 +392,6 @@ export function useExpandedTimelineElements(): TimelineElement[] {
     domClipChildren,
     subCompositionHostState,
     rawId,
+    selectedRawId,
   ]);
 }

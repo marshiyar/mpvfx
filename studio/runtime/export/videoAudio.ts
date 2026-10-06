@@ -4,7 +4,6 @@ import { parseHTMLContent } from "@hyperframes/core/compiler";
 import type { MediaMetadata } from "../../shared/media/mediaMetadata";
 import { readProjectMediaMetadata } from "../media/metadata";
 import { encodeMediaPath } from "../../shared/media/mediaUrl";
-import { projectIdFromPreviewHost } from "../../shared/desktopPreviewOrigin";
 
 function within(root: string, path: string): boolean {
   const offset = relative(root, path);
@@ -17,10 +16,7 @@ async function localSource(root: string, sourceFile: string, src: string, author
   const owner = new URL(encodeMediaPath(relative(root, sourceFile).split(sep).join("/")), prefix);
   const base = authoredBase ? new URL(authoredBase, owner) : owner;
   const url = new URL(src, base);
-  const previewProject = projectIdFromPreviewHost(url.host);
-  const projectPath = previewProject && `/api/projects/${encodeURIComponent(previewProject)}/preview/`;
-  if (url.protocol !== "mpvfx:" || src.trim().startsWith("#") ||
-      (url.host !== "editor" && (!projectPath || !url.pathname.startsWith(projectPath)))) return null;
+  if (url.protocol !== "mpvfx:" || url.host !== "editor" || src.trim().startsWith("#")) return null;
   let pathname = url.pathname.replace(/^\/(?:project\/|api\/projects\/[^/]+\/preview\/)?/, "");
   try { pathname = decodeURIComponent(pathname); }
   catch { throw new Error(`Export source has an invalid URL escape: ${src}`); }

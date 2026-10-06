@@ -18,15 +18,6 @@ import {
 } from "./gsapTweenSynth";
 import { fetchParsedAnimations, populateKeyframeCacheFromAst } from "../Keyframe/keyframeCacheAstLoad";
 
-/** An isolated authored preview never lends its Document to the editor. */
-function accessiblePreviewDocument(iframe: HTMLIFrameElement | null | undefined): Document | null {
-  try {
-    return iframe?.contentDocument ?? null;
-  } catch {
-    return null;
-  }
-}
-
 // Re-exported so callers keep importing the GSAP cache surface from one module.
 export { resolveClipTimingBasis } from "./gsapShared";
 export { fetchParsedAnimations, resolveSelectorElementIds } from "../Keyframe/keyframeCacheAstLoad";
@@ -167,7 +158,7 @@ export function useGsapAnimationsForElement(
     // just the one whose exact selector equals the tween's. `version` re-runs
     // this after composition reloads.
     let element: Element | null = null;
-    const doc = accessiblePreviewDocument(iframeRef?.current);
+    const doc = iframeRef?.current?.contentDocument;
     if (doc) {
       try {
         element =
@@ -396,7 +387,7 @@ export function usePopulateKeyframeCacheForFile(
     const files = Array.from(
       new Set([sourceFile, ...(compositionSrcKey ? compositionSrcKey.split("|") : [])]),
     );
-    const doc = accessiblePreviewDocument(iframeRef?.current);
+    const doc = iframeRef?.current?.contentDocument;
     // Everything the previous scan cached for a file this one no longer covers
     // (the composition just switched away from) has no owner left to clear it.
     pruneKeyframeCacheToFiles(files);

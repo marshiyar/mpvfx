@@ -32,8 +32,6 @@ export interface CommitNativeTimelineMoveInput {
   readonly writeProjectFile: ProjectFileWriter;
   readonly recordEdit: (input: RecordEditInput) => Promise<void>;
   readonly commitFileTransaction?: CommitNativeTimelineFileTransaction;
-  /** Unique to a gesture when another source edit must share this Undo step. */
-  readonly gestureCoalesceKey?: string;
   readonly patchCompatibilityContent: (
     content: string,
     exactStartSeconds: number,
@@ -157,8 +155,7 @@ export async function commitNativeTimelineMove(
         history: {
           label: "Move timeline clip",
           kind: "timeline",
-          coalesceKey: input.gestureCoalesceKey ?? `timeline-move:${plan.address.clipId}`,
-          ...(input.gestureCoalesceKey ? { coalesceMs: 60_000 } : {}),
+          coalesceKey: `timeline-move:${plan.address.clipId}`,
         },
         commitFileTransaction: input.commitFileTransaction,
         writeProjectFile: input.writeProjectFile,

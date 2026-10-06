@@ -12,21 +12,19 @@ import { saveProjectFilesWithHistory } from "../history/studioFileHistory";
 import type { EditHistoryKind } from "../history/editHistory";
 import { extendRootDurationInSource } from "../timeline/rootDuration";
 
-/** Authoritative saved markup plus discovered timeline rows, without a frame DOM read. */
-export function maxAuthoredZIndex(
-  content: string,
-  timelineElements: readonly TimelineElement[],
-): number {
-  let max = 0;
-  for (const element of timelineElements) {
-    if (Number.isFinite(element.zIndex)) max = Math.max(max, element.zIndex ?? 0);
+function getMaxZIndexFromIframe(iframe: HTMLIFrameElement | null): number {
+  try {
+    const doc = iframe?.contentDocument;
+    if (!doc) return 0;
+    let max = 0;
+    for (const el of doc.body.querySelectorAll("*")) {
+      const z = parseInt(getComputedStyle(el).zIndex, 10);
+      if (Number.isFinite(z) && z > max) max = z;
+    }
+    return max;
+  } catch {
+    return 0;
   }
-  const doc = new DOMParser().parseFromString(content, "text/html");
-  for (const element of doc.querySelectorAll<HTMLElement>("[style]")) {
-    const z = Number.parseInt(element.style.zIndex, 10);
-    if (Number.isFinite(z)) max = Math.max(max, z);
-  }
-  return max;
 }
 
 interface AddBlockOptions {
@@ -225,7 +223,7 @@ export async function addBlockToProject(
       height,
       left: visualPosition ? Math.round(visualPosition.left) : 0,
       top: visualPosition ? Math.round(visualPosition.top) : 0,
-      zIndex: maxAuthoredZIndex(originalContent, relevantElements) + 1,
+      zIndex: getMaxZIndexFromIframe(opts.previewIframe ?? null) + 1,
     });
     const patchedContent = extendRootDurationInSource(
       insertTimelineAssetIntoSource(originalContent, subComposition),

@@ -8,8 +8,6 @@ import {
   stopScrubPreviewAudio,
 } from "../timelineIframeHelpers";
 import type { IframeWindow } from "../playbackTypes";
-const previewAgentForIframeMock = vi.hoisted(() => vi.fn());
-vi.mock("../../../features/preview/previewAgentClient", () => ({ previewAgentForIframe: previewAgentForIframeMock }));
 
 function makeDoc(html: string): Document {
   const d = document.implementation.createHTMLDocument();
@@ -61,7 +59,6 @@ describe("buildMissingCompositionElements — hfId (R7)", () => {
 describe("setPreviewMediaVolume", () => {
   it("sends a clamped runtime volume to a direct preview iframe", () => {
     const iframe = document.createElement("iframe");
-    iframe.src = "https://studio.test/preview";
     document.body.append(iframe);
     const postMessage = vi.spyOn(iframe.contentWindow!, "postMessage");
 
@@ -69,24 +66,12 @@ describe("setPreviewMediaVolume", () => {
 
     expect(postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ action: "set-volume", volume: 1 }),
-      "https://studio.test",
+      "*",
     );
   });
 });
 
 describe("scrubPreviewAudio", () => {
-  it("routes paused-seek music audition through the isolated agent and stops it", () => {
-    const iframe = document.createElement("iframe");
-    Object.defineProperty(iframe, "contentDocument", { value: null });
-    const request = vi.fn(async () => null);
-    previewAgentForIframeMock.mockReturnValue({ isReady: true, request });
-    scrubPreviewAudio(iframe, 2.5, "music", 0.4);
-    expect(request).toHaveBeenCalledWith({ kind: "scrubAudio", audioId: "music",
-      timeSeconds: 2.5, volume: 0.4 });
-    stopScrubPreviewAudio();
-    expect(request).toHaveBeenLastCalledWith({ kind: "scrubAudio", audioId: "music",
-      timeSeconds: null, volume: 0 });
-  });
   it("scales scrub feedback by the Studio preview volume", () => {
     const iframe = document.createElement("iframe");
     document.body.append(iframe);
@@ -111,7 +96,6 @@ describe("applyPreviewAudioFlags", () => {
   // turned down came back loud.
   it("re-pushes mute and volume together", () => {
     const iframe = document.createElement("iframe");
-    iframe.src = "https://studio.test/preview";
     document.body.append(iframe);
     const postMessage = vi.spyOn(iframe.contentWindow!, "postMessage");
 
@@ -134,7 +118,6 @@ describe("applyPreviewAudioFlags", () => {
     document.body.append(host);
     const shadow = host.attachShadow({ mode: "open" });
     const iframe = document.createElement("iframe");
-    iframe.src = "https://studio.test/preview";
     const postMessage = vi.fn();
     Object.defineProperty(iframe, "contentWindow", {
       value: { postMessage },
@@ -148,11 +131,11 @@ describe("applyPreviewAudioFlags", () => {
     expect(host.volume).toBe(0.75);
     expect(postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ action: "set-muted", muted: false }),
-      "https://studio.test",
+      "*",
     );
     expect(postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ action: "set-volume", volume: 0.75 }),
-      "https://studio.test",
+      "*",
     );
   });
 });

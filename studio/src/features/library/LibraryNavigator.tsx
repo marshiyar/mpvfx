@@ -34,11 +34,8 @@ export function LibraryNavigator({
   );
   const library =
     libraries.find((l) => l.id === selected) ?? active ?? libraries[0];
-  const activeProjectEventId = library?.projects.find((p) => p.id === projectId)?.eventId;
   const event =
-    library?.events.find((e) => e.id === eventId) ??
-    library?.events.find((e) => e.id === activeProjectEventId) ??
-    library?.events[0];
+    library?.events.find((e) => e.id === eventId) ?? library?.events[0];
   const switchProject = useCallback(
     async (next: string) => {
       if (next === currentProject.current) return;
