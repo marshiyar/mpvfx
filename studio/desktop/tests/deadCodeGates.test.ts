@@ -1,11 +1,14 @@
 import { spawnSync } from "node:child_process";
 import {
+  chmodSync,
+  copyFileSync,
   existsSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { createRequire } from "node:module";
@@ -135,6 +138,11 @@ function loadArchitectureChecker() {
   };
 }
 
+function runGit(args: string[]): void {
+  const result = spawnSync("git", args, { cwd: repositoryRoot, encoding: "utf8" });
+  if (result.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${result.stderr}`);
+}
+
 function readKnipConfig() {
   const text = readFileSync(resolve(studioRoot, "knip.jsonc"), "utf8");
   return JSON.parse(text.replace(/^\s*\/\/.*$/gm, "")) as {
@@ -216,18 +224,68 @@ describe("dead-code gates", () => {
     }
   });
 
-  it("propagates a failed gate through the publication hook", { timeout: 180_000 }, () => {
-    const probe = resolve(studioRoot, "src/__publicationGateProbe.ts");
-    writeFileSync(probe, 'import "../runtime/environment";\n');
+  it("propagates a failed gate through the publication hook", { timeout: 300_000 }, () => {
+    // Deliberate faults live in a disposable checkout, never in this working
+    // tree. Tooling is symlinked, never reinstalled: the hook under test only
+    // needs the knip binary, tsc, and the workspace manifests.
+    const scratch = mkdtempSync(join(tmpdir(), "mpvfx-publish-gate-"));
+    const checkout = resolve(scratch, "checkout");
     try {
-      const result = spawnSync("sh", [resolve(repositoryRoot, ".githooks/check-publication")], {
-        cwd: repositoryRoot,
+      runGit(["worktree", "add", "--detach", checkout, "HEAD"]);
+      symlinkSync(resolve(studioRoot, "node_modules"), resolve(checkout, "studio/node_modules"));
+      copyFileSync(
+        resolve(repositoryRoot, ".githooks/check-publication"),
+        resolve(checkout, ".githooks/check-publication"),
+      );
+      const probe = resolve(checkout, "studio/src/__publicationGateProbe.ts");
+      writeFileSync(probe, 'import "../runtime/environment";\n');
+      const result = spawnSync("sh", [resolve(checkout, ".githooks/check-publication")], {
+        cwd: checkout,
         encoding: "utf8",
       });
       expect(result.status).not.toBe(0);
       expect(`${result.stdout}\n${result.stderr}`).toContain("__publicationGateProbe");
     } finally {
-      rmSync(probe, { force: true });
+      runGit(["worktree", "remove", "--force", checkout]);
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+
+  it("runs nested npm gates under a relative MPVFX_NODE", { timeout: 300_000 }, () => {
+    // A logging wrapper proves the SELECTED runtime executes nested commands.
+    // Without normalization the wrapper sees npm itself (spawned from the
+    // root, where the relative entry resolves) but never the nested knip run
+    // (spawned below studio/, where it does not); with normalization every
+    // nested invocation flows through the wrapper.
+    const scratch = mkdtempSync(join(tmpdir(), "mpvfx-node-select-"));
+    const checkout = resolve(scratch, "checkout");
+    try {
+      runGit(["worktree", "add", "--detach", checkout, "HEAD"]);
+      symlinkSync(resolve(studioRoot, "node_modules"), resolve(checkout, "studio/node_modules"));
+      copyFileSync(
+        resolve(repositoryRoot, ".githooks/check-publication"),
+        resolve(checkout, ".githooks/check-publication"),
+      );
+      const binDir = resolve(checkout, "rel-node");
+      mkdirSync(binDir, { recursive: true });
+      const log = resolve(scratch, "node-calls.log");
+      const wrapper = resolve(binDir, "node");
+      writeFileSync(wrapper, `#!/bin/sh\necho "$0 $@" >> ${JSON.stringify(log)}\nexec ${JSON.stringify(process.execPath)} "$@"\n`);
+      chmodSync(wrapper, 0o755);
+      const result = spawnSync("sh", [resolve(checkout, ".githooks/check-publication")], {
+        cwd: checkout,
+        encoding: "utf8",
+        env: { ...process.env, MPVFX_NODE: "rel-node/node" },
+      });
+      expect(result.status).toBe(0);
+      const calls = readFileSync(log, "utf8");
+      expect(calls).toContain("check-release-readiness.mjs");
+      expect(calls).toContain("npm --prefix studio run check:architecture");
+      expect(calls).toContain("npm --prefix studio run check:knip");
+      expect(calls).toContain(".bin/knip");
+    } finally {
+      runGit(["worktree", "remove", "--force", checkout]);
+      rmSync(scratch, { recursive: true, force: true });
     }
   });
 
@@ -313,6 +371,7 @@ describe("dead-code gates", () => {
   it("runs the publication hook gates under the MPVFX_NODE-selected runtime", () => {
     const hook = readFileSync(resolve(repositoryRoot, ".githooks/check-publication"), "utf8");
     expect(hook).toContain('export PATH="$(dirname "$node_binary"):$PATH"');
+    expect(hook).toContain('*/*) node_binary="$PWD/$node_binary"');
     expect(hook).toContain("npm --prefix studio run check:architecture");
     expect(hook).toContain("npm --prefix studio run check:knip");
   });
