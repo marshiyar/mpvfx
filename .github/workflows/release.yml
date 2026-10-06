@@ -113,6 +113,8 @@ jobs:
 
       - name: Exercise editor and runtime behavior
         if: runner.os == 'Linux'
+        env:
+          HYPERFRAMES_FFMPEG_PATH: ${{ github.workspace }}/studio/node_modules/ffmpeg-static/ffmpeg
         run: npm --prefix studio test
 
       - name: Build pinned v0.0.7 screenshot baseline

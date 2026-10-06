@@ -91,4 +91,6 @@ jobs:
         run: npm --prefix studio run build
 
       - name: Exercise editor and runtime behavior
+        env:
+          HYPERFRAMES_FFMPEG_PATH: ${{ github.workspace }}/studio/node_modules/ffmpeg-static/ffmpeg
         run: npm --prefix studio test

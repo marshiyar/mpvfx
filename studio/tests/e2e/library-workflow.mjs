@@ -44,6 +44,8 @@ let child,
   page,
   log = "";
 async function launch() {
+  const appEnv = { ...process.env, MPVFX_USER_DATA_DIR: join(root, "data") };
+  delete appEnv.ELECTRON_RUN_AS_NODE;
   child = spawn(
     packagedApp,
     [
@@ -53,11 +55,7 @@ async function launch() {
       `--user-data-dir=${join(root, "chromium")}`,
     ],
     {
-      env: {
-        ...process.env,
-        MPVFX_USER_DATA_DIR: join(root, "data"),
-        ELECTRON_RUN_AS_NODE: "",
-      },
+      env: appEnv,
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
@@ -236,7 +234,7 @@ async function verifyInterface() {
 async function close() {
   inspector?.close();
   await browser?.disconnect();
-  if (child?.exitCode === null) {
+  if (child?.exitCode === null && child?.signalCode === null) {
     child.kill("SIGTERM");
     await Promise.race([
       new Promise((r) => child.once("exit", r)),
@@ -277,6 +275,23 @@ try {
     return d.sequence.tracks.some((t) => t.clips.length) ? d : null;
   }, "First project edit did not persist");
   await verifyInterface();
+  if (process.env.MPVFX_UI_COMPARISON === "1") {
+    await close();
+    await launch();
+    await page.waitForSelector('[data-clip="true"]', { timeout: 20000 });
+    const reopened = (await views())[0];
+    if (reopened.projects.length !== 1 || reopened.assets.length !== 1)
+      throw new Error("Packaged editor reopen lost its project or imported media");
+    const result = {
+      packagedApp,
+      variant,
+      baselineActions: ["create library", "import media", "add clip", "select clip", "remove silence available", "play", "pause", "undo", "redo", "reopen"],
+      profile: root,
+      firstProjectReopened: true,
+    };
+    await writeFile(join(evidenceDir, `${variant}-result.json`), JSON.stringify(result, null, 2));
+    console.log(JSON.stringify(result));
+  } else {
   const firstHtml = await readFile(join(lib, "Projects", first, "index.html"), "utf8");
   const expectedAudio = process.env.MPVFX_SILENT_FIXTURE === "1" ? "false" : "true";
   if (!firstHtml.includes(`data-has-audio="${expectedAudio}"`)) {
@@ -381,9 +396,16 @@ try {
   };
   await writeFile(join(evidenceDir, `${variant}-result.json`), JSON.stringify(result, null, 2));
   console.log(JSON.stringify(result));
+  }
 } catch (error) {
   console.error(error);
   console.error(log.slice(-3500));
+  await writeFile(join(evidenceDir, `${variant}-failure.json`), JSON.stringify({
+    packagedApp,
+    variant,
+    error: String(error),
+    startupLog: log.slice(-3500),
+  }, null, 2));
   if (page)
     await page.screenshot({ path: join(evidenceDir, `${variant}-failure.png`) }).catch(() => {});
   console.error("Evidence:", root);

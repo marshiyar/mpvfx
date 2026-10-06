@@ -28,7 +28,7 @@ for (const [variant, root] of [["baseline", baselineRoot], ["candidate", repo]])
   console.log(`Packaged ${variant} acceptance: ${executable(root)}`);
   execFileSync(process.execPath, ["tests/e2e/library-workflow.mjs"], {
     cwd: studio,
-    env: { ...process.env, MPVFX_UI_VARIANT: variant, MPVFX_PACKAGED_APP: executable(root), MPVFX_UI_EVIDENCE_DIR: evidenceDir },
+    env: { ...process.env, MPVFX_UI_COMPARISON: "1", MPVFX_UI_VARIANT: variant, MPVFX_PACKAGED_APP: executable(root), MPVFX_UI_EVIDENCE_DIR: evidenceDir },
     stdio: "inherit",
     timeout: 300_000,
   });
