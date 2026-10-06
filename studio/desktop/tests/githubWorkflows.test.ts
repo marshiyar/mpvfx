@@ -21,18 +21,18 @@ describe("GitHub Actions readiness", () => {
     }
   });
 
-  it("keeps source compilation in a non-publishing workflow without the retired unit-test job", () => {
+  it("runs the source build and behavior suite in a non-publishing workflow", () => {
     const workflow = readRepositoryFile(".github/workflows/tests.yml");
 
     expect(workflow).toContain("npm ci --prefix studio");
-    expect(workflow).not.toContain("npm --prefix studio test");
     expect(workflow).not.toContain("npm --prefix studio run typecheck");
     expect(workflow).toContain("npm --prefix studio run build");
     expect(readFileSync(resolve(studioRoot, "package.json"), "utf8")).toContain(
       '"build": "npm run typecheck &&',
     );
     expect(workflow.match(/persist-credentials: false/g)).toHaveLength(1);
-    expect(workflow).not.toMatch(/npm publish|electron-forge publish|gh release|upload-artifact/i);
+    expect(workflow).not.toMatch(/npm publish|electron-forge publish|gh release/i);
+    expect(workflow).toContain("npm --prefix studio test");
   });
 
   it("builds Apple Silicon, Windows, and Linux installers without the retired Intel macOS target", () => {
@@ -45,7 +45,11 @@ describe("GitHub Actions readiness", () => {
     expect(workflow).toContain("ubuntu-24.04\n            arch: x64");
     expect(workflow).toContain("npm --prefix studio run ${{ matrix.script }}");
     expect(workflow).toContain("persist-credentials: false");
-    expect(workflow).not.toContain("actions/upload-artifact");
+    expect(workflow).toContain("git worktree add --detach \"$MPVFX_BASELINE_ROOT\" v0.0.7");
+    expect(workflow).not.toContain("${{ runner.temp }}");
+    expect(workflow).toContain("npm --prefix studio run test:packaged-interface-compare");
+    expect(workflow).toContain("name: v007-ui-evidence-${{ matrix.platform }}");
+    expect(workflow).not.toContain("studio/out/make/**");
     expect(workflow).not.toMatch(/electron-forge publish|softprops\/action-gh-release|gh release/i);
   });
 

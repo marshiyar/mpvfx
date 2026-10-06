@@ -89,3 +89,12 @@ jobs:
       # The build script performs typecheck before compiling; do not run it twice.
       - name: Typecheck and compile source
         run: npm --prefix studio run build
+
+      - name: Install pinned test browser
+        working-directory: studio
+        run: node_modules/.bin/puppeteer browsers install chrome
+
+      - name: Exercise editor and runtime behavior
+        env:
+          HYPERFRAMES_FFMPEG_PATH: ${{ github.workspace }}/studio/node_modules/ffmpeg-static/ffmpeg
+        run: npm --prefix studio test

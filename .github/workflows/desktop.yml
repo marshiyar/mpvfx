@@ -77,6 +77,9 @@ jobs:
 
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      MPVFX_BASELINE_ROOT: ${{ github.workspace }}/../mpvfx-v007-baseline
+      MPVFX_WINDOWS_COMPAT_ROOT: ${{ github.workspace }}/../mpvfx-v007-windows-flush
+      MPVFX_UI_EVIDENCE_DIR: ${{ github.workspace }}/studio/out/ui-evidence
 
     steps:
       - name: Check out source
@@ -95,7 +98,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --yes rpm libsqlite3-dev
+          sudo apt-get install --yes rpm libsqlite3-dev xvfb
 
       - name: Install Windows SQLite development library
         if: runner.os == 'Windows'
@@ -119,3 +122,50 @@ jobs:
       - name: Verify Windows library file flush
         if: runner.os == 'Windows'
         run: npm --prefix studio test -- runtime/library/tests/libraryFileFlush.test.ts
+
+      - name: Build pinned v0.0.7 screenshot baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin refs/tags/v0.0.7:refs/tags/v0.0.7
+          test "$(git rev-parse 'v0.0.7^{commit}')" = fbde94a88cdb022c71d9349b86a6692244d50007
+          git worktree add --detach "$MPVFX_BASELINE_ROOT" v0.0.7
+          npm ci --prefix "$MPVFX_BASELINE_ROOT/studio"
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            npm --prefix "$MPVFX_BASELINE_ROOT/studio" run prepare:electron-windows-headers
+          fi
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            npm --prefix "$MPVFX_BASELINE_ROOT/studio" run desktop:make:linux
+          else
+            npm --prefix "$MPVFX_BASELINE_ROOT/studio" run desktop:package
+          fi
+
+      - name: Build reviewed Windows compatibility baseline
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin refs/heads/codex/windows-library-flush:refs/remotes/origin/codex/windows-library-flush
+          test "$(git rev-parse origin/codex/windows-library-flush)" = fd598a6daf74d1228d1aa2cb2fad84dba8faa818
+          git worktree add --detach "$MPVFX_WINDOWS_COMPAT_ROOT" origin/codex/windows-library-flush
+          npm ci --prefix "$MPVFX_WINDOWS_COMPAT_ROOT/studio"
+          npm --prefix "$MPVFX_WINDOWS_COMPAT_ROOT/studio" run prepare:electron-windows-headers
+          npm --prefix "$MPVFX_WINDOWS_COMPAT_ROOT/studio" run desktop:package
+
+      - name: Compare packaged editor with v0.0.7
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            xvfb-run -a -s '-screen 0 1600x1000x24' npm --prefix studio run test:packaged-interface-compare
+          else
+            npm --prefix studio run test:packaged-interface-compare
+          fi
+
+      - name: Save disposable UI evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: v007-ui-evidence-${{ matrix.platform }}
+          path: studio/out/ui-evidence/**
+          if-no-files-found: error
+          retention-days: 14

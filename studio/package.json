@@ -37,6 +37,8 @@
     "knip": "knip",
     "knip:production": "knip --production",
     "test": "node ../scripts/run-tests.mjs",
+    "test:packaged-interface": "node tests/e2e/library-workflow.mjs",
+    "test:packaged-interface-compare": "node tests/e2e/compare-packaged-interface.mjs",
     "test:timeline-virtualization": "TIMELINE_ROW_VIRTUALIZATION=on TIMELINE_ELEMENT_COUNT=50000 node tests/e2e/timeline-virtualization.mjs",
     "test:keyframes-e2e": "node tests/e2e/keyframe-workflow.mjs",
     "test:native-keyframes-e2e": "node tests/e2e/native-keyframe-workflow.mjs",

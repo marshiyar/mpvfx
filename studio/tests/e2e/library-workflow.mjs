@@ -1,11 +1,16 @@
 import { spawn, execFileSync } from "node:child_process";
-import { mkdtemp, readFile, writeFile, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import puppeteer from "puppeteer-core";
 const require = createRequire(import.meta.url);
 const root = await mkdtemp(join(tmpdir(), "mpvfx-library-packaged-"));
+const evidenceDir = process.env.MPVFX_UI_EVIDENCE_DIR ? resolve(process.env.MPVFX_UI_EVIDENCE_DIR) : root;
+const variant = ["baseline", "candidate", "original-v007"].includes(process.env.MPVFX_UI_VARIANT)
+  ? process.env.MPVFX_UI_VARIANT : "candidate";
+const packagedApp = resolve(process.env.MPVFX_PACKAGED_APP ?? "out/MpVFX-darwin-arm64/MpVFX.app/Contents/MacOS/MpVFX");
+await mkdir(evidenceDir, { recursive: true });
 const lib = join(root, "Test Film.mpvfxlibrary"),
   video = join(root, "Shared Khé¿.mp4");
 execFileSync(require("ffmpeg-static"), [
@@ -14,7 +19,7 @@ execFileSync(require("ffmpeg-static"), [
   "-f",
   "lavfi",
   "-i",
-  "color=red:size=320x180:rate=24:duration=1",
+  "color=red:size=320x180:rate=24:duration=2",
   "-f",
   "lavfi",
   "-i",
@@ -39,20 +44,20 @@ let child,
   inspector,
   page,
   log = "";
+let firstProjectId = null;
 async function launch() {
+  const appEnv = { ...process.env, MPVFX_USER_DATA_DIR: join(root, "data") };
+  delete appEnv.ELECTRON_RUN_AS_NODE;
   child = spawn(
-    resolve("out/MpVFX-darwin-arm64/MpVFX.app/Contents/MacOS/MpVFX"),
+    packagedApp,
     [
       "--inspect=0",
       "--remote-debugging-port=0",
+      "--window-size=1600,1000",
       `--user-data-dir=${join(root, "chromium")}`,
     ],
     {
-      env: {
-        ...process.env,
-        MPVFX_USER_DATA_DIR: join(root, "data"),
-        ELECTRON_RUN_AS_NODE: "",
-      },
+      env: appEnv,
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
@@ -92,7 +97,7 @@ async function launch() {
     })
     .then((t) => t.page());
   page.on("pageerror", (e) => console.log("renderer-error", e.message));
-  await page.setViewport({ width: 1600, height: 1000 });
+  await page.setViewport({ width: 1600, height: 1000, deviceScaleFactor: 1 });
   await page.waitForSelector('[aria-label="Library browser"]', {
     timeout: 30000,
   });
@@ -157,15 +162,17 @@ async function views() {
 }
 async function until(fn, message, ms = 15000) {
   const deadline = Date.now() + ms;
+  let lastError;
   while (Date.now() < deadline) {
     try {
       const v = await fn();
       if (v) return v;
-    } catch {}
+    } catch (error) { lastError = error; }
     await new Promise((r) => setTimeout(r, 100));
   }
   throw new Error(
     message +
+      (lastError ? `: ${String(lastError)}` : "") +
       "\n" +
       (await page.evaluate(() => document.body.innerText.slice(-2000))),
   );
@@ -178,10 +185,60 @@ async function openMedia() {
     if (d) d.open = true;
   });
 }
+async function verifyInterface() {
+  const layout = await page.evaluate(() => {
+    const library = document.querySelector('[aria-label="Library browser"]');
+    const preview = document.querySelector('[aria-label="Composition preview"]');
+    const timeline = document.querySelector('[aria-label="Timeline"]');
+    const playback = document.querySelector('[aria-label="Playback time"]');
+    const play = document.querySelector('button[aria-label="Play"]');
+    if (!library || !preview || !timeline || !playback || !play)
+      throw new Error("v0.0.7 library, preview, timeline, or playback control is missing");
+    const top = preview.getBoundingClientRect();
+    const bottom = timeline.getBoundingClientRect();
+    return {
+      previewTop: top.top,
+      previewBottom: top.bottom,
+      timelineTop: bottom.top,
+      timelineBottom: bottom.bottom,
+      viewportBottom: window.innerHeight,
+      bodyOverflow: document.body.scrollHeight - window.innerHeight,
+    };
+  });
+  if (!(layout.previewTop < layout.previewBottom && layout.previewBottom <= layout.timelineTop + 2 &&
+      layout.timelineBottom <= layout.viewportBottom + 2 &&
+      layout.viewportBottom - layout.timelineBottom <= 16 && layout.bodyOverflow <= 2))
+    throw new Error(`v0.0.7 editor layout changed: ${JSON.stringify(layout)}`);
+  await page.click('[data-clip="true"]');
+  const border = await page.waitForSelector('[data-dom-edit-selection-box="true"]', { timeout: 20000 });
+  const borderVisible = await border.evaluate(node => {
+    const style = getComputedStyle(node);
+    const rect = node.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0 &&
+      (parseFloat(style.borderTopWidth) > 0 || parseFloat(style.outlineWidth) > 0);
+  });
+  if (!borderVisible) throw new Error("Selected clip has no visible preview selection border");
+  const removeSilence = await page.$('button[aria-label="Remove silence"]');
+  if (!removeSilence || await removeSilence.evaluate(node => node.disabled))
+    throw new Error("Selected video lost its Remove silence action");
+  await page.screenshot({ path: join(evidenceDir, `${variant}-selected-editor.png`) });
+  await page.click('button[aria-label="Play"]');
+  await page.waitForSelector('button[aria-label="Pause"]', { timeout: 5000 });
+  await page.click('button[aria-label="Pause"]');
+  await page.click('button[aria-label="Shortcuts and tools"]');
+  await page.waitForFunction(() => !!document.querySelector('button[data-history-action="undo"]:not(:disabled)'), { timeout: 10000 });
+  const undo = await page.$('button[data-history-action="undo"]');
+  if (!undo) throw new Error("Undo is unavailable after adding a clip");
+  await undo.click();
+  await page.waitForFunction(() => !!document.querySelector('button[data-history-action="redo"]:not(:disabled)'), { timeout: 10000 });
+  await page.click('button[data-history-action="redo"]');
+  await page.waitForSelector('[data-clip="true"]', { timeout: 20000 });
+  await writeFile(join(evidenceDir, `${variant}-ui-layout.json`), JSON.stringify(layout, null, 2));
+}
 async function close() {
   inspector?.close();
   await browser?.disconnect();
-  if (child?.exitCode === null) {
+  if (child?.exitCode === null && child?.signalCode === null) {
     child.kill("SIGTERM");
     await Promise.race([
       new Promise((r) => child.once("exit", r)),
@@ -196,16 +253,27 @@ try {
   await dialogs();
   await queueSave(lib);
   await click("New library");
+  // The catalog lists a pending project before its native sidecar is written.
+  // Do not navigate to it until library initialization has finished.
   const library = await until(async () => {
     const l = (await views())[0];
-    return l?.projects.length === 1 ? l : null;
+    return l?.projects.length === 1 && l.projects[0].state === "ready" ? l : null;
   }, "Library creation failed");
   const first = library.projects[0].id;
+  firstProjectId = first;
+  await page.evaluate(id => { location.hash = `#project/${encodeURIComponent(id)}`; }, first);
   await page.waitForFunction(
     (id) => document.querySelector('[aria-label="Project"]')?.value === id,
     {},
     first,
   );
+  // The project selector can update before its native sidecar and preview
+  // adapter finish loading. Assert that the editor reached its native state
+  // before exercising a native timeline edit.
+  await page.waitForFunction((id) => {
+    const iframe = document.querySelector('[aria-label="Composition preview"] hyperframes-player')?.iframeElement;
+    return iframe?.src.includes(`/api/projects/${id}/`) && !!iframe.contentWindow?.__studioNativePlayer;
+  }, { timeout: 20000 }, first);
   await openMedia();
   await queueOpen([video]);
   await click("Import into event…");
@@ -220,6 +288,24 @@ try {
     const d = JSON.parse(await readFile(docPath(first), "utf8"));
     return d.sequence.tracks.some((t) => t.clips.length) ? d : null;
   }, "First project edit did not persist");
+  await verifyInterface();
+  if (process.env.MPVFX_UI_COMPARISON === "1") {
+    await close();
+    await launch();
+    await page.waitForSelector('[data-clip="true"]', { timeout: 20000 });
+    const reopened = (await views())[0];
+    if (reopened.projects.length !== 1 || reopened.assets.length !== 1)
+      throw new Error("Packaged editor reopen lost its project or imported media");
+    const result = {
+      packagedApp,
+      variant,
+      baselineActions: ["create library", "import media", "add clip", "select clip", "remove silence available", "play", "pause", "undo", "redo", "reopen"],
+      profile: root,
+      firstProjectReopened: true,
+    };
+    await writeFile(join(evidenceDir, `${variant}-result.json`), JSON.stringify(result, null, 2));
+    console.log(JSON.stringify(result));
+  } else {
   const firstHtml = await readFile(join(lib, "Projects", first, "index.html"), "utf8");
   const expectedAudio = process.env.MPVFX_SILENT_FIXTURE === "1" ? "false" : "true";
   if (!firstHtml.includes(`data-has-audio="${expectedAudio}"`)) {
@@ -230,8 +316,9 @@ try {
   await click("Create");
   const second = await until(async () => {
     const l = (await views())[0];
-    return l.projects.find((p) => p.name === "Short Version")?.id;
+    return l.projects.find((p) => p.name === "Short Version" && p.state === "ready")?.id;
   }, "Second project missing");
+  await page.evaluate(id => { location.hash = `#project/${encodeURIComponent(id)}`; }, second);
   await page.waitForFunction(
     (id) => document.querySelector('[aria-label="Project"]')?.value === id,
     {},
@@ -298,7 +385,7 @@ try {
     { libraryId: library.id, jobId: job.id },
   );
   if ((await stat(output)).size < 100) throw new Error("Output missing");
-  await page.screenshot({ path: join(root, "library-workflow.png") });
+  await page.screenshot({ path: join(evidenceDir, `${variant}-library-workflow.png`) });
   await close();
   await launch();
   await page.waitForSelector('[data-clip="true"]', { timeout: 20000 });
@@ -310,7 +397,8 @@ try {
   )
     throw new Error("Reopen lost library state");
   const result = {
-    packagedApp: execFileSync("/usr/bin/plutil", ["-extract", "CFBundleShortVersionString", "raw", "-o", "-", resolve("out/MpVFX-darwin-arm64/MpVFX.app/Contents/Info.plist")], { encoding: "utf8" }).trim(),
+    packagedApp,
+    variant,
     profile: root,
     library: lib,
     projects: reopened.projects.map((p) => p.name),
@@ -320,13 +408,36 @@ try {
     output,
     outputBytes: (await stat(output)).size,
   };
-  await writeFile(join(root, "result.json"), JSON.stringify(result, null, 2));
+  await writeFile(join(evidenceDir, `${variant}-result.json`), JSON.stringify(result, null, 2));
   console.log(JSON.stringify(result));
+  }
 } catch (error) {
   console.error(error);
   console.error(log.slice(-3500));
+  const projectProbe = firstProjectId && page ? await (async () => {
+    const documentPath = join(lib, "Projects", firstProjectId, ".studio/project.json");
+    let disk = "readable";
+    try { await readFile(documentPath, "utf8"); }
+    catch (readError) { disk = String(readError); }
+    const api = await page.evaluate(async (id) => {
+      const response = await window.mpvfx.request({
+        id: crypto.randomUUID(), method: "GET", headers: [],
+        path: `/api/projects/${encodeURIComponent(id)}/files/${encodeURIComponent(".studio/project.json")}`,
+      });
+      return { status: response.status, body: response.body ? new TextDecoder().decode(response.body).slice(0, 300) : "" };
+    }, firstProjectId).catch(probeError => ({ error: String(probeError) }));
+    const projects = await views().then(libraries => libraries[0]?.projects.map(project => ({ id: project.id, state: project.state }))).catch(() => null);
+    return { id: firstProjectId, documentPath, disk, api, projects };
+  })() : null;
+  await writeFile(join(evidenceDir, `${variant}-failure.json`), JSON.stringify({
+    packagedApp,
+    variant,
+    error: String(error),
+    startupLog: log.slice(-3500),
+    projectProbe,
+  }, null, 2));
   if (page)
-    await page.screenshot({ path: join(root, "failure.png") }).catch(() => {});
+    await page.screenshot({ path: join(evidenceDir, `${variant}-failure.png`) }).catch(() => {});
   console.error("Evidence:", root);
   process.exitCode = 1;
 } finally {

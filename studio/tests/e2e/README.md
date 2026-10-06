@@ -1,0 +1,13 @@
+# Packaged editor regression gate
+
+`npm --prefix studio run test:packaged-interface-compare` runs the packaged app from the current checkout and a separately built, pinned v0.0.7 checkout on the same runner. Set `MPVFX_BASELINE_ROOT` to that checkout and `MPVFX_UI_EVIDENCE_DIR` to a writable artifact directory. Both apps use disposable libraries and profiles.
+
+The comparison creates a library, imports a generated video, adds and selects a clip, checks its visible preview border and Remove silence action, plays and pauses, exercises undo and redo, and reopens the saved project. Each app saves a 1600×1000 screenshot and measured layout. The runner saves a pixel diff and `comparison.json`, and fails if required controls are missing, layout moves more than four pixels, or more than two percent of pixels differ. The longer `library-workflow.mjs` mode continues to exercise export and shared media separately.
+
+The Linux source suite sets the bundled FFmpeg path and installs the Chrome version pinned by Puppeteer before exercising audio FX rendering. This browser is a test prerequisite; the packaged editor comparison launches the built Electron application itself.
+
+Desktop builds and releases run this on macOS, Windows, and Linux. Linux uses Xvfb. An app that cannot launch or capture a screenshot fails that platform's gate; a source test result is insufficient. Inspect the retained `v007-ui-evidence-*` or `ui-evidence-*` workflow artifacts before accepting a release. These CI runs do not establish how the GUI behaves on a user's Mac.
+
+On Linux, the comparison installs each built Debian package in turn on its disposable runner and verifies that the package manager installed Electron's sandbox helper as root with mode 4755. It launches the installed app under Xvfb. The earlier unpacked-package run aborted before opening because its helper lacked that ownership and mode. The workflow does not disable Electron's sandbox or change permissions by hand.
+
+On Windows, the runner first launches the **unmodified** v0.0.7 package. Its known `EPERM: operation not permitted, fsync` failure on the temporary `Library.json` is retained with a GUI screenshot and stack trace. If that exact failure occurs, the editing comparison uses a separately built checkout of the reviewed Windows file-flush fix, pinned to commit `fd598a6daf74d1228d1aa2cb2fad84dba8faa818`; `comparison.json` labels this compatibility baseline and also records the immutable v0.0.7 SHA. An unrelated failure stops the gate. If unmodified v0.0.7 succeeds, it remains the direct comparison baseline. Set `MPVFX_WINDOWS_COMPAT_ROOT` to the compatibility checkout for Windows runs.
