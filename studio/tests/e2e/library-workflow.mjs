@@ -269,7 +269,7 @@ try {
   // adapter finish loading. Assert that the editor reached its native state
   // before exercising a native timeline edit.
   await page.waitForFunction((id) => {
-    const iframe = document.querySelector('[aria-label="Composition preview"] iframe.hfp-iframe');
+    const iframe = document.querySelector('[aria-label="Composition preview"] hyperframes-player')?.iframeElement;
     return iframe?.src.includes(`/api/projects/${id}/`) && !!iframe.contentWindow?.__studioNativePlayer;
   }, { timeout: 20000 }, first);
   await openMedia();
