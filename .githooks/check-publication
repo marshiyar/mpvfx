@@ -29,6 +29,13 @@ node_binary=$(find_mpvfx_node) || {
   exit 1
 }
 
+# Bare `npm` resolves `node` via PATH (env shebang), as does every `node` nested
+# inside npm scripts and tool shebangs, so without this the gates below would
+# silently ignore the MPVFX_NODE selection above. Pin PATH to the selected
+# runtime's directory so the whole publication check uses one Node.js 24.
+case "$node_binary" in */*) : ;; *) node_binary=$(command -v "$node_binary");; esac
+export PATH="$(dirname "$node_binary"):$PATH"
+
 "$node_binary" scripts/verification_checks/check-release-readiness.mjs
 "$node_binary" scripts/verification_checks/third-party-notices.mjs
 # Dead-code gates: architecture boundaries plus Knip unused files/dependencies.
