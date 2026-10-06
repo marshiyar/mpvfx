@@ -257,6 +257,7 @@ try {
     return l?.projects.length === 1 ? l : null;
   }, "Library creation failed");
   const first = library.projects[0].id;
+  await page.evaluate(id => { location.hash = `#project/${encodeURIComponent(id)}`; }, first);
   await page.waitForFunction(
     (id) => document.querySelector('[aria-label="Project"]')?.value === id,
     {},
@@ -289,6 +290,7 @@ try {
     const l = (await views())[0];
     return l.projects.find((p) => p.name === "Short Version")?.id;
   }, "Second project missing");
+  await page.evaluate(id => { location.hash = `#project/${encodeURIComponent(id)}`; }, second);
   await page.waitForFunction(
     (id) => document.querySelector('[aria-label="Project"]')?.value === id,
     {},
