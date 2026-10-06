@@ -49,7 +49,7 @@ if (process.platform === "win32") {
     const compatibilityRoot = process.env.MPVFX_WINDOWS_COMPAT_ROOT;
     if (!compatibilityRoot) throw new Error("MPVFX_WINDOWS_COMPAT_ROOT is required after the original v0.0.7 flush failure");
     const compatibilitySha = execFileSync("git", ["-C", compatibilityRoot, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-    if (compatibilitySha !== "05bf908d9771598c91923ea49b10be73ebf6ea45")
+    if (compatibilitySha !== "597ffd1fd2796df221e12f378ea53a38493387af")
       throw new Error(`Windows compatibility baseline is not the reviewed flush fix: ${compatibilitySha}`);
     comparisonRoot = compatibilityRoot;
     comparisonSha = compatibilitySha;

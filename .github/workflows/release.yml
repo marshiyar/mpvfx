@@ -146,7 +146,7 @@ jobs:
         run: |
           set -euo pipefail
           git fetch origin refs/heads/codex/windows-library-flush:refs/remotes/origin/codex/windows-library-flush
-          test "$(git rev-parse origin/codex/windows-library-flush)" = 05bf908d9771598c91923ea49b10be73ebf6ea45
+          test "$(git rev-parse origin/codex/windows-library-flush)" = 597ffd1fd2796df221e12f378ea53a38493387af
           git worktree add --detach "$MPVFX_WINDOWS_COMPAT_ROOT" origin/codex/windows-library-flush
           npm ci --prefix "$MPVFX_WINDOWS_COMPAT_ROOT/studio"
           npm --prefix "$MPVFX_WINDOWS_COMPAT_ROOT/studio" run prepare:electron-windows-headers
