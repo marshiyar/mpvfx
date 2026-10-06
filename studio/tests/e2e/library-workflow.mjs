@@ -265,6 +265,13 @@ try {
     {},
     first,
   );
+  // The project selector can update before its native sidecar and preview
+  // adapter finish loading. Assert that the editor reached its native state
+  // before exercising a native timeline edit.
+  await page.waitForFunction((id) => {
+    const iframe = document.querySelector('[aria-label="Composition preview"] iframe.hfp-iframe');
+    return iframe?.src.includes(`/api/projects/${id}/`) && !!iframe.contentWindow?.__studioNativePlayer;
+  }, { timeout: 20000 }, first);
   await openMedia();
   await queueOpen([video]);
   await click("Import into event…");
