@@ -29,5 +29,9 @@ node_binary=$(find_mpvfx_node) || {
   exit 1
 }
 
-"$node_binary" scripts/check-release-readiness.mjs
-"$node_binary" scripts/generate-third-party-notices.mjs --check
+"$node_binary" scripts/verification_checks/check-release-readiness.mjs
+"$node_binary" scripts/verification_checks/third-party-notices.mjs
+# Dead-code gates: architecture boundaries plus Knip unused files/dependencies.
+# These run here so junk never leaves the machine; CI repeats them.
+npm --prefix studio run check:architecture
+npm --prefix studio run check:knip
