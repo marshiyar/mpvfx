@@ -1,12 +1,10 @@
 // Run the pinned v0.0.7 app and the candidate app on the same CI runner.
 // A missing executable, screenshot, or comparison is a failed acceptance run.
 import { execFileSync, spawnSync } from "node:child_process";
-import { createRequire } from "node:module";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { decodePng, encodePng } from "./png-rgba.mjs";
 
-const require = createRequire(import.meta.url);
-const ffmpeg = require("ffmpeg-static");
 const studio = resolve(import.meta.dirname, "../..");
 const repo = resolve(studio, "..");
 const baselineRoot = process.env.MPVFX_BASELINE_ROOT;
@@ -49,7 +47,7 @@ if (process.platform === "win32") {
     const compatibilityRoot = process.env.MPVFX_WINDOWS_COMPAT_ROOT;
     if (!compatibilityRoot) throw new Error("MPVFX_WINDOWS_COMPAT_ROOT is required after the original v0.0.7 flush failure");
     const compatibilitySha = execFileSync("git", ["-C", compatibilityRoot, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-    if (compatibilitySha !== "597ffd1fd2796df221e12f378ea53a38493387af")
+    if (compatibilitySha !== "fd598a6daf74d1228d1aa2cb2fad84dba8faa818")
       throw new Error(`Windows compatibility baseline is not the reviewed flush fix: ${compatibilitySha}`);
     comparisonRoot = compatibilityRoot;
     comparisonSha = compatibilitySha;
@@ -75,29 +73,16 @@ for (const [variant, root] of [["baseline", comparisonRoot], ["candidate", repo]
   runPackaged(variant, path);
 }
 
-function dimensions(png) {
-  if (png.toString("ascii", 1, 4) !== "PNG") throw new Error("Screenshot is not PNG");
-  return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) };
-}
-
-function pixels(path, width, height) {
-  const result = spawnSync(ffmpeg, ["-v", "error", "-i", path, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "pipe:1"],
-    { maxBuffer: width * height * 4 + 1024 });
-  if (result.status !== 0) throw new Error(`Cannot decode screenshot ${path}: ${result.stderr}`);
-  if (result.stdout.length !== width * height * 4) throw new Error(`Wrong screenshot pixel count: ${path}`);
-  return result.stdout;
-}
-
 const oldPath = join(evidenceDir, "baseline-selected-editor.png");
 const newPath = join(evidenceDir, "candidate-selected-editor.png");
-const oldPng = await readFile(oldPath);
-const newPng = await readFile(newPath);
-const oldSize = dimensions(oldPng);
-const newSize = dimensions(newPng);
+const oldImage = decodePng(await readFile(oldPath));
+const newImage = decodePng(await readFile(newPath));
+const oldSize = { width: oldImage.width, height: oldImage.height };
+const newSize = { width: newImage.width, height: newImage.height };
 if (oldSize.width !== newSize.width || oldSize.height !== newSize.height)
   throw new Error(`Packaged screenshot size changed: ${JSON.stringify({ oldSize, newSize })}`);
-const oldPixels = pixels(oldPath, oldSize.width, oldSize.height);
-const newPixels = pixels(newPath, newSize.width, newSize.height);
+const oldPixels = oldImage.rgba;
+const newPixels = newImage.rgba;
 const diff = Buffer.alloc(oldPixels.length);
 let changed = 0;
 for (let index = 0; index < oldPixels.length; index += 4) {
@@ -109,9 +94,7 @@ for (let index = 0; index < oldPixels.length; index += 4) {
   diff[index + 3] = 255;
 }
 const diffPath = join(evidenceDir, "v007-candidate-diff.png");
-const encoded = spawnSync(ffmpeg, ["-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgba", "-s", `${oldSize.width}x${oldSize.height}`, "-i", "pipe:0", "-frames:v", "1", diffPath],
-  { input: diff, maxBuffer: 1024 * 1024 });
-if (encoded.status !== 0) throw new Error(`Cannot write screenshot diff: ${encoded.stderr}`);
+await writeFile(diffPath, encodePng(oldSize.width, oldSize.height, diff));
 const oldLayout = JSON.parse(await readFile(join(evidenceDir, "baseline-ui-layout.json"), "utf8"));
 const newLayout = JSON.parse(await readFile(join(evidenceDir, "candidate-ui-layout.json"), "utf8"));
 const shifted = Object.keys(oldLayout).filter(key => Math.abs(oldLayout[key] - newLayout[key]) > 4);
