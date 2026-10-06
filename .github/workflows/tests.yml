@@ -91,7 +91,8 @@ jobs:
         run: npm --prefix studio run build
 
       - name: Install pinned test browser
-        run: studio/node_modules/.bin/puppeteer browsers install chrome
+        working-directory: studio
+        run: node_modules/.bin/puppeteer browsers install chrome
 
       - name: Exercise editor and runtime behavior
         env:

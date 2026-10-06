@@ -113,7 +113,8 @@ jobs:
 
       - name: Install pinned test browser
         if: runner.os == 'Linux'
-        run: studio/node_modules/.bin/puppeteer browsers install chrome
+        working-directory: studio
+        run: node_modules/.bin/puppeteer browsers install chrome
 
       - name: Exercise editor and runtime behavior
         if: runner.os == 'Linux'
