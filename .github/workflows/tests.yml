@@ -90,6 +90,9 @@ jobs:
       - name: Typecheck and compile source
         run: npm --prefix studio run build
 
+      - name: Install pinned test browser
+        run: studio/node_modules/.bin/puppeteer browsers install chrome
+
       - name: Exercise editor and runtime behavior
         env:
           HYPERFRAMES_FFMPEG_PATH: ${{ github.workspace }}/studio/node_modules/ffmpeg-static/ffmpeg

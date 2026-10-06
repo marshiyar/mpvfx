@@ -129,7 +129,7 @@ jobs:
           if [[ "$RUNNER_OS" == Windows ]]; then
             npm --prefix "$MPVFX_BASELINE_ROOT/studio" run prepare:electron-windows-headers
           fi
-          npm --prefix "$MPVFX_BASELINE_ROOT/studio" run "${{ matrix.script }}"
+          npm --prefix "$MPVFX_BASELINE_ROOT/studio" run desktop:package
 
       - name: Compare packaged editor with v0.0.7
         shell: bash

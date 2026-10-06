@@ -111,6 +111,10 @@ jobs:
       - name: Build installer
         run: npm --prefix studio run ${{ matrix.script }}
 
+      - name: Install pinned test browser
+        if: runner.os == 'Linux'
+        run: studio/node_modules/.bin/puppeteer browsers install chrome
+
       - name: Exercise editor and runtime behavior
         if: runner.os == 'Linux'
         env:
@@ -128,7 +132,7 @@ jobs:
           if [[ "$RUNNER_OS" == Windows ]]; then
             npm --prefix "$MPVFX_BASELINE_ROOT/studio" run prepare:electron-windows-headers
           fi
-          npm --prefix "$MPVFX_BASELINE_ROOT/studio" run "${{ matrix.script }}"
+          npm --prefix "$MPVFX_BASELINE_ROOT/studio" run desktop:package
 
       - name: Compare packaged editor with v0.0.7
         shell: bash
