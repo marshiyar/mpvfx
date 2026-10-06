@@ -10,6 +10,8 @@ __pycache__/
 # Local development tools and workspace state
 /.agents/*
 !/.agents/skills/
+/.agents/skills/*
+!/.agents/skills/mpvfx-engineering/
 **/AGENTS.md
 editor-reliability-plugin/
 *.editor-reliability-plugin/
