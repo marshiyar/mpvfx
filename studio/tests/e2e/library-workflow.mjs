@@ -253,9 +253,11 @@ try {
   await dialogs();
   await queueSave(lib);
   await click("New library");
+  // The catalog lists a pending project before its native sidecar is written.
+  // Do not navigate to it until library initialization has finished.
   const library = await until(async () => {
     const l = (await views())[0];
-    return l?.projects.length === 1 ? l : null;
+    return l?.projects.length === 1 && l.projects[0].state === "ready" ? l : null;
   }, "Library creation failed");
   const first = library.projects[0].id;
   firstProjectId = first;
@@ -314,7 +316,7 @@ try {
   await click("Create");
   const second = await until(async () => {
     const l = (await views())[0];
-    return l.projects.find((p) => p.name === "Short Version")?.id;
+    return l.projects.find((p) => p.name === "Short Version" && p.state === "ready")?.id;
   }, "Second project missing");
   await page.evaluate(id => { location.hash = `#project/${encodeURIComponent(id)}`; }, second);
   await page.waitForFunction(
