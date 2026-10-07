@@ -7,8 +7,8 @@ from urllib.parse import urlparse, parse_qs
 
 # --- DEVELOPER APP CONFIGURATION ---
 # Replace these two with your App ID and App Secret from developers.facebook.com
-FB_APP_ID = "1801150857584943" # Test one for ours is 122306855234245757 dont plublish
-FB_APP_SECRET = "6ba57a5163742dab2df9513c38afedb7" #Delete and  place YOUR APP SECRET DONT LEAbE CURRENT number
+FB_APP_ID = "YOUR OWN" # Test one for ours is  dont plublish
+FB_APP_SECRET = "YOUR OWN" #Delete and  place YOUR APP SECRET DONT LEAbE CURRENT number
 
 REDIRECT_URI = "http://localhost:8080/"
 TOKEN_FILE = "facebook_token.json"
