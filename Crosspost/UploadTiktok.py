@@ -9,8 +9,8 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import requests
 
 # --- DEVELOPER APP CONFIGURATION ---
-TIKTOK_CLIENT_KEY = "sbaw42rujv5s8p47cz" #replace with your own TikTok Client Key from developers.tiktokglobalshop.com
-TIKTOK_CLIENT_SECRET = "UgkRJqoCWOPPThdP5HYblz3s091f6Sqo" #replace with your own TikTok Client Secret from developers.tiktokglobalshop.com
+TIKTOK_CLIENT_KEY = "Your Own" #replace with your own TikTok Client Key from developers.tiktokglobalshop.com
+TIKTOK_CLIENT_SECRET = "Your Own" #replace with your own TikTok Client Secret from developers.tiktokglobalshop.com
 REDIRECT_URI = "http://localhost:8080/callback/"
 TOKEN_FILE = "tiktok_token.json"
 
