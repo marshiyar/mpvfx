@@ -11,6 +11,7 @@ export async function publishFileExclusive(source: string, destination: string):
     // Callers hold the project/library write queue until publication finishes.
     await copyFile(source, destination, constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE);
   }
-  const file = await open(destination, "r");
+  // Windows FlushFileBuffers requires write access on the file handle.
+  const file = await open(destination, "r+");
   try { await file.sync(); } finally { await file.close(); }
 }

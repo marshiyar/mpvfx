@@ -1,11 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { matchesGlob, resolve } from "node:path";
 import { createRequire } from "node:module";
 
 const studioRoot = fileURLToPath(new URL("../studio/", import.meta.url));
 const require = createRequire(new URL("../studio/package.json", import.meta.url));
-const { parseCLI } = await import(require.resolve("vitest/node"));
+const { parseCLI } = await import(pathToFileURL(require.resolve("vitest/node")).href);
 
 const runtimeTest = "desktop/tests/runtime.integration.test.ts";
 
