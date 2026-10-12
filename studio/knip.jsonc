@@ -1,0 +1,72 @@
+{
+  "$schema": "https://unpkg.com/knip@6.37.0/schema.json",
+  // Dead-code gate: `npm run check:knip` fails on unused files and
+  // dependencies (the junk that ships: files rot and get wired in, unused
+  // dependencies are packed into the app archive). Unused exports/types are
+  // reported by plain `npm run knip` for incremental cleanup but do not gate,
+  // since cross-process boundaries (preload bridge, HTTP routes) need
+  // human review before removal.
+  // Only hand-listed entries live here. Everything this hint set calls
+  // redundant is already provided by the plugin configs below (vite, vitest,
+  // tsup, postcss, tailwind) or by Knip's defaults, so adding a pattern here
+  // that a plugin provides will show up as a configuration hint.
+  "entry": [
+    "desktop/main.ts",
+    "desktop/preload.ts",
+    "src/features/project/nativeExportFrameRuntime.entry.ts",
+    ".configurations/forge.config.cjs",
+    ".puppeteerrc.cjs",
+    "tests/e2e/*.mjs"
+  ],
+  "project": [
+    "desktop/**/*.ts",
+    "runtime/**/*.ts",
+    "shared/**/*.ts",
+    "src/**/*.{ts,tsx}",
+    "src/**/*.css",
+    "native/**/*.mjs",
+    ".configurations/**/*.{ts,cjs,js}",
+    "tests/**/*.mjs"
+  ],
+  "vite": {
+    "config": [".configurations/vite.config.ts"]
+  },
+  "vitest": {
+    "config": [".configurations/vitest.config.ts", ".configurations/vitest.runtime.config.ts"]
+  },
+  "tsup": {
+    "config": [".configurations/tsup.desktop.config.ts"]
+  },
+  "postcss": {
+    "config": [".configurations/postcss.config.js"]
+  },
+  "tailwind": {
+    "config": [".configurations/tailwind.config.js"]
+  },
+  // Dependencies invisible to static analysis. Each entry names its real consumer.
+  // Do not add a package here without a comment; prefer deleting unused code.
+  "ignoreDependencies": [
+    // Consumed by scripts/build/build-native-export-frame-runtime.mjs via
+    // createRequire (outside Knip's studio/ scope); binary presence is also
+    // asserted by scripts/verification_checks/verify-packaged-runtime-dependencies.cjs.
+    "esbuild",
+    // Never imported: its postinstall populates .puppeteer-cache per
+    // .puppeteerrc.cjs, and code connects via puppeteer-core instead.
+    "puppeteer",
+    // Loaded by name string from .configurations/forge.config.cjs and
+    // resolved by the Electron Forge CLI at `desktop:make` time.
+    "@electron-forge/maker-deb",
+    "@electron-forge/maker-dmg",
+    "@electron-forge/maker-rpm",
+    "@electron-forge/maker-squirrel",
+    // Imported by native/*/build.mjs; provided transitively by electron.
+    "@electron/node-gyp"
+  ],
+  // Binaries invisible to static analysis.
+  "ignoreBinaries": [
+    // System toolchain used by native/*/build.mjs, not an npm package.
+    "cmake",
+    // Used by the report:sdk-cutover script; provided transitively by vitest.
+    "vite-node"
+  ]
+}

@@ -35,6 +35,21 @@ describe("GitHub Actions readiness", () => {
     expect(workflow).not.toMatch(/npm publish|electron-forge publish|gh release|upload-artifact/i);
   });
 
+  it("keeps dead-code gates in CI and the publication hook", () => {
+    const tests = readRepositoryFile(".github/workflows/tests.yml");
+    expect(tests).toContain("npm --prefix studio run check:architecture");
+    expect(tests).toContain("npm --prefix studio run check:knip");
+    expect(tests).toContain("desktop/tests/deadCodeGates.test.ts");
+
+    const hook = readRepositoryFile(".githooks/check-publication");
+    expect(hook).toContain("scripts/verification_checks/check-release-readiness.mjs");
+    expect(hook).toContain("scripts/verification_checks/third-party-notices.mjs");
+    expect(hook).not.toContain("scripts/check-release-readiness.mjs");
+    expect(hook).not.toContain("generate-third-party-notices");
+    expect(hook).toContain("check:architecture");
+    expect(hook).toContain("check:knip");
+  });
+
   it("builds Apple Silicon, Windows, and Linux installers without the retired Intel macOS target", () => {
     const workflow = readRepositoryFile(".github/workflows/desktop.yml");
 

@@ -121,6 +121,8 @@ studio/data/cache/
 studio/data/renders/
 studio/scripts/
 **/knip.jsonc
+# The dead-code gate config is a reviewed source file, not local scratch.
+!studio/knip.jsonc
 **/ffmpeg-runtime-manifest.json
 *.puppeteer-cache
 
