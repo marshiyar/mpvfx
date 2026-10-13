@@ -110,7 +110,7 @@ jobs:
         run: npm --prefix studio run ${{ matrix.script }}
 
       - name: Upload installer
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.artifact }}
           path: studio/out/make/**
@@ -134,7 +134,7 @@ jobs:
           echo 'ba106c32a04effc26c7b585da63c503bf67cbd2a40a7a1b3e0d076693a12add9  release-source/ffmpeg-corresponding-source-n8.1.2-1.tar.gz' | sha256sum --check
 
       - name: Upload source archive
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ffmpeg-corresponding-source
           path: release-source/ffmpeg-corresponding-source-n8.1.2-1.tar.gz
